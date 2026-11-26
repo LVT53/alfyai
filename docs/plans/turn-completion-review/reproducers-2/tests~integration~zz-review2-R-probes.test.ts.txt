@@ -1,0 +1,355 @@
+import { appendFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { MockLanguageModelV3 } from "ai/test";
+import { describe, expect, it } from "vitest";
+import { runNormalChatCompletion } from "$lib/server/services/normal-chat-model/completion";
+import {
+	compactNormalChatOutputEvents,
+	type NormalChatOutputEvent,
+	projectNormalChatOutput,
+} from "$lib/shared/normal-chat-output";
+
+// Reviewer 2 (R) probes. Independent of the fixer's tests.
+const OUT =
+	"/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-YLpADY/4ed27dd1-a849-4a5a-9d21-f1d9c1655ae8/scratchpad/out/probes.txt";
+const log = (line: unknown) => appendFileSync(OUT, `${JSON.stringify(line)}\n`);
+
+const usage = {
+	inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+	outputTokens: { total: 1, text: 1, reasoning: 0 },
+};
+const provider = {
+	id: "native",
+	name: "native",
+	displayName: "Native",
+	baseUrl: "https://native.invalid",
+	modelName: "native",
+	apiKey: "synthetic",
+	maxOutputTokens: 1000,
+	maxModelContext: 32000,
+};
+const segmentId = createHash("sha256")
+	.update(JSON.stringify(["user", "conversation", "stream"]))
+	.digest("hex");
+function dependencies(model: MockLanguageModelV3) {
+	return {
+		model,
+		maxModelContext: 32000,
+		providerOptions: undefined,
+		stopWhen: undefined,
+		metadata: (responseModelName: string) => ({
+			modelId: "native",
+			providerId: "native",
+			providerName: "native",
+			displayName: "Native",
+			requestedModelName: "native",
+			responseModelName,
+		}),
+		mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+	};
+}
+function streamOf(parts: LanguageModelV3StreamPart[]) {
+	return new ReadableStream<LanguageModelV3StreamPart>({
+		start(controller) {
+			for (const part of parts) controller.enqueue(part);
+			controller.close();
+		},
+	});
+}
+function policy(events: NormalChatOutputEvent[]) {
+	return {
+		turnId: segmentId,
+		segmentId,
+		deadlineAt: Date.now() + 300000,
+		totalTimeoutMs: 300000,
+		forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
+		onOutputEvent: (event: NormalChatOutputEvent) => events.push(event),
+	};
+}
+async function drain(run: ReturnType<typeof runNormalChatCompletion>) {
+	const yielded: Array<{ type: string; text?: string }> = [];
+	for (;;) {
+		const next = await run.next();
+		if (next.done) return { yielded, result: next.value };
+		yielded.push(next.value as never);
+	}
+}
+
+describe("R2 probe 1.1: stored bytes after compaction", () => {
+	for (const [reasoning, answer] of [
+		[0, 300],
+		[1200, 1957],
+		[2000, 4000],
+	] as const) {
+		it(`reasoning=${reasoning} answer=${answer}`, async () => {
+			const parts: LanguageModelV3StreamPart[] = [];
+			if (reasoning) {
+				parts.push({ type: "reasoning-start", id: "r0" });
+				for (let i = 0; i < reasoning; i++)
+					parts.push({ type: "reasoning-delta", id: "r0", delta: " word" });
+				parts.push({ type: "reasoning-end", id: "r0" });
+			}
+			parts.push({ type: "text-start", id: "t0" });
+			for (let i = 0; i < answer; i++)
+				parts.push({ type: "text-delta", id: "t0", delta: " word" });
+			parts.push({ type: "text-end", id: "t0" });
+			parts.push({
+				type: "finish",
+				usage,
+				finishReason: { unified: "stop", raw: "stop" },
+			});
+			const events: NormalChatOutputEvent[] = [];
+			const model = new MockLanguageModelV3({
+				doStream: async () => ({ stream: streamOf(parts) }),
+			});
+			const run = runNormalChatCompletion(
+				{
+					provider,
+					messages: [{ role: "user" as const, content: "synthetic" }],
+					completionPolicy: policy(events),
+				},
+				dependencies(model),
+				true,
+			);
+			const { result } = await drain(run);
+			const snapshot = (result as { continuation?: { events: NormalChatOutputEvent[]; segmentId: string } }).continuation;
+			if (!snapshot) throw new Error("no continuation");
+			const own = snapshot.events.filter((e) => e.segmentId === snapshot.segmentId);
+			const compacted = compactNormalChatOutputEvents(own);
+			const bytesSnapshot = Buffer.byteLength(JSON.stringify(own));
+			const bytesCompact = Buffer.byteLength(JSON.stringify(compacted));
+			const answerText = projectNormalChatOutput(compacted).answer;
+			log({
+				probe: "1.1",
+				reasoning,
+				answer,
+				liveCallbackEvents: events.length,
+				snapshotEvents: own.length,
+				snapshotBytes: bytesSnapshot,
+				compactEvents: compacted.length,
+				compactBytes: bytesCompact,
+				answerChars: answerText.length,
+			});
+			// Same projection after compaction as before it.
+			expect(projectNormalChatOutput(compacted).answer).toBe(
+				projectNormalChatOutput(own).answer,
+			);
+			expect(answerText.length).toBe(answer * 5);
+			expect(compacted.length).toBeLessThanOrEqual(12);
+			expect(bytesCompact).toBeLessThan((reasoning + answer) * 5 + 8000);
+		});
+	}
+});
+
+describe("R2 probe 2.1: ordinary answer text reaches the callback while the step is still open", () => {
+	it("gated stream: first delta visible before the provider finishes", async () => {
+		let controller!: ReadableStreamDefaultController<LanguageModelV3StreamPart>;
+		const stream = new ReadableStream<LanguageModelV3StreamPart>({
+			start(c) {
+				controller = c;
+			},
+		});
+		const events: NormalChatOutputEvent[] = [];
+		const model = new MockLanguageModelV3({
+			doStream: async () => ({ stream }),
+		});
+		const run = runNormalChatCompletion(
+			{
+				provider,
+				messages: [{ role: "user" as const, content: "synthetic" }],
+				completionPolicy: policy(events),
+			},
+			dependencies(model),
+			true,
+		);
+		const pump = drain(run);
+		controller.enqueue({ type: "stream-start", warnings: [] } as never);
+		controller.enqueue({ type: "text-start", id: "t0" });
+		controller.enqueue({ type: "text-delta", id: "t0", delta: "Hello " });
+		const waitFor = async (predicate: () => boolean, ms: number) => {
+			const end = Date.now() + ms;
+			while (Date.now() < end) {
+				if (predicate()) return true;
+				await new Promise((r) => setTimeout(r, 10));
+			}
+			return predicate();
+		};
+		const sawFirst = await waitFor(
+			() =>
+				events.some(
+					(e) => e.type === "block_delta" && e.text.includes("Hello"),
+				),
+			1500,
+		);
+		const firstRoles = events
+			.filter((e) => e.type === "block_start")
+			.map((e) => (e as { role?: string }).role);
+		controller.enqueue({ type: "text-delta", id: "t0", delta: "world" });
+		const sawSecond = await waitFor(
+			() =>
+				events.some(
+					(e) => e.type === "block_delta" && e.text.includes("world"),
+				),
+			1500,
+		);
+		const settledBeforeFinish = events.some((e) => e.type === "step_settled");
+		controller.enqueue({ type: "text-end", id: "t0" });
+		controller.enqueue({
+			type: "finish",
+			usage,
+			finishReason: { unified: "stop", raw: "stop" },
+		});
+		controller.close();
+		const { result, yielded } = await pump;
+		const projection = projectNormalChatOutput(events);
+		log({
+			probe: "2.1-gated",
+			sawFirstBeforeFinish: sawFirst,
+			sawSecondBeforeFinish: sawSecond,
+			settledBeforeFinish,
+			blockStartRoles: firstRoles,
+			finalAnswer: projection.answer,
+			outcome: (result as { completion?: { outcome?: string } }).completion?.outcome,
+			legacyTextDeltaYields: yielded.filter((y) => y.type === "text_delta").length,
+		});
+		expect(sawFirst).toBe(true);
+		expect(sawSecond).toBe(true);
+		expect(settledBeforeFinish).toBe(false);
+		expect(projection.answer).toBe("Hello world");
+		expect((result as { completion?: { outcome?: string } }).completion?.outcome).toBe("answered");
+	});
+
+	it("gated stream: text then a tool call withdraws the preview from the answer", async () => {
+		let controller!: ReadableStreamDefaultController<LanguageModelV3StreamPart>;
+		const stream = new ReadableStream<LanguageModelV3StreamPart>({
+			start(c) {
+				controller = c;
+			},
+		});
+		const events: NormalChatOutputEvent[] = [];
+		let call = 0;
+		const model = new MockLanguageModelV3({
+			doStream: async () => {
+				call++;
+				if (call === 1) return { stream };
+				return {
+					stream: streamOf([
+						{ type: "text-start", id: "t1" },
+						{ type: "text-delta", id: "t1", delta: "Final answer." },
+						{ type: "text-end", id: "t1" },
+						{
+							type: "finish",
+							usage,
+							finishReason: { unified: "stop", raw: "stop" },
+						},
+					]),
+				};
+			},
+		});
+		const { tool } = await import("ai");
+		const { z } = await import("zod");
+		const run = runNormalChatCompletion(
+			{
+				provider,
+				messages: [{ role: "user" as const, content: "synthetic" }],
+				completionPolicy: policy(events),
+				tools: {
+					lookup: tool({
+						description: "lookup",
+						inputSchema: z.object({}),
+						execute: async () => "evidence",
+					}),
+				},
+			} as never,
+			dependencies(model),
+			true,
+		);
+		const pump = drain(run);
+		controller.enqueue({ type: "text-start", id: "t0" });
+		controller.enqueue({ type: "text-delta", id: "t0", delta: "Let me check." });
+		const waitFor = async (predicate: () => boolean, ms: number) => {
+			const end = Date.now() + ms;
+			while (Date.now() < end) {
+				if (predicate()) return true;
+				await new Promise((r) => setTimeout(r, 10));
+			}
+			return predicate();
+		};
+		const sawPreview = await waitFor(
+			() =>
+				events.some(
+					(e) => e.type === "block_delta" && e.text.includes("Let me check"),
+				),
+			1500,
+		);
+		const previewOnlyBeforeTool = projectNormalChatOutput(events).answer;
+		controller.enqueue({ type: "text-end", id: "t0" });
+		controller.enqueue({
+			type: "tool-call",
+			toolCallId: "c1",
+			toolName: "lookup",
+			input: "{}",
+		});
+		controller.enqueue({
+			type: "finish",
+			usage,
+			finishReason: { unified: "tool-calls", raw: "tool_calls" },
+		});
+		controller.close();
+		const { result } = await pump;
+		const projection = projectNormalChatOutput(events);
+		log({
+			probe: "2.1-tool-withdraw",
+			sawPreview,
+			answerWhilePreviewing: previewOnlyBeforeTool,
+			finalAnswer: projection.answer,
+			outcome: (result as { completion?: { outcome?: string } }).completion?.outcome,
+			resultText: (result as { text?: string }).text,
+		});
+		expect(sawPreview).toBe(true);
+		expect(projection.answer).toBe("Final answer.");
+		expect((result as { text?: string }).text).toBe("Final answer.");
+	});
+});
+
+describe("R2 probe 1.2: answers that open with JSON", () => {
+	for (const [label, body] of [
+		["language/text keys", '```json\n{"language": "hu", "text": "Szia"}\n```\nMagyarázat: ez egy minta.'],
+		["name/arguments keys", '```json\n{"name": "web_search", "arguments": {"query": "x"}}\n```\nThat is the shape.'],
+		["bare json", '{"filename": "a.md", "content": "hi", "mode": "x"}'],
+	] as const) {
+		it(`keeps ${label}`, async () => {
+			const events: NormalChatOutputEvent[] = [];
+			const model = new MockLanguageModelV3({
+				doStream: async () => ({
+					stream: streamOf([
+						{ type: "text-start", id: "t0" },
+						{ type: "text-delta", id: "t0", delta: body },
+						{ type: "text-end", id: "t0" },
+						{
+							type: "finish",
+							usage,
+							finishReason: { unified: "stop", raw: "stop" },
+						},
+					]),
+				}),
+			});
+			const run = runNormalChatCompletion(
+				{
+					provider,
+					messages: [{ role: "user" as const, content: "synthetic" }],
+					completionPolicy: policy(events),
+				},
+				dependencies(model),
+				true,
+			);
+			const { result } = await drain(run);
+			const r = result as { text?: string; completion?: { outcome?: string; closingAttempted?: boolean } };
+			log({ probe: "1.2", label, outcome: r.completion?.outcome, closing: r.completion?.closingAttempted, textEqualsBody: r.text === body, projected: projectNormalChatOutput(events).answer === body });
+			expect(r.completion?.outcome).toBe("answered");
+			expect(r.text).toBe(body);
+			expect(projectNormalChatOutput(events).answer).toBe(body);
+		});
+	}
+});

@@ -2160,6 +2160,10 @@ export async function prepareOutboundChatContext(
 				modelConfig: { ...given.modelConfig, maxTokens: fitted.maxTokens },
 			}
 		: given;
+	// The clock is read once for the turn. The guidance and the memory
+	// section's ages both read it, so a minute that turns between the first
+	// build and a rebuild after automatic compression cannot make them differ.
+	const turnNow = new Date();
 	const constructedContextParams: ConstructedContextTurnParams | null = params
 		.user?.id
 		? {
@@ -2176,16 +2180,14 @@ export async function prepareOutboundChatContext(
 				pictureRefs: params.pictureRefs,
 				imageMarks: params.imageMarks,
 				historyBeforeMessageId: params.historyBeforeMessageId,
+				now: turnNow,
 			}
 		: null;
 	// The guidance rides the user turn (see appendTurnGuidance): automatic
 	// compression measures it and the prepared context returns the same text.
 	// Only its image lines depend on the constructed context (which pictures
 	// were sent and which the limit left out), and a rebuild after compression
-	// keeps those, so both calls build the same text. The clock is read once for
-	// the turn, so a minute that turns between the two builds cannot make them
-	// differ either.
-	const turnNow = new Date();
+	// keeps those, so both calls build the same text.
 	const buildGuidanceFor = (turnImages: TurnImages) =>
 		buildTurnGuidance({
 			now: turnNow,

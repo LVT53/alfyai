@@ -1,0 +1,79 @@
+// @vitest-environment node
+// Reviewer E: read-only inspection of the SQL the real readers prepare, and the
+// SQLite query plan for each optional-accounting statement, compared with the
+// pre-change (production 40f2d74fc) core query shape.
+import { writeFileSync } from "node:fs";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import * as schema from "$lib/server/db/schema";
+import { accountingReadFixture } from "./accounting-read-fixture";
+
+const OUT =
+	"/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-YLpADY/4ed27dd1-a849-4a5a-9d21-f1d9c1655ae8/scratchpad/plan-out.txt";
+let f: Awaited<ReturnType<typeof accountingReadFixture>>;
+beforeEach(async () => {
+	f = await accountingReadFixture();
+	await f.seed();
+});
+afterEach(() => f?.close());
+
+function plan(sql: string, params: unknown[]) {
+	const placeholders = (sql.match(/\?/g) ?? []).length;
+	const values = Array.from(
+		{ length: placeholders },
+		(_, i) => params[i] ?? `p${i}`,
+	);
+	return (
+		f.sqlite.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...values) as {
+			detail: string;
+		}[]
+	).map((row) => `   PLAN: ${row.detail}`);
+}
+
+it("prints query plans: new enrichment vs the pre-change joined core query", async () => {
+	const out: string[] = [];
+	// Pre-change core query shape (production 40f2d74fc messageWindowBaseQuery).
+	const old = f.db
+		.select({
+			message: schema.messages,
+			model: schema.usageEvents.modelId,
+			legacyModel: schema.messageAnalytics.model,
+			generationTimeMs: schema.usageEvents.generationTimeMs,
+			legacyGenerationTimeMs: schema.messageAnalytics.generationTimeMs,
+		})
+		.from(schema.messages)
+		.leftJoin(
+			schema.usageEvents,
+			eq(schema.messages.id, schema.usageEvents.messageId),
+		)
+		.leftJoin(
+			schema.messageAnalytics,
+			eq(schema.messages.id, schema.messageAnalytics.messageId),
+		)
+		.where(eq(schema.messages.conversationId, "c"))
+		.toSQL();
+	out.push(`OLD CORE SQL: ${old.sql}`);
+	out.push(...plan(old.sql, old.params));
+
+	for (let n = 0; n < 40; n++) {
+		f.message(`bulk-${n}`);
+		f.legacy(`bulk-${n}`);
+	}
+	const spy = f.sqlite.prepare as unknown as { mock: { calls: [string][] } };
+	const before = spy.mock.calls.length;
+	await f.readers.listMessages("c");
+	const sqls = spy.mock.calls.slice(before).map(([s]) => String(s));
+	const interesting = sqls.filter(
+		(s) =>
+			/^select\b/i.test(s) &&
+			/normal_chat_turns|usage_events|message_analytics|memory_incognito/.test(
+				s,
+			),
+	);
+	for (const sql of interesting) {
+		out.push(`NEW SQL: ${sql.replace(/\s+/g, " ").slice(0, 400)}...`);
+		out.push(...plan(sql, []));
+	}
+	writeFileSync(OUT, out.join("\n"));
+	expect(interesting.length).toBeGreaterThan(0);
+});

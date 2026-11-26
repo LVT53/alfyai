@@ -1,0 +1,134 @@
+{
+	"dryRun": {
+		"outcome": "dry_run",
+		"totals": {
+			"accounts": 3,
+			"skipped": {
+				"excluded": 1
+			},
+			"banks": 3,
+			"facts": 70,
+			"alreadyLabelled": 0,
+			"toLabel": 70,
+			"estimatedCalls": 5,
+			"calls": 0,
+			"labelled": 0,
+			"verified": 0,
+			"failed": 0
+		}
+	},
+	"run": {
+		"outcome": "done",
+		"totals": {
+			"accounts": 3,
+			"skipped": {
+				"excluded": 1
+			},
+			"banks": 3,
+			"facts": 70,
+			"alreadyLabelled": 0,
+			"toLabel": 70,
+			"estimatedCalls": 5,
+			"calls": 5,
+			"labelled": 70,
+			"verified": 2,
+			"failed": 0
+		},
+		"accounts": [
+			{
+				"outcome": "verified",
+				"banks": 2,
+				"configOneBanks": 1,
+				"facts": 40,
+				"labelled": 40,
+				"byKind": {
+					"lasting": 16,
+					"ongoing": 12,
+					"temporary": 12
+				},
+				"bySubject": {
+					"goals_decisions": 2,
+					"people": 2,
+					"facts_figures": 2,
+					"plans_status": 4,
+					"health": 8,
+					"work_study": 6,
+					"home_family": 10,
+					"about_you": 2,
+					"projects": 2,
+					"interests": 2
+				},
+				"unlabelled": {},
+				"verification": {
+					"factsAccounted": true,
+					"publishedRowsUnchanged": true
+				}
+			},
+			{
+				"outcome": "skipped",
+				"skipped": "excluded",
+				"banks": 0,
+				"configOneBanks": 0,
+				"facts": 0,
+				"labelled": 0,
+				"byKind": {},
+				"bySubject": {},
+				"unlabelled": {}
+			},
+			{
+				"outcome": "verified",
+				"banks": 1,
+				"configOneBanks": 0,
+				"facts": 30,
+				"labelled": 30,
+				"byKind": {
+					"temporary": 10,
+					"lasting": 11,
+					"ongoing": 9
+				},
+				"bySubject": {
+					"health": 5,
+					"work_study": 10,
+					"home_family": 5,
+					"interests": 4,
+					"other": 2,
+					"projects": 4
+				},
+				"unlabelled": {},
+				"verification": {
+					"factsAccounted": true,
+					"publishedRowsUnchanged": true
+				}
+			}
+		],
+		"seconds": 9,
+		"modelCalls": 5,
+		"maxInFlight": 2
+	},
+	"everyOtherTableUnchanged": true,
+	"tester": {
+		"read": false,
+		"labelsUnchanged": true,
+		"verified": false
+	},
+	"verified": {
+		"a": true,
+		"b": true
+	},
+	"resumed": {
+		"outcome": "done",
+		"skipped": {
+			"already_verified": 2,
+			"excluded": 1
+		},
+		"modelCalls": 0,
+		"labelled": 0
+	},
+	"accuracy": {
+		"labelled": 70,
+		"kindRight": 69,
+		"subjectRight": 61,
+		"lastingTotal": 26,
+		"lastingMislabelled": 0
+	}
+}

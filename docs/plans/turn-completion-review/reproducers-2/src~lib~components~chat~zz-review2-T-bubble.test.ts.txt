@@ -1,0 +1,108 @@
+import { cleanup, render, screen, waitFor } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { applyNormalChatOutputView } from "$lib/client/normal-chat-output-view";
+import type { ChatMessage } from "$lib/server/services/messages-types";
+import { createNormalChatOutputAccumulator } from "$lib/shared/normal-chat-output";
+import MessageBubble from "./MessageBubble.svelte";
+
+vi.mock("$lib/client/composer-command-analytics", () => ({
+	recordAnswerNowClicked: vi.fn(),
+	recordFollowUpClicked: vi.fn(),
+}));
+
+afterEach(() => cleanup());
+
+const scope = {
+	version: 1,
+	turnId: "t",
+	segmentId: "s",
+	attemptId: "a",
+	stepId: "a:0",
+	phase: "working",
+} as const;
+
+function provisional(text: string) {
+	const acc = createNormalChatOutputAccumulator();
+	acc.apply({
+		...scope,
+		sequence: 1,
+		type: "block_start",
+		blockId: "b",
+		nativeId: "b",
+		kind: "text",
+		role: "provisional",
+	});
+	acc.apply({ ...scope, sequence: 2, type: "block_delta", blockId: "b", text });
+	return acc;
+}
+
+describe("review 2 (T): live preview display", () => {
+	it("shows the stale pre-disconnect preview as the answer while only polling", async () => {
+		const acc = provisional("Let me search the web for that.");
+		const [row] = applyNormalChatOutputView(
+			[
+				{
+					id: "p",
+					role: "assistant",
+					timestamp: 1,
+					content: "",
+					isStreaming: true,
+					runtimePhase: "polling",
+				} as ChatMessage,
+			],
+			"p",
+			acc.getProjection(),
+		);
+		render(MessageBubble, { message: row });
+		await waitFor(() =>
+			expect(
+				document.querySelector(".prose-container")?.textContent ?? "",
+			).toContain("Let me search the web for that."),
+		);
+		// Requirement: a step that calls a tool withdraws its text; while the
+		// browser only polls it cannot know, so the stale preview must not stand
+		// in the answer area. This assertion documents what is shown.
+		expect(
+			document.querySelector(".prose-container")?.textContent ?? "",
+		).not.toContain("Let me search the web for that.");
+	});
+
+	it("a plain (non-reasoning) streamed answer summons a thinking header that vanishes at commit", async () => {
+		const acc = provisional("Paris is the capital of France.");
+		const [row] = applyNormalChatOutputView(
+			[
+				{
+					id: "q",
+					role: "assistant",
+					timestamp: 1,
+					content: "",
+					isStreaming: true,
+				} as ChatMessage,
+			],
+			"q",
+			acc.getProjection(),
+		);
+		const { rerender } = render(MessageBubble, { message: row });
+		await waitFor(() =>
+			expect(
+				document.querySelector(".prose-container")?.textContent ?? "",
+			).toContain("Paris is the capital of France."),
+		);
+		const liveHeader = Boolean(document.querySelector(".thinking-block"));
+		acc.apply({
+			...scope,
+			sequence: 3,
+			type: "step_settled",
+			role: "answer",
+			finishReason: "stop",
+		});
+		const [committed] = applyNormalChatOutputView([row], "q", acc.getProjection());
+		await rerender({ message: committed });
+		const committedHeader = Boolean(document.querySelector(".thinking-block"));
+		process.stdout.write(
+			`header ${JSON.stringify({ liveHeader, committedHeader, liveHeaderText: liveHeader ? "present" : "absent" })}\n`,
+		);
+		// Production shows no thinking surface for an answer with no reasoning.
+		expect(liveHeader).toBe(committedHeader);
+	});
+});

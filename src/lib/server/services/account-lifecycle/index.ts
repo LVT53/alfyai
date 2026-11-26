@@ -28,6 +28,7 @@ import {
 import { quiesceUserMemoryMaintenance } from "../memory-maintenance";
 import { prepareNativeMemoryErasure } from "../memory-profile/delivery-job";
 import { clearMessageEvidenceForUser } from "../messages";
+import { compactSearchIndex } from "../workspace-search/search-index";
 import {
 	explicitErasureTables,
 	tablesForResetScope,
@@ -143,6 +144,8 @@ export async function clearMemoryAndKnowledgeForUser(
 		clearMessageEvidenceForUser(userId, tx);
 		finishReset(tx, userId, token);
 	});
+	// The deleted knowledge's words leave the search index's pages too.
+	if (deletedArtifactIds.length > 0) compactSearchIndex();
 	return deletedArtifactIds;
 }
 
@@ -153,7 +156,10 @@ export async function clearMemoryAndKnowledgeForUser(
  */
 export async function purgeUserData(userId: string): Promise<void> {
 	const token = await prepareNativeMemoryErasure(userId, "erasing_workspace");
-	if (token) await purgeOwnedWorkspace(userId, token, false);
+	if (!token) return;
+	await purgeOwnedWorkspace(userId, token, false);
+	// The cleared chats' and files' words leave the search index's pages too.
+	compactSearchIndex();
 }
 
 async function purgeOwnedWorkspace(
@@ -269,6 +275,9 @@ export async function eraseUserAccountData(
 	if (!ownsErasure(userId, token)) return;
 	await detachSharedContentAuthorship(userId, token);
 	if (!deleteUserRowAndExplicitAnalytics(userId, token, options)) return;
+	// The erased person's words leave the search index's pages, not only its
+	// answers (a deleted row's entries stay in the pages until they are merged).
+	compactSearchIndex();
 
 	await rm(join(process.cwd(), "data", "avatars", `${userId}.webp`), {
 		force: true,

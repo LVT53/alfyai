@@ -1,0 +1,142 @@
+import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { MockLanguageModelV3 } from "ai/test";
+import { expect, it } from "vitest";
+import { runNormalChatCompletion } from "$lib/server/services/normal-chat-model/completion";
+import {
+	createNormalChatOutputAccumulator,
+	type NormalChatOutputEvent,
+} from "$lib/shared/normal-chat-output";
+
+// Review 2 (T): what the browser's live answer area holds between the working
+// step's end and the natural answer settlement, and how far apart they are.
+
+const usage = {
+	inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+	outputTokens: { total: 1, text: 1, reasoning: 0 },
+};
+const provider = {
+	id: "native",
+	name: "native",
+	displayName: "Native",
+	baseUrl: "https://native.invalid",
+	modelName: "native",
+	apiKey: "synthetic",
+	maxOutputTokens: 1000,
+	maxModelContext: 32000,
+};
+
+it("an ordinary answer leaves the live answer area empty between step end and natural settlement", async () => {
+	// A provider that sends its last delta, then its finish chunk 30 ms later
+	// (a normal network gap between the final token and the stop chunk).
+	const parts: Array<[number, LanguageModelV3StreamPart]> = [
+		[0, { type: "text-start", id: "t" }],
+		[0, { type: "text-delta", id: "t", delta: "Hello " }],
+		[10, { type: "text-delta", id: "t", delta: "world." }],
+		[0, { type: "text-end", id: "t" }],
+		[
+			30,
+			{ type: "finish", usage, finishReason: { unified: "stop", raw: "stop" } },
+		],
+	];
+	const model = new MockLanguageModelV3({
+		doStream: async () => ({
+			stream: new ReadableStream<LanguageModelV3StreamPart>({
+				async start(controller) {
+					for (const [delay, part] of parts) {
+						if (delay) await new Promise((r) => setTimeout(r, delay));
+						controller.enqueue(part);
+					}
+					controller.close();
+				},
+			}),
+		}),
+	});
+	let macrotasks = 0;
+	let ticking = true;
+	const tick = () => {
+		macrotasks++;
+		if (ticking) setImmediate(tick);
+	};
+	setImmediate(tick);
+	const acc = createNormalChatOutputAccumulator();
+	const timeline: Array<{
+		type: string;
+		role?: string;
+		at: number;
+		macrotask: number;
+		display: string;
+	}> = [];
+	const started = performance.now();
+	// The MessageBubble.displayContent rule (MessageBubble.svelte:413-430) over
+	// the live accumulator, before completion arrives.
+	const display = () => {
+		const view = acc.getProjection();
+		if (view.completion) return `[completed] ${view.answer}`;
+		const current = view.blocks.at(-1);
+		const provisional = view.blocks
+			.filter(
+				(b) =>
+					b.kind === "text" &&
+					b.role === "provisional" &&
+					b.stepId === current?.stepId &&
+					b.attemptId === current?.attemptId,
+			)
+			.map((b) => b.text)
+			.join("");
+		return view.answer + provisional;
+	};
+	const gen = runNormalChatCompletion(
+		{
+			provider,
+			messages: [{ role: "user", content: "go" }],
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 300000,
+				totalTimeoutMs: 300000,
+				onOutputEvent: (e: NormalChatOutputEvent) => {
+					acc.apply(e);
+					timeline.push({
+						type: e.type,
+						role: "role" in e ? String(e.role) : undefined,
+						at: Math.round(performance.now() - started),
+						macrotask: macrotasks,
+						display: display(),
+					});
+				},
+				forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
+			},
+		} as never,
+		{
+			model,
+			maxModelContext: 32000,
+			providerOptions: undefined,
+			stopWhen: undefined,
+			metadata: (responseModelName: string) => ({
+				modelId: "native",
+				providerId: "native",
+				providerName: "native",
+				displayName: "Native",
+				requestedModelName: "native",
+				responseModelName,
+			}),
+			mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+		},
+		true,
+	);
+	for (;;) if ((await gen.next()).done) break;
+	ticking = false;
+	process.stdout.write(`settle-gap ${JSON.stringify(timeline)}\n`);
+	const activity = timeline.findIndex(
+		(e) => e.type === "step_settled" && e.role === "activity",
+	);
+	const answer = timeline.findIndex(
+		(e) => e.type === "step_settled" && e.role === "answer",
+	);
+	expect(activity).toBeGreaterThan(-1);
+	expect(answer).toBeGreaterThan(activity);
+	// Requirement (2.1): the text streamed so far stays in the answer area until
+	// it is committed or a tool withdraws it. No tool was called here.
+	for (const e of timeline.slice(activity, answer))
+		expect(e.display, `${e.type}@${e.at}ms`).toBe("Hello world.");
+});

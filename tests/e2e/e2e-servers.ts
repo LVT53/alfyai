@@ -174,11 +174,19 @@ function wipeUserData(dbPath: string): void {
 	const db = new Database(dbPath);
 	try {
 		db.pragma("foreign_keys = OFF");
-		const tables = db
-			.prepare(
-				"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-			)
-			.all() as { name: string }[];
+		// A virtual table (Workspace Search's full-text indexes) is emptied through
+		// itself; its shadow tables hold the index's own encoding and are never
+		// written directly, which would corrupt it.
+		const tables = (
+			db.prepare("PRAGMA main.table_list").all() as {
+				name: string;
+				type: string;
+			}[]
+		).filter(
+			(table) =>
+				(table.type === "table" || table.type === "virtual") &&
+				!table.name.startsWith("sqlite_"),
+		);
 		db.transaction(() => {
 			for (const { name } of tables) {
 				if (PRESERVED_TABLES.has(name)) continue;

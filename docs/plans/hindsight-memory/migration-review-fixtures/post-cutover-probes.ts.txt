@@ -20,7 +20,7 @@ const projectOnlyFact = "My project uses cobalt.";
 async function lineageJudgeNative() {
 	const transport = await import("./hindsight-client");
 	const cfg = await import("$lib/server/config-store");
-	const { NATIVE_BANK_CONFIG } = await import("./contracts");
+	const { nativeBankConfig } = await import("./contracts");
 	const curation = await import("./curation");
 	vi.spyOn(cfg, "getConfig").mockReturnValue({
 		...cfg.getConfig(), hindsightWorkerEnabled: true, hindsightConcurrency: 1,
@@ -38,7 +38,7 @@ async function lineageJudgeNative() {
 		banks.set(bank, facts);
 		const body = options?.body ? JSON.parse(String(options.body)) : {};
 		let data: unknown = {};
-		if (leaf === "config") data = { config: NATIVE_BANK_CONFIG };
+		if (leaf === "config") data = { config: nativeBankConfig("personal") };
 		else if (leaf === "operations")
 			data = id ? { status: "completed" } : { operations: [] };
 		else if (leaf === "consolidate") data = { operation_id: "consolidate" };

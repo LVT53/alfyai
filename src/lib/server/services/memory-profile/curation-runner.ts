@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -13,6 +13,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import type { JobRunContext, Tx } from "../jobs/types";
+import { memoryAdmissionFor } from "./admission";
 import { ensureConfiguredBank } from "./bank-configuration";
 import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
@@ -31,8 +32,11 @@ import {
 	type ActionIntentRecord,
 	parseActionIntent,
 	type ReplayCheck,
+	sourceEditChangedFacts,
+	sourceEditTakenFacts,
 } from "./curation-intent";
 import { readNativeCurationLineage } from "./curation-lineage";
+import { countedDeliveryAttempt } from "./delivery-policy";
 import {
 	type NativeSettlement,
 	runDependencyRepair,
@@ -47,6 +51,7 @@ import {
 	admittedNativeFacts,
 	assertCurationPublication,
 	curatedObservationChanges,
+	excludedNativeEvidence,
 	manualPublicationReceipts,
 	prepareNativeSnapshot,
 	publishedEditResult,
@@ -55,6 +60,7 @@ import {
 	readAcknowledgedFacts,
 	readPublishedMemory,
 	republishRenumberedNativeObservations,
+	withoutExcludedEvidence,
 } from "./publication";
 import {
 	acceptedCorrectionSources,
@@ -157,6 +163,18 @@ async function checkCandidate(
 	>,
 	model: CurationModel,
 ) {
+	// The checker judges exactly what publication would show: an item a
+	// refused Remove or a held source left out is not part of the candidate.
+	const { bank, memories } = db.transaction((tx) => {
+		const bank = actionFence(tx, ctx);
+		return {
+			bank,
+			memories: withoutExcludedEvidence(
+				candidate.memories,
+				excludedNativeEvidence(tx, bank, ctx.row.actionId ?? undefined),
+			),
+		};
+	});
 	const replays = candidate.replays ?? [];
 	const sourceIds = new Set([
 		...candidate.sourceIds,
@@ -169,14 +187,13 @@ async function checkCandidate(
 			),
 		).values(),
 	];
-	const proposedFacts = candidate.memories.filter(
+	const proposedFacts = memories.filter(
 		(m) => m.fact_type !== "observation" && sourceIds.has(m.document_id ?? ""),
 	);
 	const affected = new Set([
 		...originalFacts.map((f) => f.id),
 		...proposedFacts.map((f) => f.id),
 	]);
-	const bank = db.transaction((tx) => actionFence(tx, ctx));
 	const previousRows = bank.generation
 		? db
 				.select()
@@ -191,13 +208,13 @@ async function checkCandidate(
 		: [];
 	const previousById = new Map(previousRows.map((row) => [row.nativeId, row]));
 	const raw = new Map(
-		candidate.memories
+		memories
 			.filter((m) => m.fact_type !== "observation")
 			.map((m) => [m.id, m.text]),
 	);
-	const prepared = prepareNativeSnapshot(candidate.memories);
+	const prepared = prepareNativeSnapshot(memories);
 	const changedRows = new Set<string>();
-	const observations = candidate.memories.flatMap((row) => {
+	const observations = memories.flatMap((row) => {
 		if (row.fact_type !== "observation") return [];
 		const previous = previousById.get(row.id);
 		const ids = row.source_memory_ids ?? [];
@@ -218,7 +235,7 @@ async function checkCandidate(
 		return [{ id: row.id, text, sourceFactIds: ids }];
 	});
 	const liveIds = new Set(
-		candidate.memories
+		memories
 			.filter((row) => row.fact_type === "observation")
 			.map((row) => row.id),
 	);
@@ -424,7 +441,14 @@ function guardedModel(
 			check?.(tx);
 		});
 	};
-	const model = override ?? createCurationModel(ctx.signal);
+	// A curation job is background work in the admission queue, in its tenant's lane.
+	const model =
+		override ??
+		createCurationModel(
+			ctx.signal,
+			undefined,
+			memoryAdmissionFor(ctx.row.userId, "background"),
+		);
 	return (prompt, input, schema, thinkingMode, assertCurrent) => {
 		beforeDispatch();
 		return model(prompt, input, schema, thinkingMode, () => {
@@ -747,7 +771,8 @@ export async function runMemoryAction(
 		// An older receipt can still hold a staged Edit after exhausting retries.
 		// When reclaimed, compensate before applying that proposal again.
 		if (
-			ctx.attempt.number > NATIVE_DELIVERY_ATTEMPT_LIMIT &&
+			countedDeliveryAttempt(ctx.row, ctx.attempt.number) >
+				NATIVE_DELIVERY_ATTEMPT_LIMIT &&
 			initial?.kind === "edit" &&
 			initial.cleanupPending &&
 			saved?.proposal &&
@@ -803,7 +828,8 @@ export async function runMemoryAction(
 			!intent.outcome &&
 			(terminal ||
 				(code === collectiveRejection &&
-					ctx.attempt.number >= NATIVE_DELIVERY_ATTEMPT_LIMIT)) &&
+					countedDeliveryAttempt(ctx.row, ctx.attempt.number) >=
+						NATIVE_DELIVERY_ATTEMPT_LIMIT)) &&
 			code !== "memory_control_changed" &&
 			code !== "memory_cancelled"
 		) {
@@ -1034,7 +1060,13 @@ async function restoreCancelledEdit(
 		!delta.nativeAcknowledged &&
 		delta.nativeOperationId
 	)
-		await native.settle(client, [delta.nativeOperationId], ctx.signal, true);
+		await native.settle(
+			client,
+			[delta.nativeOperationId],
+			ctx.signal,
+			true,
+			"retain",
+		);
 	if (intent.addedSourceId) {
 		await fence(ctx);
 		await client.deleteDocument(intent.addedSourceId);
@@ -1478,7 +1510,7 @@ async function executeMemoryAction(
 					},
 					operationId,
 				);
-		await native.settle(client, ids, ctx.signal);
+		await native.settle(client, ids, ctx.signal, false, "retain");
 		if (
 			!(await ctx.write((tx) => {
 				actionFence(tx, ctx);
@@ -1589,7 +1621,7 @@ async function executeMemoryAction(
 						},
 						editOperationId,
 					);
-			await native.settle(client, operations, ctx.signal);
+			await native.settle(client, operations, ctx.signal, false, "retain");
 			if (
 				!(await ctx.write((tx) => {
 					actionFence(tx, ctx);
@@ -1649,8 +1681,17 @@ async function executeMemoryAction(
 						: {}),
 				};
 			});
+			// What a Remove's native write may rebuild: every fact sharing a live
+			// observation with a fact it revoked, published or not yet (a chat
+			// still on its way). Saved with the proposal, before any write, so
+			// a refused result leaves them out too (`excludedNativeEvidence`).
+			const familyFactIds =
+				action.kind === "remove"
+					? liveRemovalFamily(action.id, current, intent.familyFactIds)
+					: intent.familyFactIds;
 			intent = {
 				...intent,
+				...(familyFactIds ? { familyFactIds } : {}),
 				nativeFacts: newFacts,
 				proposal: await applyMemoryEdit(
 					{
@@ -1907,6 +1948,7 @@ async function executeMemoryAction(
 				sourceIds,
 				verifiedCuratedChanges: !!repaired,
 				verifiedCuratedDiff,
+				ownActionId: action.id,
 				checkedActionIds: [
 					action.id,
 					...(repaired?.replays.map((r) => r.actionId) ?? []),
@@ -1947,6 +1989,30 @@ async function executeMemoryAction(
 				.run();
 		},
 	});
+}
+
+/** The facts a Remove revoked and every fact sharing a live observation with one of them. */
+function liveRemovalFamily(
+	actionId: string,
+	live: NativeMemory[],
+	known: readonly string[] = [],
+) {
+	const revoked = new Set(
+		db
+			.select({ factId: memoryRevocations.nativeFactId })
+			.from(memoryRevocations)
+			.where(eq(memoryRevocations.actionId, actionId))
+			.all()
+			.flatMap(({ factId }) => (factId ? [factId] : [])),
+	);
+	const family = new Set([...known, ...revoked]);
+	for (const observation of live) {
+		if (observation.fact_type !== "observation") continue;
+		const support = observation.source_memory_ids ?? [];
+		if (support.some((id) => revoked.has(id)))
+			for (const id of support) family.add(id);
+	}
+	return [...family].sort();
 }
 
 /** Only send a changed, known curated family when the incoming assertion actually backs its candidate. */
@@ -2290,37 +2356,63 @@ export function prepareUnchangedSourceCuration(
 	accepted: NonNullable<ReturnType<typeof unchangedSourceInventory>>,
 ) {
 	const sourceIds = accepted.owners.map((owner) => owner.id);
-	function verify(memories: NativeMemory[]) {
+	const bankRef = {
+		id: source.bankId,
+		userId: source.userId,
+		epoch: source.epoch,
+	};
+	/**
+	 * Hindsight's snapshot and the facts the resend carries, as publication
+	 * reads them: what a refused Remove or a held source left out is neither
+	 * required nor published, and never makes the resend wait.
+	 */
+	function shown(memories: NativeMemory[], tx?: Tx) {
+		const excluded = tx
+			? excludedNativeEvidence(tx, bankRef)
+			: db.transaction((read) => excludedNativeEvidence(read, bankRef));
+		return {
+			memories: withoutExcludedEvidence(memories, excluded),
+			facts: accepted.facts.filter(({ id }) => !excluded.factIds.has(id)),
+		};
+	}
+	function verify(live: NativeMemory[], tx?: Tx) {
+		const { memories, facts } = shown(live, tx);
 		try {
-			verifySourceResult(memories, sourceIds, accepted.facts);
+			verifySourceResult(memories, sourceIds, facts);
 			const raw = new Map(
 				memories
 					.filter((fact) => fact.fact_type !== "observation")
 					.map((fact) => [fact.id, fact]),
 			);
-			if (
-				accepted.facts.some(
-					(fact) => raw.get(fact.id)?.document_id !== fact.sourceId,
-				)
-			)
+			if (facts.some((fact) => raw.get(fact.id)?.document_id !== fact.sourceId))
 				throw new Error("memory_unchanged_source_owner_mismatch");
 		} catch {
 			throw new NativeMemoryError("memory_unchanged_source_fact_missing", true);
 		}
 	}
+	/**
+	 * Whether Hindsight's display of the accepted facts is exactly the one the
+	 * person saw. With a dependency change the final checker judges the
+	 * display and a moved date still refuses. Without one, a display that is
+	 * not exactly the published one (re-rendered, renumbered, an unchecked
+	 * extra observation, a moved date) is never published: the resend keeps
+	 * the published generation instead (`keepPublishedGeneration`), so a
+	 * resend that changes nothing never takes away what was published.
+	 */
 	function verifyUnchangedDisplay(
 		tx: Tx,
-		memories: NativeMemory[],
+		live: NativeMemory[],
 		dependencyChanged: boolean,
 	) {
 		const bank = actionFence(tx, ctx);
-		if (!bank.generation) return;
+		if (!bank.generation) return true;
+		const { memories, facts } = shown(live, tx);
 		const raw = new Map(
 			memories
 				.filter((fact) => fact.fact_type !== "observation")
 				.map((fact) => [fact.id, fact]),
 		);
-		const acceptedIds = new Set(accepted.facts.map((fact) => fact.id));
+		const acceptedIds = new Set(facts.map((fact) => fact.id));
 		const previous = tx
 			.select()
 			.from(memoryPublishedRows)
@@ -2348,11 +2440,14 @@ export function prepareUnchangedSourceCuration(
 						fact.mentionedAt !== undefined &&
 						fact.mentionedAt !== (raw.get(fact.id)?.mentioned_at ?? null),
 				)
-			)
-				throw new NativeMemoryError(
-					"memory_unchanged_source_fact_missing",
-					true,
-				);
+			) {
+				if (dependencyChanged)
+					throw new NativeMemoryError(
+						"memory_unchanged_source_fact_missing",
+						true,
+					);
+				return false;
+			}
 			if (dependencyChanged) continue;
 			const match = observations.findIndex(
 				(observation) =>
@@ -2365,15 +2460,10 @@ export function prepareUnchangedSourceCuration(
 							raw.get(fact.id)?.text === fact.text,
 					),
 			);
-			if (match === -1)
-				throw new NativeMemoryError(
-					"memory_unchanged_source_fact_missing",
-					true,
-				);
+			if (match === -1) return false;
 			observations.splice(match, 1);
 		}
-		if (!dependencyChanged && observations.length)
-			throw new NativeMemoryError("memory_unchanged_source_fact_missing", true);
+		return dependencyChanged || !observations.length;
 	}
 	function assertCurrent(tx: Tx) {
 		const old = tx
@@ -2423,15 +2513,18 @@ export function prepareUnchangedSourceCuration(
 		checks,
 		verify,
 		assertCurrent,
-		verifyDependencies: async (result: CandidateCheck) => {
+		/** `keepGeneration`: publish nothing new, admit the facts under the generation the person sees. */
+		verifyDependencies: async (
+			result: CandidateCheck,
+		): Promise<{ keepGeneration: boolean }> => {
 			verify(result.memories);
 			const dependencyChanged = Boolean(
 				result.sourceIds.length || result.replays?.length,
 			);
-			db.transaction((tx) =>
+			const verified = db.transaction((tx) =>
 				verifyUnchangedDisplay(tx, result.memories, dependencyChanged),
 			);
-			if (!dependencyChanged) return;
+			if (!dependencyChanged) return { keepGeneration: !verified };
 			await checkCandidate(
 				ctx,
 				{
@@ -2448,9 +2541,10 @@ export function prepareUnchangedSourceCuration(
 				},
 				guardedModel(ctx),
 			);
+			return { keepGeneration: false };
 		},
 		apply: (tx: Tx, memories: NativeMemory[]) => {
-			verify(memories);
+			verify(memories, tx);
 			assertCurrent(tx);
 			for (const owner of accepted.owners) {
 				if (owner.id !== predecessor.id) continue;
@@ -2904,6 +2998,11 @@ export async function prepareSourceCuration(
 	}
 	if (!action) throw Error("memory_action_missing");
 	let intent = parseActionIntent(action.intentJson);
+	// A changed resend refused for good stays refused: a retry never writes its
+	// proposal again, and what its edit took away stays excluded
+	// (`excludeRefusedSourceEdit`, run again by the failure).
+	if (intent.outcome === "rejected")
+		throw new NativeMemoryError("memory_edit_rejected", false);
 	const owners = sourcesFor(source.bankId, intent.sourceIds);
 	if (
 		owners.length !== new Set(intent.sourceIds).size ||
@@ -3404,6 +3503,220 @@ export async function checkSourceDependencyCuration(
 		},
 		model,
 	);
+}
+
+/**
+ * A changed resend refused for good (the owner's privacy-first rule,
+ * 2026-11-24). A retry then ends before any write (`prepareSourceCuration`)
+ * and runs this again, which adds nothing new. What the person's edit took
+ * away from the chats it carried (`sourceEditTakenFacts`) is excluded the way
+ * a Remove excludes its facts and is never put back:
+ *
+ * - One fenced write records the edit `rejected` with the facts it excludes
+ *   (`excludedFactIds`, read by `excludedNativeEvidence`): the taken facts and
+ *   their family, every fact under a published row of the current generation
+ *   (hidden rows included) that holds a taken fact; it revokes each taken fact
+ *   whatever its wording, so the page, recall, search and the Overview stop
+ *   showing it at once.
+ * - Before any native write, every fact sharing a live Hindsight observation
+ *   with a taken fact joins the family: Hindsight rebuilds such a card over
+ *   the facts left, and its words can still carry what was taken, so none of
+ *   it is published (limit D).
+ * - Hindsight then invalidates each taken fact still live under its chat.
+ *
+ * Each other fact the refused proposal changed (a re-assertion that only adds
+ * words, or any change when the edit only added sentences) goes back in
+ * Hindsight to its admitted text; a fact no longer admitted is never put back.
+ * An edit refused and put back before this rule recorded no exclusion and is
+ * left as it was.
+ */
+export async function excludeRefusedSourceEdit(
+	ctx: Context,
+	client: HindsightClient,
+	native: NativeSettlement,
+	source: Source,
+) {
+	const read = (database: Pick<typeof db, "select">) =>
+		database
+			.select()
+			.from(memoryActions)
+			.where(
+				and(
+					eq(memoryActions.userId, source.userId),
+					eq(memoryActions.requestId, source.id),
+					eq(memoryActions.kind, "source_edit"),
+				),
+			)
+			.get();
+	type Facts = ReturnType<typeof sourceEditChangedFacts>;
+	const refused: { changed: Facts; taken: Facts; settled: boolean } = {
+		changed: [],
+		taken: [],
+		settled: true,
+	};
+	/** Adds `familyIds` to what the refusal excludes, in one fenced write. */
+	const recordExclusion = async (familyIds: Iterable<string>) => {
+		if (
+			!(await ctx.write((tx) => {
+				actionFence(tx, ctx);
+				const action = read(tx);
+				if (!action) return;
+				const intent = parseActionIntent(action.intentJson);
+				tx.update(memoryActions)
+					.set({
+						intentJson: JSON.stringify({
+							...intent,
+							outcome: "rejected",
+							excludedFactIds: [
+								...new Set([...(intent.excludedFactIds ?? []), ...familyIds]),
+							],
+						}),
+					})
+					.where(eq(memoryActions.id, action.id))
+					.run();
+			}))
+		)
+			throw new NativeMemoryError("memory_cancelled", false);
+	};
+	if (
+		!(await ctx.write((tx) => {
+			const bank = actionFence(tx, ctx);
+			const action = read(tx);
+			if (!action) return;
+			const intent = parseActionIntent(action.intentJson);
+			if (intent.outcome === "accepted") return;
+			// Refused and put back before this rule: nothing excluded later.
+			if (intent.outcome === "rejected" && !intent.excludedFactIds) return;
+			refused.settled = false;
+			const protectedSources = new Set(
+				sourcesFor(action.bankId, intent.sourceIds)
+					.filter((owner) => owner.eventId.startsWith("manual:"))
+					.map(({ id }) => id),
+			);
+			refused.changed = sourceEditChangedFacts(intent);
+			refused.taken = sourceEditTakenFacts(intent, protectedSources);
+			const taken = new Set(refused.taken.map(({ id }) => id));
+			const family = new Set(taken);
+			if (taken.size && bank.generation)
+				for (const row of publishedRowsForGeneration(
+					tx,
+					bank.id,
+					bank.epoch,
+					bank.generation,
+				)) {
+					const ids = readAcknowledgedFacts(row.sourceFingerprintsJson).map(
+						({ id }) => id,
+					);
+					if (ids.some((id) => taken.has(id)))
+						for (const id of ids) family.add(id);
+				}
+			tx.update(memoryActions)
+				.set({
+					intentJson: JSON.stringify({
+						...intent,
+						outcome: "rejected",
+						excludedFactIds: [
+							...new Set([...(intent.excludedFactIds ?? []), ...family]),
+						],
+					}),
+				})
+				.where(eq(memoryActions.id, action.id))
+				.run();
+			const revoked = new Set(
+				tx
+					.select({ factId: memoryRevocations.nativeFactId })
+					.from(memoryRevocations)
+					.where(
+						and(
+							eq(memoryRevocations.bankId, action.bankId),
+							eq(memoryRevocations.epoch, action.epoch),
+							eq(memoryRevocations.actionId, action.id),
+							isNull(memoryRevocations.nativeTextHash),
+						),
+					)
+					.all()
+					.map(({ factId }) => factId),
+			);
+			for (const id of taken)
+				if (!revoked.has(id))
+					tx.insert(memoryRevocations)
+						.values({
+							id: randomUUID(),
+							userId: action.userId,
+							bankId: action.bankId,
+							epoch: action.epoch,
+							nativeFactId: id,
+							actionId: action.id,
+						})
+						.run();
+		}))
+	)
+		throw new NativeMemoryError("memory_cancelled", false);
+	if (refused.settled || (!refused.changed.length && !refused.taken.length))
+		return;
+	const memories = await client.list();
+	const taken = new Set(refused.taken.map(({ id }) => id));
+	if (taken.size)
+		await recordExclusion(
+			memories
+				.filter(
+					(memory) =>
+						memory.fact_type === "observation" &&
+						(memory.source_memory_ids ?? []).some((id) => taken.has(id)),
+				)
+				.flatMap((memory) => memory.source_memory_ids ?? []),
+		);
+	const live = new Map(
+		memories
+			.filter((fact) => fact.fact_type !== "observation")
+			.map((fact) => [fact.id, fact]),
+	);
+	let written = false;
+	for (const fact of refused.taken) {
+		if (live.get(fact.id)?.document_id !== fact.sourceId) continue;
+		await fence(ctx);
+		await client.editFact(fact.id, {
+			state: "invalidated",
+			reason: "Taken away by the user's own edit",
+		});
+		written = true;
+	}
+	const admitted = () =>
+		new Map(
+			db.transaction((tx) => {
+				actionFence(tx, ctx);
+				return admittedNativeFacts(source.userId, source.bankId, tx).map(
+					(fact) => [fact.id, fact] as const,
+				);
+			}),
+		);
+	for (const fact of refused.changed) {
+		if (taken.has(fact.id)) continue;
+		const shown = admitted().get(fact.id);
+		if (!shown || shown.source.id !== fact.sourceId) continue;
+		const current = live.get(fact.id);
+		if (current) {
+			if (current.document_id !== fact.sourceId || current.text === shown.text)
+				continue;
+			await fence(ctx);
+			await client.editFact(fact.id, { text: shown.text });
+		} else {
+			if (
+				!(await client.matchesArchivedFact({
+					id: fact.id,
+					sourceId: fact.sourceId,
+					text: shown.text,
+				}))
+			)
+				continue;
+			await fence(ctx);
+			await client.editFact(fact.id, { state: "valid" });
+		}
+		written = true;
+	}
+	if (!written) return;
+	await fence(ctx);
+	await native.settle(client, [await client.consolidate()], ctx.signal);
 }
 
 export async function checkDeletedSourceRepair(

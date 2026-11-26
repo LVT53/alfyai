@@ -289,7 +289,7 @@ async function followWithGrace(
 		const left = videoRenderDeadlineMs() - (Date.now() - startedAt);
 		if (left <= 0) throw new ComfyUiError("timeout", "ComfyUI took too long");
 		try {
-			return await followSegment(ctx, client, promptId, left, eta);
+			return await followPrompt(ctx, client, promptId, left, eta);
 		} catch (error) {
 			const transient =
 				error instanceof ComfyUiError &&
@@ -302,7 +302,7 @@ async function followWithGrace(
 	}
 }
 
-async function followSegment(
+async function followPrompt(
 	ctx: Ctx,
 	client: ComfyUiClient,
 	promptId: string,
@@ -335,8 +335,8 @@ async function followSegment(
 		} else if (event.type === "started") {
 			if (started) return;
 			started = true;
-			// The segment's prompt is on the GPU: the first one starts the
-			// countdown with the whole plan, a later one its own segment's load.
+			// The prompt is on the GPU: the first start begins the countdown with
+			// the whole plan; a re-followed prompt changes nothing (`take-eta.ts`).
 			const etaAt = eta.start(Date.now());
 			queue(() => enterPhase(ctx, "starting", etaAt));
 		} else if (event.type === "progress") {

@@ -1,0 +1,64 @@
+// @vitest-environment node
+// Reviewer E reproducers (do not fix anything): model identity that is
+// persisted in the message row itself, and incognito projection scoping.
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import * as schema from "$lib/server/db/schema";
+import { accountingReadFixture } from "./accounting-read-fixture";
+
+let f: Awaited<ReturnType<typeof accountingReadFixture>>;
+beforeEach(async () => {
+	f = await accountingReadFixture();
+	await f.seed();
+});
+afterEach(() => f?.close());
+
+it("REVIEW-E1: a persisted depthMetadata.modelId is not used for ChatMessage.modelId when accounting is unavailable", async () => {
+	// finalize.ts:643-666 persists depthMetadata.{modelId,modelDisplayName,providerDisplayName}
+	// from the same analytics.model that recordMessageAnalytics writes to usage_events.
+	f.message("d1", "assistant", {
+		modelDisplayName: "Persisted display",
+		depthMetadata: {
+			requested: "thorough",
+			appliedProfile: "standard",
+			fallback: false,
+			modelId: "provider:p:m",
+			modelDisplayName: "Persisted display",
+		},
+	});
+	f.legacy("d1");
+
+	const healthy = (await f.readers.listMessages("c")).find((m) => m.id === "d1");
+	expect(healthy?.modelId).toBe("provider:p:m"); // identical to the persisted id
+
+	for (const kind of ["usage", "ledger"] as const) {
+		f.fault(kind);
+		const failed = (await f.readers.listMessages("c")).find((m) => m.id === "d1");
+		// the persisted identity is still in the SAME payload...
+		expect(failed?.depthMetadata?.modelId).toBe("provider:p:m");
+		expect(failed?.modelDisplayName).toBe("Persisted display");
+		// ...but the field the UI keys the model icon on is gone.
+		expect(failed?.modelId).toBeUndefined();
+	}
+});
+
+it("REVIEW-E2: incognito returns an 'untracked' projection for ids that are not this conversation's assistants", async () => {
+	f.db
+		.update(schema.conversations)
+		.set({ memoryIncognito: true })
+		.where(eq(schema.conversations.id, "c"))
+		.run();
+	const result = await f.analytics.getMessageReadUsageProjections("c", [
+		"a1", // assistant of c
+		"u1", // user message of c
+		"not-in-this-conversation", // unknown / other conversation id
+	]);
+	expect(result.availability).toBe("resolved");
+	if (result.availability !== "resolved") throw new Error("unreachable");
+	expect([...result.projections.keys()].sort()).toEqual([
+		"a1",
+		"not-in-this-conversation",
+		"u1",
+	]);
+	expect(result.projections.get("u1")?.status).toBe("untracked");
+});

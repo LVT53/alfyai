@@ -118,6 +118,107 @@ describe("promoted admin config keys", () => {
 		expect(getConfig().concurrentStreamLimit).toBe(3);
 	});
 
+	it("applies a recall share override and ignores one that is not a whole percent from 0 to 100", async () => {
+		const {
+			ADMIN_CONFIG_KEYS,
+			getMemoryRecallShares,
+			getResolvedAdminConfigValues,
+			refreshConfig,
+		} = await import("./config-store");
+		expect(ADMIN_CONFIG_KEYS as readonly string[]).toEqual(
+			expect.arrayContaining([
+				"MEMORY_RECALL_CORE_PERCENT",
+				"MEMORY_RECALL_PROJECT_PERCENT",
+			]),
+		);
+		rows.push({ key: "MEMORY_RECALL_PROJECT_PERCENT", value: "60" });
+		await refreshConfig();
+		expect(getMemoryRecallShares()).toEqual({
+			corePercent: 25,
+			projectPercent: 60,
+		});
+		expect(
+			(getResolvedAdminConfigValues() as Record<string, string>)
+				.MEMORY_RECALL_PROJECT_PERCENT,
+		).toBe("60");
+		for (const value of ["abc", "101", "2.5", "-1"]) {
+			rows.length = 0;
+			rows.push({ key: "MEMORY_RECALL_PROJECT_PERCENT", value });
+			await refreshConfig();
+			expect(getMemoryRecallShares().projectPercent, value).toBe(50);
+		}
+		rows.length = 0;
+		rows.push({ key: "MEMORY_RECALL_CORE_PERCENT", value: "0" });
+		await refreshConfig();
+		expect(getMemoryRecallShares().corePercent).toBe(0);
+	});
+
+	it("applies an aging threshold override and ignores one that is not a whole day count from 1 to 3650", async () => {
+		const {
+			ADMIN_CONFIG_KEYS,
+			getMemoryAgingThresholds,
+			getResolvedAdminConfigValues,
+			refreshConfig,
+		} = await import("./config-store");
+		expect(ADMIN_CONFIG_KEYS as readonly string[]).toEqual(
+			expect.arrayContaining([
+				"MEMORY_TEMPORARY_EARLIER_DAYS",
+				"MEMORY_ONGOING_QUIET_DAYS",
+				"MEMORY_ONGOING_EARLIER_DAYS",
+			]),
+		);
+		rows.push({ key: "MEMORY_ONGOING_EARLIER_DAYS", value: "120" });
+		rows.push({ key: "MEMORY_TEMPORARY_EARLIER_DAYS", value: "10" });
+		await refreshConfig();
+		expect(getMemoryAgingThresholds()).toEqual({
+			temporaryEarlierDays: 10,
+			ongoingQuietDays: 21,
+			ongoingEarlierDays: 120,
+		});
+		expect(
+			(getResolvedAdminConfigValues() as Record<string, string>)
+				.MEMORY_ONGOING_EARLIER_DAYS,
+		).toBe("120");
+		for (const value of ["abc", "0", "3651", "2.5", "-1"]) {
+			rows.length = 0;
+			rows.push({ key: "MEMORY_ONGOING_QUIET_DAYS", value });
+			await refreshConfig();
+			expect(getMemoryAgingThresholds().ongoingQuietDays, value).toBe(21);
+		}
+	});
+
+	it("applies a Hindsight wait override and ignores one that is not a whole minute count from 1 to 1440", async () => {
+		const {
+			ADMIN_CONFIG_KEYS,
+			getMemoryNativeWaits,
+			getResolvedAdminConfigValues,
+			refreshConfig,
+		} = await import("./config-store");
+		expect(ADMIN_CONFIG_KEYS as readonly string[]).toEqual(
+			expect.arrayContaining([
+				"MEMORY_RETAIN_WAIT_MINUTES",
+				"MEMORY_CONSOLIDATION_WAIT_MINUTES",
+			]),
+		);
+		rows.push({ key: "MEMORY_RETAIN_WAIT_MINUTES", value: "45" });
+		rows.push({ key: "MEMORY_CONSOLIDATION_WAIT_MINUTES", value: "120" });
+		await refreshConfig();
+		expect(getMemoryNativeWaits()).toEqual({
+			retainMs: 45 * 60_000,
+			consolidationMs: 120 * 60_000,
+		});
+		expect(
+			(getResolvedAdminConfigValues() as Record<string, string>)
+				.MEMORY_CONSOLIDATION_WAIT_MINUTES,
+		).toBe("120");
+		for (const value of ["abc", "0", "1441", "2.5", "-1"]) {
+			rows.length = 0;
+			rows.push({ key: "MEMORY_RETAIN_WAIT_MINUTES", value });
+			await refreshConfig();
+			expect(getMemoryNativeWaits().retainMs, value).toBe(30 * 60_000);
+		}
+	});
+
 	it("reads a fractional Parallel free allowance as written", async () => {
 		rows.push({ key: "PARALLEL_FREE_MONTHLY_USD", value: "2.5" });
 

@@ -1,0 +1,42 @@
+import { describe, expect, it } from "vitest";
+import {
+	resolveOpenAICompatibleProviderAdapterProfile,
+	transformNormalChatModelRunRequestBody,
+} from "$lib/server/services/normal-chat-model/provider-compatibility";
+
+// Review check: which request shape does the app's adapter produce for the
+// exact Kimi binding staging uses (names read from staging, no secrets)?
+const kimi = {
+	id: "p",
+	name: "fireworks-ai",
+	displayName: "Kimi K3.1 Pro",
+	baseUrl: "https://api.fireworks.ai/inference/v1",
+	modelName: "accounts/fireworks/models/kimi-k3p1-pro",
+};
+const qwen = {
+	id: "q",
+	name: "model1",
+	displayName: "Nemotron 3 Super",
+	baseUrl: "http://192.168.1.96:30000/v1",
+	modelName: "qwen3-6-27b",
+};
+describe("review check: cap field per staging binding", () => {
+	it("reports family and cap field", () => {
+		const rows = [kimi, qwen].map((provider) => {
+			const profile = resolveOpenAICompatibleProviderAdapterProfile(provider as never);
+			const body = transformNormalChatModelRunRequestBody(
+				{ model: provider.modelName, stream: true, max_tokens: 1024 },
+				provider as never,
+			);
+			return {
+				model: provider.modelName,
+				family: profile.family,
+				usesMaxCompletionTokens: profile.usesMaxCompletionTokens,
+				max_tokens: body.max_tokens ?? null,
+				max_completion_tokens: body.max_completion_tokens ?? null,
+			};
+		});
+		console.log(JSON.stringify(rows));
+		expect(rows).toHaveLength(2);
+	});
+});

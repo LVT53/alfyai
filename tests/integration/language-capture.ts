@@ -188,6 +188,20 @@ function cannedReply(body: Record<string, unknown>): string {
 	}
 	if (name === "rail_headline")
 		return JSON.stringify({ headline: "Choosing a heating system" });
+	// The Memory Overview (memory-profile/overview.ts) asks through the memory
+	// model path, whose schema is named for curation; its one field names it.
+	if (
+		(
+			body.response_format as
+				| {
+						json_schema?: { schema?: { properties?: Record<string, unknown> } };
+				  }
+				| undefined
+		)?.json_schema?.schema?.properties?.overview
+	)
+		return JSON.stringify({
+			overview: "They live in Dublin and are renovating their kitchen.",
+		});
 	if (name === "persona_summary") {
 		return JSON.stringify({
 			sentences: [{ text: "They live in Dublin.", factIds: [] }],

@@ -1,0 +1,570 @@
+{
+	"v3:question:q-en-01:0": {
+		"facts": []
+	},
+	"v3:question:q-en-02:0": {
+		"facts": []
+	},
+	"v3:question:q-en-03:0": {
+		"facts": []
+	},
+	"v3:question:q-en-04:0": {
+		"facts": []
+	},
+	"v3:question:q-en-05:0": {
+		"facts": []
+	},
+	"v3:question:q-en-07:0": {
+		"facts": []
+	},
+	"v3:question:q-en-08:0": {
+		"facts": []
+	},
+	"v3:question:q-en-06:0": {
+		"facts": []
+	},
+	"v3:question:q-en-09:0": {
+		"facts": []
+	},
+	"v3:question:q-en-10:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-01:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-03:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-02:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-04:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-05:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-07:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-08:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-09:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-10:0": {
+		"facts": []
+	},
+	"v3:question:q-hu-06:0": {
+		"facts": []
+	},
+	"v3:task:task-en-1:0": {
+		"facts": []
+	},
+	"v3:task:task-en-3:0": {
+		"facts": []
+	},
+	"v3:task:task-en-2:0": {
+		"facts": []
+	},
+	"v3:task:task-en-4:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-1:0": {
+		"facts": []
+	},
+	"v3:task:task-en-5:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-3:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-4:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-5:0": {
+		"facts": []
+	},
+	"v3:task:task-hu-2:0": {
+		"facts": []
+	},
+	"v3:preference:preference-en-1:0": {
+		"facts": [
+			{
+				"text": "The user prefers short answers because they do not have much time to read. | Involving: user | The user does not have much time to read.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-3:0": {
+		"facts": []
+	},
+	"v3:preference:preference-en-2:0": {
+		"facts": [
+			{
+				"text": "The user prefers answers in bullet points. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-4:0": {
+		"facts": [
+			{
+				"text": "The user prefers the assistant to keep a casual, friendly tone and avoid formal language. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-5:0": {
+		"facts": [
+			{
+				"text": "The user prefers that the assistant does not use emojis in replies. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-6:0": {
+		"facts": [
+			{
+				"text": "User prefers detailed answers with examples because they like to really understand things. | Involving: user | They want to understand things deeply.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-8:0": {
+		"facts": [
+			{
+				"text": "The user prefers responses that provide code without long explanations. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-7:0": {
+		"facts": [
+			{
+				"text": "User prefers explanations to be simple, as if they are a beginner. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-9:0": {
+		"facts": [
+			{
+				"text": "The user prefers comparisons to be presented in a table. | Involving: user",
+				"entities": [
+					"user",
+					"table",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-en-10:0": {
+		"facts": []
+	},
+	"v3:preference:preference-hu-3:0": {
+		"facts": []
+	},
+	"v3:preference:preference-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó általában rövid válaszokat kér. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó pontokba szedett válaszokat preferál. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy a válaszokban ne használjak emojikat. | Involving: user | A válaszok stílusára vonatkozó tartós preferencia.",
+				"entities": [
+					"user",
+					"emoji",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó részletes válaszokat szeretne példákkal. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a segéd tegeződjön és közvetlen legyen vele. | Involving: user",
+				"entities": [
+					"user",
+					"tegeződés",
+					"közvetlenség",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-7:0": {
+		"facts": []
+	},
+	"v3:preference:preference-hu-9:0": {
+		"facts": [
+			{
+				"text": "Az felhasználó összehasonlításoknál táblázatot kér. | Involving: user",
+				"entities": [
+					"user",
+					"táblázat",
+					"összehasonlítás",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a válasz csak a kód legyen, hosszú magyarázat nélkül. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preference:preference-hu-10:0": {
+		"facts": []
+	},
+	"v3:preferenceReply:preference-reply-en-1:0": {
+		"facts": [
+			{
+				"text": "The user prefers short answers because they do not have much time to read. | Involving: user | The user does not have much time to read.",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-2:0": {
+		"facts": [
+			{
+				"text": "The user prefers answers in bullet points. | Involving: user",
+				"entities": [
+					"user",
+					"bullet points",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-3:0": {
+		"facts": []
+	},
+	"v3:preferenceReply:preference-reply-en-4:0": {
+		"facts": [
+			{
+				"text": "The user prefers the assistant to use a casual, friendly tone and avoid formal language. | Involving: user | The user explicitly requested this communication style.",
+				"entities": [
+					"user",
+					"assistant",
+					"tone",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-6:0": {
+		"facts": [
+			{
+				"text": "The user prefers detailed answers with examples because they like to really understand things. | Involving: user",
+				"entities": [
+					"user",
+					"detailed answers",
+					"examples",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-5:0": {
+		"facts": [
+			{
+				"text": "The user prefers that the assistant does not use emojis in replies. | Involving: user",
+				"entities": [
+					"user",
+					"emojis",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-9:0": {
+		"facts": [
+			{
+				"text": "The user prefers tables when comparing things. | Involving: user",
+				"entities": [
+					"user",
+					"table",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-7:0": {
+		"facts": [
+			{
+				"text": "User prefers explanations to be simple and beginner-friendly. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-8:0": {
+		"facts": [
+			{
+				"text": "User prefers the assistant to provide code without long explanations. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-en-10:0": {
+		"facts": []
+	},
+	"v3:preferenceReply:preference-reply-hu-3:0": {
+		"facts": []
+	},
+	"v3:preferenceReply:preference-reply-hu-1:0": {
+		"facts": [
+			{
+				"text": "A felhasználó rövid válaszokat kér. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-4:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt kéri, hogy a segéd közvetlen hangnemben és tegező formában válaszoljon. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-2:0": {
+		"facts": [
+			{
+				"text": "A felhasználó pontokba szedett válaszokat preferál. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-6:0": {
+		"facts": [
+			{
+				"text": "A felhasználó részletes, példákkal illusztrált válaszokat szeretne. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-5:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy a válaszokban ne legyenek emojik. | Involving: user",
+				"entities": [
+					"user",
+					"emoji",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-9:0": {
+		"facts": [
+			{
+				"text": "A felhasználó összehasonlításoknál táblázatot kér. | Involving: user",
+				"entities": [
+					"user",
+					"táblázat",
+					"összehasonlítás",
+					"kind:lasting",
+					"subject:other"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-8:0": {
+		"facts": [
+			{
+				"text": "A felhasználó azt preferálja, hogy az asszisztens hosszú magyarázat nélkül csak kódot adjon. | Involving: user",
+				"entities": [
+					"user",
+					"kód",
+					"kind:lasting",
+					"subject:about_you"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	},
+	"v3:preferenceReply:preference-reply-hu-10:0": {
+		"facts": []
+	},
+	"v3:preferenceReply:preference-reply-hu-7:0": {
+		"facts": [
+			{
+				"text": "A felhasználó egyszerű, kezdőknek szóló magyarázatokat részesít előnyben. | Involving: user",
+				"entities": [
+					"user",
+					"kind:lasting",
+					"subject:interests"
+				],
+				"occurred_start": null,
+				"occurred_end": null
+			}
+		]
+	}
+}

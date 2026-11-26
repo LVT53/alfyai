@@ -1,0 +1,258 @@
+{
+	"c-en-02": {
+		"set": "change",
+		"observations": [
+			"The user started working at Meadowline, a health startup, in May 2026.",
+			"The user works at Meadowline, a health startup; earlier at Kestrel Logistics."
+		]
+	},
+	"c-en-01": {
+		"set": "change",
+		"observations": [
+			"The user and household are still unpacking boxes after moving to Norwich.",
+			"The user and household live in Norwich; they previously lived in Exeter, close to the university."
+		]
+	},
+	"c-en-03": {
+		"set": "change",
+		"observations": [
+			"The user sold their old car in spring 2026.",
+			"The user drives a used Skoda Octavia; earlier they drove a 2012 Honda Civic."
+		]
+	},
+	"c-en-05": {
+		"set": "change",
+		"observations": [
+			"The user uses a Pixel 9; earlier they used an iPhone 12."
+		]
+	},
+	"c-en-04": {
+		"set": "change",
+		"observations": [
+			"The user's daughter takes cello lessons; earlier she took violin lessons every Thursday."
+		]
+	},
+	"c-en-06": {
+		"set": "change",
+		"observations": [
+			"The user is studying mechanical engineering at Strathclyde; earlier they studied law at the University of Glasgow."
+		]
+	},
+	"c-en-08": {
+		"set": "change",
+		"observations": [
+			"The user is in the office five days a week; earlier they worked from home three days a week."
+		]
+	},
+	"c-en-07": {
+		"set": "change",
+		"observations": [
+			"The user is pescatarian since summer 2026, after starting to eat fish again; they were previously a vegetarian for years."
+		]
+	},
+	"c-en-09": {
+		"set": "change",
+		"observations": [
+			"The user plays for a local football team called the Eastfield Hawks; earlier for the Harbour Rovers."
+		]
+	},
+	"c-en-10": {
+		"set": "change",
+		"observations": [
+			"The user and household bought a small house in Fernbury and received the keys in June 2026; they previously rented a one-bedroom flat on Marsh Lane."
+		]
+	},
+	"c-hu-02": {
+		"set": "change",
+		"observations": [
+			"A felhasználó 2026 márciusa óta a Délpont Logisztikánál dolgozik; korábban a Kékvölgy Bútor cégnél volt könyvelő."
+		]
+	},
+	"c-hu-01": {
+		"set": "change",
+		"observations": [
+			"A felhasználó és férje 2026 nyarán Győrbe költözött a férj munkája miatt; korábban Pécsen laktak egy kis lakásban a belvárosban."
+		]
+	},
+	"c-hu-03": {
+		"set": "change",
+		"observations": [
+			"A felhasználó egy használt Toyota Yarist vett; korábban egy öreg Opel Astrával járt dolgozni."
+		]
+	},
+	"c-hu-04": {
+		"set": "change",
+		"observations": [
+			"A felhasználó fia 2026. március óta gitáron tanul.",
+			"A felhasználó fia hetente egyszer hegedűórákra jár."
+		]
+	},
+	"c-hu-05": {
+		"set": "change",
+		"observations": [
+			"A felhasználó új telefont vásárolt 2026. szeptember 13. és 19. között.",
+			"A felhasználó telefonja egy Xiaomi.",
+			"A felhasználó elégedett a telefonjával."
+		]
+	},
+	"c-hu-07": {
+		"set": "change",
+		"observations": [
+			"A felhasználó minden nap bejár az irodába; korábban otthonról dolgozott, a nappaliból."
+		]
+	},
+	"c-hu-06": {
+		"set": "change",
+		"observations": [
+			"A felhasználó 2026. szeptember 20-tól a Corvinuson közgazdaságtant tanul.",
+			"A felhasználó közgazdaságtant tanul a Corvinuson.",
+			"A felhasználó közgazdaságtant tanul a Corvinuson."
+		]
+	},
+	"c-hu-08": {
+		"set": "change",
+		"observations": [
+			"A felhasználó a Ligeti Sasok csapatához igazolt, mert a régi csapata, a Kiskertek SC megszűnt."
+		]
+	},
+	"c-hu-10": {
+		"set": "change",
+		"observations": [
+			"A felhasználó felmondta a bérletét a Kondi Klubban.",
+			"A felhasználó a Hullám uszodába jár úszni.",
+			"A felhasználó heti háromszor járt edzőterembe a Kondi Klubban, amíg fel nem mondta a bérletét."
+		]
+	},
+	"x-en-01": {
+		"set": "correction",
+		"observations": [
+			"The user's sister works at a hospital in Graz.",
+			"The user's sister lives in Graz."
+		]
+	},
+	"c-hu-09": {
+		"set": "change",
+		"observations": [
+			"A felhasználó párja Dóra.",
+			"A felhasználó a párjával, Dórával él egy kétszobás lakásban; korábban egyedül élt egy kis garzonban."
+		]
+	},
+	"x-en-02": {
+		"set": "correction",
+		"observations": [
+			"The user's dog is called Mac."
+		]
+	},
+	"x-en-03": {
+		"set": "correction",
+		"observations": [
+			"The user is allergic to latex."
+		]
+	},
+	"x-en-04": {
+		"set": "correction",
+		"observations": [
+			"The user teaches physics.",
+			"The user is a secondary school teacher."
+		]
+	},
+	"x-en-06": {
+		"set": "correction",
+		"observations": [
+			"The user has three kids, a boy and a girl."
+		]
+	},
+	"x-en-05": {
+		"set": "correction",
+		"observations": [
+			"An unidentified male lives in Montreal.",
+			"The user's brother Daniel lives in Toronto."
+		]
+	},
+	"x-en-07": {
+		"set": "correction",
+		"observations": [
+			"The user graduated from the University of Leeds in 2016."
+		]
+	},
+	"x-en-08": {
+		"set": "correction",
+		"observations": [
+			"The user works at Alder & Birch, an architecture firm."
+		]
+	},
+	"x-en-09": {
+		"set": "correction",
+		"observations": [
+			"The user drives a green Ford Focus."
+		]
+	},
+	"x-en-10": {
+		"set": "correction",
+		"observations": [
+			"The user's partner Sam is a paramedic."
+		]
+	},
+	"x-hu-01": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó bátyja a családjával Miskolcon lakik."
+		]
+	},
+	"x-hu-03": {
+		"set": "correction",
+		"observations": [
+			"The user's niece is nine years old.",
+			"Lilla is the user's niece."
+		]
+	},
+	"x-hu-02": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó fia tojásra allergiás."
+		]
+	},
+	"x-hu-04": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó fogorvosként dolgozik a Damjanich utcai rendelőben."
+		]
+	},
+	"x-hu-06": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó spanyolul beszél és iskolában franciául tanult."
+		]
+	},
+	"x-hu-05": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó kedvenc színe a lila."
+		]
+	},
+	"x-hu-08": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó párjának neve Márk.",
+			"Máté tanár."
+		]
+	},
+	"x-hu-07": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó 2013-ban végzett a Pécsi Tudományegyetemen."
+		]
+	},
+	"x-hu-09": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó Yamaha motorral jár dolgozni."
+		]
+	},
+	"x-hu-10": {
+		"set": "correction",
+		"observations": [
+			"A felhasználó munkahelye a belvárosban, a Bartók Béla úton van."
+		]
+	}
+}

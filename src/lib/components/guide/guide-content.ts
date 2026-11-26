@@ -178,6 +178,8 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 	},
 	// ── It knows you ─────────────────────────────────────────────────────
 	{
+		// NEW for the Memory redesign (24 November 2026): the subject page, its
+		// Earlier fold and the Overview. The entry's line already describes them.
 		id: "memory",
 		section: "knowsYou",
 		drawingSpot: "memory",
@@ -186,7 +188,7 @@ export const GUIDE_ENTRIES: readonly GuideEntry[] = [
 			place: "knowledgeMemory",
 			spotlight: "knowledge.memory",
 		},
-		added: BEFORE_THE_GUIDE,
+		added: "2026-11-24",
 	},
 	{
 		id: "instructions",

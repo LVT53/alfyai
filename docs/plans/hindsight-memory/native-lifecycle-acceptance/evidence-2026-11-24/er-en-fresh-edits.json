@@ -1,0 +1,5 @@
+[
+  {"card": "The user stores their red folding bicycle and green kayak in their shed.", "action": "edit", "text": "The user stores their folding bicycle and yellow kayak in their shed."},
+  {"card": "The user owns a green kayak.", "action": "edit", "text": "The user owns a yellow kayak."},
+  {"card": "The user owns a red folding bicycle.", "action": "edit", "text": "The user owns a folding bicycle."}
+]

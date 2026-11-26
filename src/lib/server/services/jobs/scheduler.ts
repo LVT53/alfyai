@@ -25,7 +25,7 @@
 import { eq, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { internalsOf } from "./define";
-import { claimNext, readJobRow } from "./ledger";
+import { claimNext, otherUserJobDue, readJobRow } from "./ledger";
 import { type TakeBackResult, takeBack } from "./recovery";
 import { runAttempt } from "./runner";
 import { jobsState, type KindSchedulerState, kindScheduler } from "./state";
@@ -48,6 +48,9 @@ const BACKOFF_TIMER_MARGIN_MS = 1_000;
 
 /** Never sleep longer than this in one hop; the idle tick re-arms the rest. */
 const BACKOFF_TIMER_MAX_MS = 3_600_000;
+
+/** How often a drain that gives way to other accounts looks again. */
+const GIVE_WAY_POLL_MS = 2_000;
 
 // ---------------------------------------------------------------------------
 // Worker ids
@@ -393,6 +396,77 @@ function startDrain(kind: JobKind): void {
 	launchDrain(kind).catch((error) => {
 		console.error(`${kind.logPrefix} Worker drain failed`, { error });
 	});
+}
+
+/**
+ * Runs every claimable job of ONE user now, one at a time, in the caller's
+ * async context, under the kind's caps and its enable switch: an operator's
+ * drain of one account (the Memory drain tool), which must leave every other
+ * account's jobs to their own workers. Like `drain`, it works in a process that
+ * never called `startJobs`, and it ends after claiming the same job ten times
+ * in a row. It returns when nothing of that user's is claimable now; a job put
+ * back behind a delay is the caller's to wait for.
+ *
+ * A job of the user's put back after an attempt (queued again by the failure
+ * policy: a wait on Hindsight, a counted retry) is resumed first, the moment it
+ * is due and without giving way: its wait budget runs while it sits, and a
+ * drain that left it would leave it holding its bank.
+ *
+ * With `giveWayForMs`, before each claim of anything else it waits while
+ * another account has a job of the kind due that became due less than that long
+ * ago, so the other accounts' workers take their work first: a kind that runs
+ * one job at a time box-wide otherwise holds all of it behind the whole drain,
+ * since the drain claims again the moment a job ends. A due job nobody takes up
+ * within that long holds the drain no longer.
+ *
+ * With `resumeOnly` it claims those put-back jobs and nothing else, and never
+ * gives way: a drain past its time limit finishes what it started and starts
+ * nothing new.
+ */
+export async function drainUser(
+	kind: JobKind,
+	userId: string,
+	options: {
+		giveWayForMs?: number;
+		/** Claim only the user's jobs put back after an attempt, and never give way. */
+		resumeOnly?: boolean;
+		/** What a drain that gives way waits on; real time by default. */
+		clock?: { now(): number; sleep(ms: number): Promise<void> };
+	} = {},
+): Promise<void> {
+	const { definition } = internalsOf(kind);
+	const { giveWayForMs, resumeOnly = false } = options;
+	const clock = options.clock ?? {
+		now: () => Date.now(),
+		sleep: (ms: number) =>
+			new Promise<void>((resolve) => setTimeout(resolve, ms)),
+	};
+	let lastJobId: string | null = null;
+	let inARow = 0;
+	for (;;) {
+		if (jobsState().stopped || !definition.enabled()) return;
+		const workerId = workerIdFor(kind.name);
+		let claimed = claimNext(kind, { workerId, userId, resumeOnly: true });
+		if (!claimed && !resumeOnly) {
+			// A put-back job of the user's that falls due while the drain gives way
+			// is resumed at the next poll, not after the whole wait.
+			if (giveWayForMs !== undefined)
+				while (
+					!claimed &&
+					!jobsState().stopped &&
+					otherUserJobDue(kind, userId, clock.now(), clock.now() - giveWayForMs)
+				) {
+					await clock.sleep(GIVE_WAY_POLL_MS);
+					claimed = claimNext(kind, { workerId, userId, resumeOnly: true });
+				}
+			claimed ??= claimNext(kind, { workerId, userId });
+		}
+		if (!claimed) return;
+		await runAttempt(kind, claimed, { workerId });
+		inARow = claimed.row.id === lastJobId ? inARow + 1 : 1;
+		lastJobId = claimed.row.id;
+		if (inARow >= MAX_CLAIMS_OF_ONE_JOB_IN_A_ROW) return;
+	}
 }
 
 /**

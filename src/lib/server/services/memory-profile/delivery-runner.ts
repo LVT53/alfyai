@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, ne } from "drizzle-orm";
+import { getMemoryNativeWaits } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
 	memoryAccounts,
@@ -17,10 +18,12 @@ import {
 	EXPLICIT_EDIT_RETENTION_GUIDANCE,
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
+	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 	type NativeMemory,
 	type NativeOperation,
 } from "./contracts";
 import { memoryResendTransitions } from "./curation-lineage";
+import { countedDeliveryAttempt, type NativeWaitKind } from "./delivery-policy";
 import { runDependencyRepair } from "./dependency-repair";
 import {
 	configuredNativeBinding,
@@ -44,17 +47,24 @@ import {
 	admittedNativeFacts,
 	approvedMigrationObservationWording,
 	assertCurationPublication,
+	keepPublishedGeneration,
+	landedChats,
 	prepareNativeSnapshot,
 	publishNativeSnapshot,
 	readAcknowledgedFacts,
 	readPublishedMemory,
+	unpublishedChats,
+	unpublishedChatsError,
 	verifiedSourceCleanupSnapshot,
 } from "./publication";
 import {
 	assertMemoryBankFence,
 	assertMemorySourceCurrent,
 	isEditResendWithdrawal,
+	RETAIN_ENDED,
+	RETAIN_RESUBMITTED_FROM,
 	resolveMemorySourceContext,
+	retainEndRecorded,
 } from "./revisions";
 
 async function pause(signal: AbortSignal) {
@@ -74,61 +84,151 @@ async function pause(signal: AbortSignal) {
 }
 const ENDED = ["completed", "failed", "cancelled"];
 const ENDED_BADLY = ["failed", "cancelled"];
+/** What a cleanup wait reads for an operation Hindsight no longer knows. */
+const FORGOTTEN = "forgotten";
+/**
+ * The longest one attempt waits on Hindsight before it hands the job back.
+ * Hindsight finishes on its own clock (minutes per retain under one local
+ * model), so a wait is cut into slices: at a slice's end, with Hindsight still
+ * working, the attempt ends under a waiting code that the job's failure policy
+ * requeues without counting, until that kind's whole wait from config-store
+ * has passed (`delivery-policy.ts`). Between slices the job's claim is free,
+ * so a restart or a cancel never finds it holding a worker for an hour.
+ */
+export const NATIVE_WAIT_SLICE_MS = 300_000;
+/** One wait on Hindsight: its kind, when it began, and when this slice ends. */
+interface NativeWait {
+	kind: NativeWaitKind;
+	startedAt: number;
+	deadline: number;
+}
+function beginWait(kind: NativeWaitKind): NativeWait {
+	const waits = getMemoryNativeWaits();
+	const startedAt = Date.now();
+	return {
+		kind,
+		startedAt,
+		deadline:
+			startedAt +
+			Math.min(
+				NATIVE_WAIT_SLICE_MS,
+				kind === "retain" ? waits.retainMs : waits.consolidationMs,
+			),
+	};
+}
+/** Hindsight is still working when the slice ends: hand the job back, not a failure. */
+function stillWaiting(wait: NativeWait) {
+	return new NativeMemoryError(`native_${wait.kind}_waiting`, true, {
+		waitStartedAt: wait.startedAt,
+	});
+}
 /**
  * Polls until every operation has ended or, with `stopOnBadEnd`, until one has
- * failed or been cancelled. Returns the statuses it read last.
+ * failed or been cancelled. Returns the statuses it read last. At the end of
+ * the wait's slice it throws its waiting code.
+ *
+ * A cleanup wait (without `stopOnBadEnd`) only has to know that nothing still
+ * runs before it deletes or sends. Hindsight forgets an ended operation's
+ * receipt in time, so an operation it no longer knows (a 404, or a `not_found`
+ * status) reads as ended there, once the bank itself answers; a bank that is
+ * gone fails as before. Every other wait still fails on it.
  */
 async function pollOperations(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
 	stopOnBadEnd: boolean,
+	wait: NativeWait,
 ): Promise<NativeOperation[]> {
-	const deadline = Date.now() + 180000;
-	while (Date.now() < deadline) {
+	let bankAnswers: Promise<boolean> | undefined;
+	const forgotten = async (id: string, error: NativeMemoryError) => {
+		if (stopOnBadEnd) throw error;
+		bankAnswers ??= client.bankExists();
+		if (!(await bankAnswers)) throw error;
+		return { id, status: FORGOTTEN };
+	};
+	const read = async (id: string): Promise<NativeOperation> => {
+		let op: NativeOperation;
+		try {
+			op = await client.operation(id);
+		} catch (error) {
+			if (
+				error instanceof NativeMemoryError &&
+				error.code === "native_not_found"
+			)
+				return forgotten(id, error);
+			throw error;
+		}
+		return op.status === "not_found"
+			? forgotten(
+					id,
+					new NativeMemoryError("native_acknowledgement_unknown", true),
+				)
+			: op;
+	};
+	while (Date.now() < wait.deadline) {
 		signal.throwIfAborted();
-		const ops = await Promise.all(ids.map((id) => client.operation(id)));
-		if (ops.some((o) => o.status === "not_found"))
-			throw new NativeMemoryError("native_acknowledgement_unknown", true);
+		const ops = await Promise.all(ids.map(read));
 		if (stopOnBadEnd && ops.some((o) => ENDED_BADLY.includes(o.status)))
 			return ops;
-		if (ops.every((o) => ENDED.includes(o.status))) return ops;
+		if (ops.every((o) => ENDED.includes(o.status) || o.status === FORGOTTEN))
+			return ops;
 		await pause(signal);
 	}
-	throw new NativeMemoryError("native_operation_timeout", true);
+	throw stillWaiting(wait);
 }
+/**
+ * Waits until the operations end. `wait` is the kind of wait they get, so each
+ * waits as long as its own setting allows: "retain" for a retain's operation,
+ * "consolidation", the default, for everything else; or a wait already begun,
+ * whose slice they share.
+ */
 async function settle(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
 	cleanup = false,
+	wait: NativeWait | NativeWaitKind = "consolidation",
 ) {
-	const ops = await pollOperations(client, ids, signal, !cleanup);
+	const ops = await pollOperations(
+		client,
+		ids,
+		signal,
+		!cleanup,
+		typeof wait === "string" ? beginWait(wait) : wait,
+	);
 	if (!cleanup && ops.some((o) => ENDED_BADLY.includes(o.status)))
 		throw new NativeMemoryError("native_operation_failed", false);
 }
-/**
- * `settle` for a retain. An operation Hindsight reports failed comes back, as
- * its ID, for the delivery to resubmit; a cancelled one is as terminal as ever.
- * Null: the retain completed.
- */
+/** How a retain ended, once Hindsight reports it no longer running. */
+type RetainOutcome = "completed" | "failed" | "cancelled";
+/** `settle` for a retain: how it ended, failed and cancelled included. */
 async function settleRetain(
 	client: HindsightClient,
 	ids: string[],
 	signal: AbortSignal,
-): Promise<string | null> {
-	const ops = await pollOperations(client, ids, signal, true);
-	if (ops.some((o) => o.status === "cancelled"))
-		throw new NativeMemoryError("native_operation_failed", false);
-	return ops.find((o) => o.status === "failed")?.id ?? null;
+): Promise<RetainOutcome> {
+	const ops = await pollOperations(
+		client,
+		ids,
+		signal,
+		true,
+		beginWait("retain"),
+	);
+	if (ops.some((o) => o.status === "cancelled")) return "cancelled";
+	if (ops.some((o) => o.status === "failed")) return "failed";
+	return "completed";
 }
-/** Whether Hindsight reports the operation failed. One it has never heard of has not. */
-async function operationFailed(client: HindsightClient, id: string) {
+/** What Hindsight says of an operation: `not_found` for one it has never heard of (or forgot). */
+async function operationStatus(
+	client: HindsightClient,
+	id: string,
+): Promise<string> {
 	try {
-		return (await client.operation(id)).status === "failed";
+		return (await client.operation(id)).status;
 	} catch (error) {
 		if (error instanceof NativeMemoryError && error.code === "native_not_found")
-			return false;
+			return "not_found";
 		throw error;
 	}
 }
@@ -136,17 +236,51 @@ async function operationFailed(client: HindsightClient, id: string) {
  * Where a source's one resubmission is recorded: a key on its revision's
  * `context`, which already holds its other per-source flags and commits in the
  * same transaction as the new operation ID. The value is the failed operation's
- * ID, for whoever reads Hindsight's error for it.
+ * ID, for whoever reads Hindsight's error for it. Context resolution reads only
+ * the envelope's messages, so no bookkeeping key ever reaches Hindsight, and
+ * dependency repair leaves these keys out of a replacement's context.
  */
-const RETAIN_RESUBMITTED_FROM = "nativeRetainResubmittedFrom";
 function retainResubmitted(source: typeof memorySourceRevisions.$inferSelect) {
 	return (
 		typeof parseJsonRecord(source.context)[RETAIN_RESUBMITTED_FROM] === "string"
 	);
 }
+/**
+ * Where a retain's terminal end is recorded (S2): `{ operationId, reason }` on
+ * the revision's context, written before the delivery fails for good. An
+ * attempt that finds it for the source's current operation ends at once and
+ * asks Hindsight nothing, so a forgotten operation can never be sent again.
+ * Only the operator's resend (a new operation ID) moves past it.
+ */
+type RetainEndReason = "resubmit_failed" | "cancelled" | "facts_left_behind";
+/**
+ * Each terminal end of a retain has its own code (N1), apart from
+ * `native_operation_failed`, which a failed consolidation, a repair and every
+ * Add or Edit retain also end with.
+ */
+const RETAIN_END_CODES: Readonly<Record<RetainEndReason, string>> = {
+	resubmit_failed: "native_retain_resubmit_failed",
+	cancelled: "native_retain_cancelled",
+	facts_left_behind: "native_retain_left_facts",
+};
+function retainEnd(
+	source: typeof memorySourceRevisions.$inferSelect,
+): { operationId: string; reason: RetainEndReason } | null {
+	const value = parseJsonRecord(source.context)[RETAIN_ENDED];
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const { operationId, reason } = value as Record<string, unknown>;
+	return typeof operationId === "string" &&
+		typeof reason === "string" &&
+		reason in RETAIN_END_CODES
+		? { operationId, reason: reason as RetainEndReason }
+		: null;
+}
+/** How long a failed retain is held back before its one resubmission (S1). */
+const RETAIN_RESUBMIT_DELAY_MS = 60_000;
+/** Waits until the bank has no pending operation, chained consolidation rounds included. */
 async function drainNative(client: HindsightClient, signal: AbortSignal) {
-	const deadline = Date.now() + 180000;
-	while (Date.now() < deadline) {
+	const wait = beginWait("consolidation");
+	while (Date.now() < wait.deadline) {
 		const pending = await client.pendingOperations();
 		if (!pending.length) return;
 		await settle(
@@ -154,10 +288,11 @@ async function drainNative(client: HindsightClient, signal: AbortSignal) {
 			pending.map((o) => o.id),
 			signal,
 			true,
+			wait,
 		);
 		await pause(signal);
 	}
-	throw new NativeMemoryError("native_bank_busy", true);
+	throw stillWaiting(wait);
 }
 /** Two identical complete captures bracketed by bank quiescence, including chained consolidation rounds. */
 export async function captureSettledNative(
@@ -183,6 +318,48 @@ export async function captureSettledNative(
 	)
 		throw new NativeMemoryError("native_consolidation_incomplete", true);
 	return second;
+}
+/**
+ * Before a chat's first send: refuses while another chat of the bank, sent and
+ * never published (`unpublishedChats`), has facts in Hindsight, waiting while
+ * that chat's delivery is live and ending retryable for the operator's repair
+ * once it is not, so nothing more lands in a bank that cannot publish. The
+ * bank is quiet here (the caller drained it). Returns the unpublished chats
+ * that hold no fact there, for the fenced write to check again.
+ */
+async function chatsClearedForSend(
+	client: HindsightClient,
+	row: typeof memoryDeliveryJobs.$inferSelect,
+	bank: typeof memoryBanks.$inferSelect,
+): Promise<Set<string>> {
+	const found = db.transaction((tx) =>
+		unpublishedChats(tx, bank, row.sourceId ? [row.sourceId] : [], row.id),
+	);
+	if (!found.chats.length) return new Set();
+	// Nothing of this chat is in Hindsight yet: it may wait for a live one.
+	const blocking = landedChats(found, await client.list());
+	if (blocking.length) throw unpublishedChatsError(blocking, "wait");
+	return new Set(found.chats.map((chat) => chat.id));
+}
+/**
+ * Before a dependency repair writes replacements: refuses while another
+ * writer's unpublished facts are in the snapshot, waiting for a live one and
+ * ending retryable for a chat whose delivery ended, since replacements
+ * written now would sit unpublished beside them, each refusing the other's
+ * publication. A note or a replacement whose job ended (a cancelled Edit's)
+ * is left to the repair, which may be what settles it.
+ */
+function assertNoUnpublishedChatFacts(
+	row: typeof memoryDeliveryJobs.$inferSelect,
+	bank: typeof memoryBanks.$inferSelect,
+	except: string[],
+	memories: NativeMemory[],
+) {
+	const blocking = landedChats(
+		db.transaction((tx) => unpublishedChats(tx, bank, except, row.id)),
+		memories,
+	).filter((writer) => writer.live || writer.kind === "chat");
+	if (blocking.length) throw unpublishedChatsError(blocking, "wait");
 }
 function assertDelivery(tx: Tx, row: typeof memoryDeliveryJobs.$inferSelect) {
 	const bank = assertMemoryBankFence(tx, row.userId, row.bankId, row.epoch);
@@ -235,9 +412,43 @@ function finishEditResend(
 			.where(eq(memorySourceRevisions.id, previous.id))
 			.run();
 }
+/** What a source edit's refusal looks like, as opposed to a wait, a fence or a lost context. */
+const SOURCE_EDIT_REFUSALS = new Set([
+	"memory_edit_rejected",
+	"memory_edit_invalid",
+	"memory_edit_readback_mismatch",
+	"memory_source_edit_protected_fact",
+	"memory_edit_too_large",
+]);
+
+/** The plain errors that are content refusals: publication's and the edit model's. */
+const PLAIN_REFUSALS = new Set([
+	"memory_candidate_unaccepted",
+	"memory_edit_rejected",
+	"memory_edit_invalid",
+	"memory_edit_too_large",
+]);
+
+/** Whether a failure ends a changed resend for good: a content refusal on its last counted attempt. */
+function refusedForGood(
+	error: unknown,
+	row: typeof memoryDeliveryJobs.$inferSelect,
+	attemptNumber: number,
+) {
+	if (!(error instanceof NativeMemoryError))
+		return error instanceof Error && PLAIN_REFUSALS.has(error.message);
+	if (error.code === "memory_dependency_check_rejected")
+		return (
+			countedDeliveryAttempt(row, attemptNumber) >=
+			NATIVE_DELIVERY_ATTEMPT_LIMIT
+		);
+	return !error.retryable && SOURCE_EDIT_REFUSALS.has(error.code);
+}
+
 export async function runMemoryDelivery(
 	ctx: JobRunContext<typeof memoryDeliveryJobs>,
 ): Promise<void> {
+	let excludeRefusedEdit: (() => Promise<void>) | undefined;
 	try {
 		const row = ctx.row;
 		const account = db
@@ -295,6 +506,7 @@ export async function runMemoryDelivery(
 					ids.filter((id) => id !== NATIVE_BANK_CONFIG_PENDING),
 					ctx.signal,
 					true,
+					"retain",
 				);
 				await drainNative(client, ctx.signal);
 				if (
@@ -382,14 +594,33 @@ export async function runMemoryDelivery(
 			)
 				return;
 			if (source.nativeSubmitted) {
-				if (!source.nativeAcknowledged && source.nativeOperationId)
-					await settle(client, [source.nativeOperationId], ctx.signal, true);
+				if (
+					!source.nativeAcknowledged &&
+					source.nativeOperationId &&
+					!retainEndRecorded(source)
+				)
+					await settle(
+						client,
+						[source.nativeOperationId],
+						ctx.signal,
+						true,
+						"retain",
+					);
 				await drainNative(client, ctx.signal);
 				await client.deleteDocument(source.id);
 			}
+			// The withdrawn chat is out of Hindsight. Its repair waits while
+			// another chat is in flight (a DELETE of a missing document is a
+			// no-op, so the retry deletes again harmlessly), and never writes into
+			// a bank holding another chat's unpublished facts.
+			const liveChats = db
+				.transaction((tx) => unpublishedChats(tx, bank, [], row.id))
+				.chats.filter((chat) => chat.live);
+			if (liveChats.length) throw unpublishedChatsError(liveChats, "wait");
 			const memories = await captureSettledNative(client, ctx.signal);
 			if (memories.some((f) => f.document_id === source.id))
 				throw new NativeMemoryError("memory_cleanup_incomplete", true);
+			assertNoUnpublishedChatFacts(row, bank, [], memories);
 			const { checkDeletedSourceRepair, replaySourceCuration } = await import(
 				"./curation-runner"
 			);
@@ -443,6 +674,7 @@ export async function runMemoryDelivery(
 							memories: repair.memories,
 							checkedActionIds: repair.replays.map((r) => r.actionId),
 							sourceIds: repair.sourceIds,
+							onUnpublishedChat: "wait",
 						});
 						return;
 					}
@@ -470,6 +702,7 @@ export async function runMemoryDelivery(
 					publishNativeSnapshot(tx, {
 						...recoveryInput,
 						prepared: recovery.prepared,
+						onUnpublishedChat: "wait",
 					});
 				},
 			});
@@ -506,13 +739,16 @@ export async function runMemoryDelivery(
 					!s.nativeAcknowledged &&
 					s.state !== "accepted" &&
 					s.id !== row.sourceId &&
-					s.nativeOperationId,
+					s.nativeOperationId &&
+					// An ended retain is never sent again and its end is known.
+					!retainEndRecorded(s),
 			);
 		await settle(
 			client,
 			outstanding.map((s) => s.nativeOperationId as string),
 			ctx.signal,
 			true,
+			"retain",
 		);
 		await drainNative(client, ctx.signal);
 		const delivery = db.transaction((tx) => assertDelivery(tx, row));
@@ -691,6 +927,7 @@ export async function runMemoryDelivery(
 			prepareUnchangedSourceCuration,
 			unchangedSourceInventory,
 			checkSourceDependencyCuration,
+			excludeRefusedSourceEdit,
 			verifyNewAssertionCuration,
 		} = await import("./curation-runner");
 		const checkPendingCuration = (tx: Tx) =>
@@ -711,8 +948,15 @@ export async function runMemoryDelivery(
 				accepted,
 			);
 			if (source.nativeSubmitted) {
-				if (!source.nativeAcknowledged)
-					await settle(client, [source.nativeOperationId], ctx.signal, true);
+				// An ended retain is never sent again and its end is known.
+				if (!source.nativeAcknowledged && !retainEndRecorded(source))
+					await settle(
+						client,
+						[source.nativeOperationId],
+						ctx.signal,
+						true,
+						"retain",
+					);
 				db.transaction((tx) => assertDelivery(tx, row));
 				await client.deleteDocument(source.id);
 			}
@@ -720,6 +964,9 @@ export async function runMemoryDelivery(
 			if (memories.some((fact) => fact.document_id === source.id))
 				throw new NativeMemoryError("memory_cleanup_incomplete", true);
 			replayed.verify(memories);
+			// Its repair writes replacements: never beside another chat's
+			// unpublished facts.
+			assertNoUnpublishedChatFacts(row, bank, [source.id], memories);
 			const repair = await runDependencyRepair(
 				ctx,
 				client,
@@ -740,7 +987,7 @@ export async function runMemoryDelivery(
 						}),
 				},
 			);
-			await replayed.verifyDependencies(repair);
+			const { keepGeneration } = await replayed.verifyDependencies(repair);
 			await ctx.succeed({
 				apply: (tx) => {
 					const { transitions } = assertDelivery(tx, row);
@@ -758,34 +1005,64 @@ export async function runMemoryDelivery(
 						})
 						.where(eq(memorySourceRevisions.id, source.id))
 						.run();
-					publishNativeSnapshot(tx, {
-						userId: row.userId,
-						bankId: row.bankId,
-						epoch: row.epoch,
-						expectedRevision: bank.revision,
-						memories: repair.memories,
-						sourceIds: [
-							...new Set([
-								source.id,
-								...replayed.sourceIds,
-								...repair.sourceIds,
-							]),
-						],
-						checkedActionIds: [...replayed.checks, ...repair.replays].map(
-							(entry) => entry.actionId,
-						),
-					});
+					const sourceIds = [
+						...new Set([source.id, ...replayed.sourceIds, ...repair.sourceIds]),
+					];
+					// Hindsight's display could not be verified: nothing new is
+					// published, and the rows the person saw stay published.
+					if (keepGeneration)
+						keepPublishedGeneration(tx, {
+							userId: row.userId,
+							bankId: row.bankId,
+							epoch: row.epoch,
+							expectedRevision: bank.revision,
+							sourceIds,
+						});
+					else
+						publishNativeSnapshot(tx, {
+							userId: row.userId,
+							bankId: row.bankId,
+							epoch: row.epoch,
+							expectedRevision: bank.revision,
+							memories: repair.memories,
+							sourceIds,
+							checkedActionIds: [...replayed.checks, ...repair.replays].map(
+								(entry) => entry.actionId,
+							),
+							onUnpublishedChat: "end",
+						});
 				},
 			});
 			return;
 		}
 		const assertedAt =
 			unchanged?.explicitEditAt ?? source.explicitEditAt ?? source.assertedAt;
-		{
+		// A chat never sent is not sent while another chat's facts sit in
+		// Hindsight unpublished: each would refuse the other's publication
+		// (`unpublishedChats`). The chats found without facts there are checked
+		// again in the fenced write that marks this one sent.
+		const clearedChats = source.nativeSubmitted
+			? null
+			: await chatsClearedForSend(client, row, bank);
+		// A retain an earlier attempt saw finish is never sent or asked about again.
+		// A job requeued while it waits on Hindsight comes back here, and Hindsight
+		// forgets an operation's receipt in time: a POST of the same ID then would
+		// retain the source anew, regenerating its facts under new IDs.
+		if (!(source.nativeSubmitted && source.nativeAcknowledged)) {
 			if (
 				!(await ctx.write((tx) => {
 					source = assertDelivery(tx, row).source;
 					checkPendingCuration(tx);
+					if (clearedChats) {
+						const unchecked = unpublishedChats(
+							tx,
+							bank,
+							[source.id],
+							row.id,
+						).chats.filter((chat) => !clearedChats.has(chat.id));
+						if (unchecked.length)
+							throw unpublishedChatsError(unchecked, "wait");
+					}
 					tx.update(memorySourceRevisions)
 						.set({ nativeSubmitted: true })
 						.where(eq(memorySourceRevisions.id, source.id))
@@ -798,6 +1075,13 @@ export async function runMemoryDelivery(
 				source.nativeSubmitted && !source.nativeAcknowledged
 					? source.nativeOperationId
 					: null;
+			// S2: a retain whose end was recorded ends here, asking Hindsight nothing.
+			const recordedEnd = retainEnd(source);
+			if (recordedEnd && recordedEnd.operationId === source.nativeOperationId)
+				throw new NativeMemoryError(
+					RETAIN_END_CODES[recordedEnd.reason],
+					false,
+				);
 			const sendRetain = async () => {
 				// Recheck admission and certified facts immediately before making the retain call.
 				ctx.signal.throwIfAborted();
@@ -848,20 +1132,46 @@ export async function runMemoryDelivery(
 					source.nativeOperationId,
 				);
 			};
-			// Hindsight reported the retain failed and does not retry it. Send the same
-			// source once more under a new operation ID, and only once.
-			const resubmitRetain = async (failedId: string) => {
+			/**
+			 * Records the retain's terminal end on the revision (S2), fenced, and
+			 * gives back the error the delivery fails with.
+			 */
+			const endRetain = async (
+				operationId: string,
+				reason: RetainEndReason,
+			) => {
+				await ctx.write((tx) => {
+					const current = assertDelivery(tx, row).source;
+					tx.update(memorySourceRevisions)
+						.set({
+							context: JSON.stringify({
+								...parseJsonRecord(current.context),
+								[RETAIN_ENDED]: { operationId, reason },
+							}),
+						})
+						.where(eq(memorySourceRevisions.id, current.id))
+						.run();
+				});
+				return new NativeMemoryError(RETAIN_END_CODES[reason], false);
+			};
+			/**
+			 * Hindsight reported the retain failed and does not retry it: record the
+			 * source's one resubmission, a new operation ID and the marker, in one
+			 * fenced write before the new call goes out. False: the attempt no
+			 * longer owns the job.
+			 */
+			const recordResubmission = async (failedOperationId: string) => {
 				// The first resubmission committed its marker before it sent, so an attempt
 				// that finds the new operation failed too ends here.
 				if (retainResubmitted(source))
-					throw new NativeMemoryError("native_operation_failed", false);
+					throw await endRetain(failedOperationId, "resubmit_failed");
 				ctx.signal.throwIfAborted();
 				// A fact under this document would be replaced by the new retain, and
 				// nobody has checked what the failed one left.
 				if (
 					(await client.list()).some((fact) => fact.document_id === source.id)
 				)
-					throw new NativeMemoryError("native_operation_failed", false);
+					throw await endRetain(failedOperationId, "facts_left_behind");
 				const freshId = randomUUID();
 				// Committed before the new call goes out: a crash after this write can only
 				// retry the new operation, never resubmit a second time.
@@ -873,23 +1183,52 @@ export async function runMemoryDelivery(
 							nativeOperationId: freshId,
 							context: JSON.stringify({
 								...parseJsonRecord(current.context),
-								[RETAIN_RESUBMITTED_FROM]: failedId,
+								[RETAIN_RESUBMITTED_FROM]: failedOperationId,
 							}),
 						})
 						.where(eq(memorySourceRevisions.id, current.id))
 						.run();
 				});
 			};
-			// Hindsight answers a retry's retain with the operation it already holds, a
-			// failed one included: ask first, and resubmit instead of sending it again.
+			// Hindsight answers a POST of an ID it holds with that operation, whatever
+			// became of it: ask first about a retain an earlier attempt sent, and act on
+			// the answer (N3). One it never heard of, or has forgotten, is sent again
+			// under its own ID; one still running is waited for.
 			ctx.signal.throwIfAborted();
-			let failed = sent && (await operationFailed(client, sent)) ? sent : null;
-			if (!failed)
-				failed = await settleRetain(client, await sendRetain(), ctx.signal);
-			if (failed) {
-				if (!(await resubmitRetain(failed))) return;
-				if (await settleRetain(client, await sendRetain(), ctx.signal))
-					throw new NativeMemoryError("native_operation_failed", false);
+			const earlier = sent ? await operationStatus(client, sent) : null;
+			let outcome: RetainOutcome =
+				earlier === "completed" ||
+				earlier === "failed" ||
+				earlier === "cancelled"
+					? earlier
+					: sent && (earlier === "pending" || earlier === "processing")
+						? await settleRetain(client, [sent], ctx.signal)
+						: await settleRetain(client, await sendRetain(), ctx.signal);
+			if (outcome === "cancelled")
+				throw await endRetain(source.nativeOperationId as string, "cancelled");
+			if (outcome === "failed") {
+				const failedOperationId = source.nativeOperationId as string;
+				// S1: a retain this attempt saw fail is held back a minute before its one
+				// resubmission, so the refusal that failed it has passed. The hold-back is
+				// a wait, not an attempt, and nothing is rotated yet: the next attempt
+				// finds the operation failed and records and sends the new one together.
+				if (earlier !== "failed" && !retainResubmitted(source))
+					throw new NativeMemoryError("native_retain_resubmit_due", true, {
+						retryAfterMs: RETAIN_RESUBMIT_DELAY_MS,
+						waitStartedAt: Date.now(),
+					});
+				if (!(await recordResubmission(failedOperationId))) return;
+				outcome = await settleRetain(client, await sendRetain(), ctx.signal);
+				if (outcome === "cancelled")
+					throw await endRetain(
+						source.nativeOperationId as string,
+						"cancelled",
+					);
+				if (outcome === "failed")
+					throw await endRetain(
+						source.nativeOperationId as string,
+						"resubmit_failed",
+					);
 			}
 			// Remote receipt TTL must not erase our knowledge that this retain finished.
 			if (
@@ -910,6 +1249,18 @@ export async function runMemoryDelivery(
 			await settle(client, [await client.consolidate()], ctx.signal);
 		memories = await captureSettledNative(client, ctx.signal);
 
+		// A changed resend refused for good excludes what its edit took away
+		// from the chats it carried before the delivery fails (the catch).
+		if (predecessor && !unchanged) {
+			const edited = source;
+			excludeRefusedEdit = () =>
+				excludeRefusedSourceEdit(
+					ctx,
+					client,
+					{ capture: captureSettledNative, settle },
+					edited,
+				);
+		}
 		const curated =
 			predecessor && !unchanged
 				? await prepareSourceCuration(ctx, client, source, predecessor, {
@@ -1010,6 +1361,7 @@ export async function runMemoryDelivery(
 					prepared,
 					verifiedCuratedChanges,
 					verifiedCuratedDiff,
+					onUnpublishedChat: "end",
 					checkedActionIds: [...replayed.checks, ...repair.replays].map(
 						(r) => r.actionId,
 					),
@@ -1025,14 +1377,33 @@ export async function runMemoryDelivery(
 		});
 	} catch (error) {
 		if (ctx.signal.aborted) return;
-		const native =
+		let native =
 			error instanceof NativeMemoryError
 				? error
 				: new NativeMemoryError("memory_preparation_failed", false);
+		if (
+			excludeRefusedEdit &&
+			refusedForGood(error, ctx.row, ctx.attempt.number)
+		) {
+			try {
+				await excludeRefusedEdit();
+			} catch (exclusion) {
+				// Not finished in Hindsight: the delivery stays retryable so the next
+				// attempt finishes invalidating what the edit took away (its
+				// exclusion is recorded before any native call).
+				if (exclusion instanceof NativeMemoryError && exclusion.retryable)
+					native = exclusion;
+			}
+		}
 		await ctx.fail({
 			code: native.code,
 			message: "Memory preparation could not complete.",
 			retryable: native.retryable,
+			retryAfterMs: native.details.retryAfterMs,
+			diagnostics:
+				native.details.waitStartedAt === undefined
+					? undefined
+					: { waitStartedAt: native.details.waitStartedAt },
 		});
 	} finally {
 		// The job engine remains the lifecycle owner; manifests only summarize settled delivery.

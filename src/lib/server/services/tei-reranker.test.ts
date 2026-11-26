@@ -266,4 +266,60 @@ describe("tei-reranker service", () => {
 			}),
 		);
 	});
+
+	describe("a caller's own deadline", () => {
+		/** A fetch that only ends when its request is aborted. */
+		function hangUntilAborted() {
+			vi.mocked(fetch).mockImplementation(
+				(_url, init) =>
+					new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () =>
+							reject(new DOMException("aborted", "AbortError")),
+						);
+					}),
+			);
+		}
+
+		it("ends the call there when it is shorter than the configured timeout", async () => {
+			vi.useFakeTimers();
+			try {
+				mockRuntimeConfig.teiTimeoutMs = 5000;
+				hangUntilAborted();
+				const { rerankTexts } = await import("./tei-reranker");
+				let name: string | null = null;
+				rerankTexts({ query: "rank", texts: ["a", "b"], timeoutMs: 500 }).catch(
+					(error: Error) => {
+						name = error.name;
+					},
+				);
+				await vi.advanceTimersByTimeAsync(499);
+				expect(name).toBeNull();
+				await vi.advanceTimersByTimeAsync(1);
+				expect(name).toBe("AbortError");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("never lets it outlast the configured timeout", async () => {
+			vi.useFakeTimers();
+			try {
+				mockRuntimeConfig.teiTimeoutMs = 300;
+				hangUntilAborted();
+				const { rerankTexts } = await import("./tei-reranker");
+				let name: string | null = null;
+				rerankTexts({
+					query: "rank",
+					texts: ["a", "b"],
+					timeoutMs: 5000,
+				}).catch((error: Error) => {
+					name = error.name;
+				});
+				await vi.advanceTimersByTimeAsync(300);
+				expect(name).toBe("AbortError");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+	});
 });

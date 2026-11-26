@@ -11,6 +11,9 @@
 // variant; or `VIDEO_CAPTION_TEXT_RULES`, the alt block for an alt take that
 // starts from text and has no still). One system message, first: a chat
 // template may refuse a system message anywhere else (`captionSystemMessage`).
+// The last line of each block says how much of the clip the caption covers,
+// five or ten seconds: a take is one render either way, so one caption is
+// told the whole length (`coversLine`).
 //
 // The endpoint is configuration (ADR-0068): an address the app calls without a
 // click comes from the admin's settings, never from anything a model wrote.
@@ -26,6 +29,7 @@ import {
 	isVideoCaptionConfigured,
 } from "$lib/server/config-store";
 import type { LtxVideoVariant } from "$lib/server/services/images/comfyui/ltx-spec";
+import type { VideoDurationSeconds } from "$lib/server/services/images/video/request";
 import { buildOpenAICompatibleUrl } from "$lib/server/services/openai-compatible-url";
 
 /**
@@ -62,6 +66,15 @@ If the user wrote in another language, produce the English caption of the same c
 AESTHETIC QUALITY (in addition to the above, without breaking the objective caption style or contradicting the reference image): render the described scene with strong visual production value — cinematic, film-grade color and contrast, beautiful natural lighting, crisp fine detail and texture, pleasing composition and depth. Weave these quality descriptors naturally into the same observable prose (e.g. "warm cinematic lighting", "richly saturated film-grade color", "crisp high-resolution detail") — describe how the exact requested scene, starting from this frame, LOOKS at its most visually striking, never adding new objects or actions and never contradicting the first frame. Keep everything else (first-frame grounding, framing triple, soundscape, chronological single paragraph, faithfulness) exactly as specified.`;
 
 /**
+ * The line every block of the app's rules ends on: how much of the clip the
+ * caption covers. A take is one render of five or ten seconds and is captioned
+ * once, so the caption is told the whole length (`captionRules`).
+ */
+function coversLine(durationSeconds: VideoDurationSeconds): string {
+	return `- The caption covers ${durationSeconds === 10 ? "ten" : "five"} seconds of action.`;
+}
+
+/**
  * The app's own words, sent after the vendored instruction and never inside
  * it (review C-1). The instruction expects the reference image beside the
  * request, but this endpoint is sent words only: told so, the model writes the
@@ -80,7 +93,7 @@ House rules for these clips, over the instruction above:
 - The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.
 - Everyone and everything in the first frame stays in frame.
 - No on-screen text, titles, captions or logos.
-- The caption covers five seconds of action.`;
+${coversLine(5)}`;
 
 /**
  * The second engine variant's app block, sent INSTEAD of the house rules and
@@ -97,7 +110,7 @@ House rules for these clips, over the instruction above:
 - The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.
 - Everyone and everything in the first frame stays in frame.
 - No on-screen text, titles, captions or logos.
-- The caption covers five seconds of action.`;
+${coversLine(5)}`;
 
 /**
  * The alt block for a take that starts from text: the same block without the
@@ -106,10 +119,10 @@ House rules for these clips, over the instruction above:
  * — no reference image is attached — and asks the caption to establish the
  * scene from the person's own words, saying plainly that inventing that detail
  * is right here, unlike a picture take whose frame already fixes it. It never
- * claims a frame cannot exist: a continuation's opening frame is the previous
- * segment's last frame. Everything the alt block still asks for is kept: one
- * continuous take, the static camera, no on-screen text, five seconds, and no
- * addition beyond the request. ASCII English (ruling 79).
+ * claims a frame cannot exist: the clip does open on one, only no reference
+ * image is attached for it. Everything the alt block still asks for is kept:
+ * one continuous take, the static camera, no on-screen text, the clip's
+ * length, and no addition beyond the request. ASCII English (ruling 79).
  */
 export const VIDEO_CAPTION_TEXT_RULES = `The user's own words set what to describe: describe the subject, clothing, action and state exactly as the request names them, and show what changes as the action unfolds. No reference image is attached: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself. Inventing that detail is right here, unlike a picture take whose frame already fixes it. Stay with their request: do not add people, objects or events the request did not name, and leave out nothing it did name. Expand the request faithfully into the instruction's caption style, with the sound woven into the same single paragraph as the picture.
 
@@ -117,49 +130,48 @@ House rules for these clips, over the instruction above:
 - A single continuous take, no cuts.
 - The camera stays static, as on a tripod, unless the user asks for a camera move; it never pushes in or crops.
 - No on-screen text, titles, captions or logos.
-- The caption covers five seconds of action.`;
-
-/**
- * The note that makes a caption the SECOND five seconds of a ten-second clip
- * (review C-2): segment 2 starts on segment 1's last frame, so its caption goes
- * on from there. Sent the same caption, it replayed the action from its start
- * and spoke the same dialogue twice. `first` is segment 1's caption, data.
- */
-export function videoContinuationNote(first: string): string {
-	return `This caption is for the SECOND five seconds of a ten-second clip. Its first frame is the last frame of the first five seconds, which were captioned as follows:
-
-${first}
-
-Continue from that last moment: describe only what happens in the next five seconds, as the action goes on. Do not start the action over, do not repeat what already happened, and do not repeat any dialogue already spoken.`;
-}
+${coversLine(5)}`;
 
 /**
  * The caption request's one system message: the vendored instruction first and
- * unchanged, then the variant's own rules, each after a blank line, and the
- * continuation note last. Never several system messages: Qwen's chat template
- * refuses a system message anywhere but first, and the endpoint answers 400
- * ("System message must be at the beginning."). Measured on the box on
- * 2026-11-17, when the house rules went in a second message: every caption
- * failed and fell back to the person's words.
+ * unchanged, then the variant's own rules after a blank line. Never several
+ * system messages: Qwen's chat template refuses a system message anywhere but
+ * first, and the endpoint answers 400 ("System message must be at the
+ * beginning."). Measured on the box on 2026-11-17, when the house rules went in
+ * a second message: every caption failed and fell back to the person's words.
  */
-function captionSystemMessage(rules: string, note?: string): string {
-	return [LTX24_I2V_INSTRUCTION, rules, ...(note ? [note] : [])].join("\n\n");
+function captionSystemMessage(rules: string): string {
+	return [LTX24_I2V_INSTRUCTION, rules].join("\n\n");
 }
 
 /**
  * The app's block for a variant: the house rules, the alt block, or, for an
- * alt take that starts from text, the text-take block.
+ * alt take that starts from text, the text-take block. Each is written for the
+ * five-second clip; a ten-second take gets the same block with its last line
+ * naming ten.
  */
-function captionRules(variant: LtxVideoVariant, fromText: boolean): string {
-	if (variant !== "alt") return VIDEO_CAPTION_HOUSE_RULES;
-	return fromText ? VIDEO_CAPTION_TEXT_RULES : VIDEO_CAPTION_ALT_RULES;
+function captionRules(
+	variant: LtxVideoVariant,
+	fromText: boolean,
+	durationSeconds: VideoDurationSeconds,
+): string {
+	let rules = VIDEO_CAPTION_HOUSE_RULES;
+	if (variant === "alt") {
+		rules = fromText ? VIDEO_CAPTION_TEXT_RULES : VIDEO_CAPTION_ALT_RULES;
+	}
+	return rules.replace(coversLine(5), coversLine(durationSeconds));
 }
 
 /**
  * What a caption call may be given: the engine variant, whether the take starts
- * from text, and the caller's fetch.
+ * from text, the clip's length, and the caller's fetch.
  */
 type VideoCaptionOptions = {
+	/**
+	 * The clip's length, which the caption is told it covers: 5 by default, 10
+	 * for a ten-second take (one render, so one caption for all of it).
+	 */
+	durationSeconds?: VideoDurationSeconds;
 	variant?: LtxVideoVariant;
 	/**
 	 * True when the take starts from the person's words alone: the alt block's
@@ -212,38 +224,10 @@ export async function buildVideoPrompt(
 	}
 }
 
-/**
- * A 10 s take's second segment's caption: what happens next, from where the
- * first five seconds (`first`) end. Null when there is no caption endpoint or
- * it gives nothing usable: the segment then renders the first prompt again.
- */
-export async function buildVideoContinuationPrompt(
-	idea: string,
-	first: string,
-	options: VideoCaptionOptions = {},
-): Promise<string | null> {
-	if (!isVideoCaptionConfigured()) return null;
-	try {
-		const caption = await requestCaption(
-			idea.trim(),
-			options,
-			videoContinuationNote(first),
-		);
-		if (!caption || UNSEEN_IMAGE.test(caption)) return null;
-		return caption;
-	} catch (error) {
-		console.warn("[VIDEO] The second segment's caption failed", {
-			reason: error instanceof Error ? error.message : String(error),
-		});
-		return null;
-	}
-}
-
 /** One OpenAI-compatible chat completion; the caption, or null for nothing usable. */
 async function requestCaption(
 	motion: string,
 	options: VideoCaptionOptions,
-	note?: string,
 ): Promise<string | null> {
 	const url = buildOpenAICompatibleUrl(
 		getLtxCaptionUrl(),
@@ -270,8 +254,8 @@ async function requestCaption(
 						captionRules(
 							options.variant ?? "standard",
 							options.fromText === true,
+							options.durationSeconds ?? 5,
 						),
-						note,
 					),
 				},
 				{ role: "user", content: `User Raw Input Prompt: ${motion}.` },

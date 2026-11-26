@@ -1,0 +1,744 @@
+{
+  "about": [
+    {
+      "factKey": "v2:ongoing:o-en-01:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "My supervisor says the literature review in my dissertation on keeping bees in cities is too long. How do I cut 2,000 words without losing the good stuff?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-01:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Átnéznéd a diplomamunkám bevezetőjét? A városi kaptárakról szól, és az eleje még elég suta."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-02:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Separate table or just a flag for recurring costs, like van hire and weekly supplier orders? It's for the finance app I'm making for my sister's catering company."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-02:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Kéne egy havi összesítő riport abba az appba, amit a nővérem partiszerviz cégének építek. Mit javasolsz, PDF-et vagy Excelt exportáljon?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-04:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "What should my long run look like in January if Lakeside is in April? I'm out almost every other day and a bit worried about overdoing it."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-04:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Újra fáj a sípcsontom futás után. Ez már a túledzés jele, vagy normális, ha áprilisban a Lakeside-on szeretnék jó időt futni?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-06:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Physio just added resistance band rotations to my shoulder routine. Should I do them on the days I don't go in, or only when I'm at the clinic?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-06:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "A bal vállam még mindig belenyilall, ha hátrafelé nyúlok. Normális ez egy hónapnyi gyógytorna után?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-05:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "If I'm doing the bathroom up a little at a time, what order makes sense? I don't want to rip out something I just finished."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-05:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Milyen sorrendben érdemes haladni, ha a fürdőszobát nem egyben, hanem darabonként csinálom meg?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-05:0",
+      "factIndex": 1,
+      "lang": "en",
+      "message": "The tiling is booked for later this month. Do I need to buy the adhesive and grout myself first, or do the installers bring their own?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-05:0",
+      "factIndex": 1,
+      "lang": "hu",
+      "message": "A hónap végén jön a burkoló a fürdőbe. Előre nekem kell megvennem a ragasztót meg a fugát?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-07:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "wa vs ga again? I keep mixing them up when I build sentences from my vocab cards."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-07:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan tudnám megjegyezni a japán igeragozást? A szavakat bemagolom, de a végződések valahogy nem ragadnak meg."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-08:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "What's the safest way to get rust out of an old petrol tank without ruining the paint? It's off my grandad's old bike that I'm fixing up on Saturdays."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-08:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hol lehet még gyári alkatrészt szerezni a nagyapámtól maradt öreg motorhoz?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-09:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Can you quiz me before tonight's class? We're on ring circuits versus radials and I always get the fuse ratings wrong."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-09:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Átismételnéd velem a földelés és a nullázás közti különbséget? Holnap este dolgozatot írunk az átképzésen."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-10:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Should the goat in my kids' book actually talk, or just bleat and let the pictures do the work?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-10:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hány szó férjen el egy oldalon egy 3-5 éveseknek szóló képeskönyvben? A világítótoronyőr kecskéjéről írok, és szerintem túl szövegesre sikerült."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-03:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "How long before a cello stops sounding like a cat in trouble? I'm about two months in."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-03:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Mikor kezd végre tisztán szólni a gordonka? Szeptember óta tanulom, és a vonó még mindig nyikorog."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-03:0",
+      "factIndex": 1,
+      "lang": "en",
+      "message": "Do cello mutes actually work? Playing most nights and the neighbours are starting to give me that look."
+    },
+    {
+      "factKey": "v2:ongoing:o-en-03:0",
+      "factIndex": 1,
+      "lang": "hu",
+      "message": "Érdemes szordínót venni a csellóhoz? Esténként játszom rajta, és nem szeretném, hogy a szomszédok felmenjenek a falra."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-01:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Can you help me find academic sources on gully erosion in the Bakony hills? I need a few more references for the field data chapter of my thesis."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-01:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "A szakdogámhoz a Bakonyban mérem az eróziós árkok mélyülését. Melyik terepi módszer a legmegbízhatóbb, ha nincs drága felszerelésem?"
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-02:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "What's a good free weather API for a hobby project? A few friends and I are building a forecast app in the evenings and our current one has a tiny request limit."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-02:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan cache-eljem az időjárási adatokat abban az appban, amit a srácokkal építünk, hogy ne fogyjon el a napi limit?"
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-03:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Should I buy a digital piano with weighted keys, or is a cheap keyboard enough? I've been learning since last autumn."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-03:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan gyakoroljak hatékonyabban a zongorán, ha csak pár alkalom jut egy hétre? Egy éve tanulok, és a bal kezem még mindig lemarad."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-06:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "When can people usually start jogging again after knee surgery? I'm in rehab classes a few times a week and everyone keeps telling me to be patient."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-06:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "A térdoperáció után mikor ülhetek újra biciklire?"
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-04:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "What pace should I aim for on my long runs if I want to break two hours at Balaton next spring? I'm out four days a week at the moment."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-04:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hány kilométeres hosszú futást érdemes beiktatni márciusban, ha tavasszal a Balatonnál sub 2 óra a cél?"
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-05:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "We're halfway through tiling the kitchen wall. How long do I leave the adhesive before I start grouting?"
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-05:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Mennyit várjak a fugázással, ha tegnap raktuk fel a konyhai burkolatot?"
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-08:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "What kind of foundation works best for a small wooden garden cabin on a sloping plot? I'm building it on my grandad's land, a bit every weekend."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-08:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Milyen lazúrral érdemes lekenni a faanyagot, hogy kibírja a telet? A nagyapám telkén épül a kis házikó, hétvégéről hétvégére haladok vele."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-07:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Any good Swedish podcasts for someone about a year in? Something slower than normal speech, please."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-07:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan gyakoroljam a svéd sj-hangot? Hallgatni hallom a felvételeken, de utánozni nem megy."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-09:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Can you make me a realistic weekly study plan for my psychology course in Szeged? I only have evenings and weekends because of work."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-09:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan osszam be a tanulást a szegedi konzultációs hétvégék között, ha közben teljes munkaidőben dolgozom? A lélektanjegyzetek már tornyosulnak."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-10:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "How long should each chapter of a storybook be for five-year-olds? I'm on the third one, about a little green hedgehog, and it's starting to drag."
+    },
+    {
+      "factKey": "v2:ongoing:o-hu-10:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan vigyek több izgalmat a mesekönyvem közepébe úgy, hogy egy ötévest se ijesszen meg? A sünöm eddig csak sétál az erdőben."
+    },
+    {
+      "factKey": "v2:temporary:t-en-02:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "wait, what day is my dentist again?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-02:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Mikor ehetek újra rendesen? A fogászaton voltam, és még mindig érzéstelenítve van a fél arcom."
+    },
+    {
+      "factKey": "v2:temporary:t-en-01:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Ugh, still can't shake this cold. Day eight now."
+    },
+    {
+      "factKey": "v2:temporary:t-en-01:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Még mindig szipogok, és fáj a fejem. Meddig szokott tartani egy erősebb megfázás? Már egy hete húzódik."
+    },
+    {
+      "factKey": "v2:temporary:t-en-05:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "What's the easiest way to get from Lisbon airport to the city centre? I land around midday and it's a work trip."
+    },
+    {
+      "factKey": "v2:temporary:t-en-05:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Mit érdemes megkóstolni Lisszabonban, ha csak egy estém lesz szabad? Céges kiküldetésben vagyok, egy szakmai rendezvényre repülök."
+    },
+    {
+      "factKey": "v2:temporary:t-en-04:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Any ideas what to bring my grandparents this weekend? I'm driving up and it's a long trip, so nothing that melts or squashes."
+    },
+    {
+      "factKey": "v2:temporary:t-en-04:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hétvégére felmegyek a nagyiékhoz. Mit lehet velük csinálni úgy, hogy ne fárasszam ki őket, de ők is jól érezzék magukat?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-03:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Can you give me ten mock questions on right-of-way rules? My theory test for my driving licence is coming up and I keep mixing up priority at junctions."
+    },
+    {
+      "factKey": "v2:temporary:t-en-03:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hány hibapontot lehet összeszedni a KRESZ-tesztben úgy, hogy még átmenjek? Nem szeretnék újra befizetni a vizsgára."
+    },
+    {
+      "factKey": "v2:temporary:t-en-03:0",
+      "factIndex": 1,
+      "lang": "en",
+      "message": "I'm honestly freaking out about my driving theory test. What if my mind goes blank on the day?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-03:0",
+      "factIndex": 1,
+      "lang": "hu",
+      "message": "Be vagyok parázva a jogsi elméleti részétől. Mit csináljak?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-06:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "ankle's still swollen after a few days, ice or heat now?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-06:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Bokaficam után mikor lehet visszamenni focizni? A srácok a csapatból már kérdezgetik, de még dagadt a bokám."
+    },
+    {
+      "factKey": "v2:temporary:t-en-08:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "The heating guy is coming over on Sunday morning to look at the boiler. Should I switch anything off beforehand, or just stay out of the way?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-08:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Mennyi idő alatt végez általában a szerelő egy kazánellenőrzéssel? Vasárnap délelőtt jön, és szeretném tudni, mikor szabadulok."
+    },
+    {
+      "factKey": "v2:temporary:t-en-10:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "what do you wear to an interview at a small design studio? suit feels too stiff, hoodie too casual"
+    },
+    {
+      "factKey": "v2:temporary:t-en-10:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan készüljek az interjúra, amit egy dizájnstúdióba kaptam? Mennyire kell részletesen bemutatnom a portfóliómat?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-07:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "ugh, the report is due at noon and I've barely started the results section. where do I even begin"
+    },
+    {
+      "factKey": "v2:temporary:t-en-07:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Segíts, kérlek! Déli határidővel kell leadnom a projektbeszámolót, és még az elemzés részhez sem nyúltam. Hol kezdjem?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-09:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "I'm keeping an eye on my neighbours' place while they're away. What's the right way to check for frozen pipes if the heating is on low?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-09:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Tíz napig a szomszédék házára kell vigyáznom, amíg nincsenek itthon. Mit érdemes naponta végignéznem, hogy semmi ne maradjon ki?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-02:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Is it normal for a filled tooth to be sensitive to cold for a few days afterwards? I had it done at the dentist yesterday."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-02:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Kaptam időpontot a fogászatra, ki kell javítani egy lyukas fogat. Mit szoktak csinálni, hogy ne fájjon? Rettegek a fúrótól."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-01:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "My throat has been killing me for days and I think I've got a slight fever in the evenings. Should I see a doctor or wait it out?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-01:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Fáj a torkom, kicsit lázas is vagyok. Menjek orvoshoz, vagy elég, ha kipihenem?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-05:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "What's the weather like in Barcelona in late November? I'm flying out for a conference and I don't know if I need a proper coat."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-05:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogy jutok be a barcelonai reptérről a belvárosba a legolcsóbban? Reggel indul a gépem a konferenciára, és taxira nem akarok költeni."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-04:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "I'm going down to see my parents in Pécs this weekend. Any nice cafés or a good spot for a quiet Sunday walk there?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-04:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Na, megérkeztem Pécsre, anyáék már vacsorával vártak :)"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-07:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Can you give me a simple structure for a quarterly report? I have all the figures but none of the text, and it has to go in by noon."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-07:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Délig kell elküldenem a negyedéves anyagot, és még a vezetői összefoglaló hiányzik. Segítesz?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-06:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "wait, how many more weeks am I stuck in this cast?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-06:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan lehet úgy zuhanyozni, hogy ne ázzon be a lábamon a gipsz? December közepéig még bírnom kell, és már most az agyamra megy a mankó."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-03:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "I have my final exam in about a week and I've barely opened my notes. Can you help me plan the days so I cover the whole syllabus?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-03:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hogyan osszam be az utolsó pár napot a záróra? Alig tanultam eddig, és rengeteg a tétel."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-10:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "Any good questions I should ask at the end of a job interview? It's at an online shop in Budapest and I want to look interested without sounding generic."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-10:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Csütörtökön lesz az interjúm a webshopnál, tiszta ideg vagyok. Mondj valami megnyugtatót!"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-08:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "How much should a plumber normally charge to fix a dripping tap? Somebody's coming round soon to have a look and I don't want to get overcharged."
+    },
+    {
+      "factKey": "v2:temporary:t-hu-08:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hétfőn jön a vízszerelő a szivárgó csaphoz. Zárjam el előtte a főcsapot, vagy ő majd megoldja?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-09:0",
+      "factIndex": 0,
+      "lang": "en",
+      "message": "My girlfriend's gone to Italy for two weeks and her cat has barely touched its food since. Is that normal?"
+    },
+    {
+      "factKey": "v2:temporary:t-hu-09:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "A barátnőm macskája alig eszik, mióta a gazdi elutazott. Még jó pár napig én vigyázok rá, szóval mit csináljak, hogy ne fogyjon le?"
+    }
+  ],
+  "unrelated": [
+    {
+      "lang": "en",
+      "message": "Can you explain photosynthesis so a nine-year-old would get it? My son has a quiz tomorrow."
+    },
+    {
+      "lang": "en",
+      "message": "What's the difference between area and perimeter? My daughter keeps mixing them up on her worksheet."
+    },
+    {
+      "lang": "en",
+      "message": "How do I write a decent book report for a fifth grader? He has to do one on Charlie and the Chocolate Factory."
+    },
+    {
+      "lang": "en",
+      "message": "Easy dinner for four using chicken thighs and whatever's in the fridge? We've got rice, peppers and a tub of yoghurt."
+    },
+    {
+      "lang": "en",
+      "message": "We're having six adults and three kids over on Saturday, one vegetarian and one with a nut allergy. Can you plan a simple menu I can mostly prep the day before?"
+    },
+    {
+      "lang": "en",
+      "message": "Why does my Python script say 'list index out of range' when I loop through the lines of a file?"
+    },
+    {
+      "lang": "en",
+      "message": "How do I make a Python script run automatically every morning at 7? Mac, if that matters."
+    },
+    {
+      "lang": "en",
+      "message": "Thinking of a week in Crete in June with two small kids. Is it going to be too hot?"
+    },
+    {
+      "lang": "en",
+      "message": "What should I pack for a long weekend in Edinburgh at the end of March? Is it still cold?"
+    },
+    {
+      "lang": "en",
+      "message": "8 GB or 16 GB of RAM for a student laptop? Mostly browsing and Word."
+    },
+    {
+      "lang": "en",
+      "message": "Birthday gift ideas for a 12-year-old who loves drawing? Budget is about 20 euros."
+    },
+    {
+      "lang": "en",
+      "message": "How much water should an adult actually drink in a day? Is the eight glasses thing a myth?"
+    },
+    {
+      "lang": "en",
+      "message": "Is it normal to feel tired all the time in winter? Asking for my mum."
+    },
+    {
+      "lang": "en",
+      "message": "Tell me something interesting I don't know."
+    },
+    {
+      "lang": "en",
+      "message": "Can you recommend a history podcast for the school run? Nothing too dry."
+    },
+    {
+      "lang": "en",
+      "message": "My cat refuses to touch the new scratching post. Any tricks?"
+    },
+    {
+      "lang": "en",
+      "message": "Can you draft a polite message to the school saying my daughter is off sick today?"
+    },
+    {
+      "lang": "en",
+      "message": "ok thanks"
+    },
+    {
+      "lang": "en",
+      "message": "and?"
+    },
+    {
+      "lang": "en",
+      "message": "go on"
+    },
+    {
+      "lang": "hu",
+      "message": "Mi a különbség az alany és az állítmány között? A fiamnak holnapra át kell ismételnie a mondatelemzést."
+    },
+    {
+      "lang": "hu",
+      "message": "Hogy kell törtet törttel osztani? A lányom ötödikes, és nem érti, miért kell a második törtet megfordítani."
+    },
+    {
+      "lang": "hu",
+      "message": "Röviden, érthetően: mi történt Mohácsnál 1526-ban? A hatodikos lányomnak kell egy kiselőadáshoz."
+    },
+    {
+      "lang": "hu",
+      "message": "Van otthon egy kiló darált húsom meg egy doboz tejfölöm. Mit főzzek belőle vacsorára?"
+    },
+    {
+      "lang": "hu",
+      "message": "Szombaton kilencen jönnek hozzánk ebédre, ebből három gyerek, egy vegetáriánus és egy mogyoróallergiás. Tudnál összeállítani egy egyszerű menüt, amit nagyrészt előző nap elő tudok készíteni?"
+    },
+    {
+      "lang": "hu",
+      "message": "Miért nem lép be a for ciklusom Pythonban? Átnéztem többször, de nem találom a hibát."
+    },
+    {
+      "lang": "hu",
+      "message": "Mi a különbség a Git merge és a rebase között? Mindig összezavarodom."
+    },
+    {
+      "lang": "hu",
+      "message": "Szerinted megéri vonattal menni Bécsbe egy hétvégére, vagy inkább autóval? Négyen lennénk."
+    },
+    {
+      "lang": "hu",
+      "message": "Jobb júniusban vagy szeptemberben menni Horvátországba két kisgyerekkel? Melyik kevésbé zsúfolt?"
+    },
+    {
+      "lang": "hu",
+      "message": "Tablet vagy olcsó laptop a gyereknek? Főleg iskolai feladatokra kéne."
+    },
+    {
+      "lang": "hu",
+      "message": "Mit vegyek ajándékba egy 12 éves rajzolós lánynak? Maximum nyolcezer forint."
+    },
+    {
+      "lang": "hu",
+      "message": "Mennyi vizet kell inni naponta egy felnőttnek? Tényleg kell a napi két liter?"
+    },
+    {
+      "lang": "hu",
+      "message": "Hány óra alvás kell egy tizenévesnek? A fiam hajnalig fent van a telefonján."
+    },
+    {
+      "lang": "hu",
+      "message": "Mesélj valami érdekeset, amit még nem tudok."
+    },
+    {
+      "lang": "hu",
+      "message": "Jó reggelt! Te hogy vagy ma?"
+    },
+    {
+      "lang": "hu",
+      "message": "A cicánk nem hajlandó használni az új kaparófát. Van valami trükk?"
+    },
+    {
+      "lang": "hu",
+      "message": "Tudnál írni egy udvarias üzenetet az osztályfőnöknek, hogy a lányom ma beteg, és nem tud iskolába menni?"
+    },
+    {
+      "lang": "hu",
+      "message": "köszi"
+    },
+    {
+      "lang": "hu",
+      "message": "és aztán?"
+    },
+    {
+      "lang": "hu",
+      "message": "folytasd"
+    }
+  ],
+  "crossLanguage": [
+    {
+      "factKey": "v2:temporary:t-en-02:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hétfőn lesz a fogorvosi időpontom, és már most remegek. Érdemes kérni, hogy adjanak valami nyugtatót, vagy az túlzás egy sima tömés miatt?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-01:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hétfő óta tart ez a ronda nátha, ma ki sem keltem az ágyból. Mikor kell már orvoshoz menni, ha nem javul?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-05:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Kedden repülök Lisszabonba a céges konferenciára. Mit érdemes bepakolnom a kézipoggyászba, hogy ne kelljen feladni bőröndöt?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-04:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Hosszú autóút lesz a nagyszüleimhez a hétvégén. Tudsz mondani jó hangoskönyvet vagy podcastot az útra?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-03:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Ajánlanál egy jó ingyenes appot a KRESZ-tanuláshoz? Hamarosan vizsgázom, és a papírkönyvtől elalszom."
+    },
+    {
+      "factKey": "v2:temporary:t-en-06:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Kificamodott a bokám, és az orvos szerint pár hétig nem focizhatok. Mit csináljak addig, hogy ne essek ki teljesen a formából?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-08:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Egész délelőtt itthon kell maradnom vasárnap, mert jön megnézni a kazánt valaki. Mi mindent érdemes megkérdeznem tőle, ha már itt lesz?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-10:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Szerdán interjúm lesz egy dizájnstúdiónál. Hogyan feleljek ügyesen arra a kérdésre, hogy miért pont hozzájuk jelentkeztem?"
+    },
+    {
+      "factKey": "v2:temporary:t-en-09:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "A szomszédék tíz napra elutaztak, és rám bízták a házukat. Mennyit fűtsek, hogy ne fagyjon el semmi, de a számlájuk se legyen horror?"
+    },
+    {
+      "factKey": "v2:ongoing:o-en-03:0",
+      "factIndex": 0,
+      "lang": "hu",
+      "message": "Szeptemberben kezdtem csellózni, és az ujjbegyeim még mindig fájnak a húroktól. Ez normális a kezdetekkor?"
+    }
+  ]
+}

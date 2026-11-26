@@ -37,6 +37,8 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import { serializeImageVersionBody } from "$lib/shared/artifacts/image-body";
+import { serializeVideoVersionBody } from "$lib/shared/artifacts/video-body";
 
 let memory: InMemoryDatabase;
 
@@ -1958,11 +1960,19 @@ describe("a Canvas's content, in logs and in telemetry", () => {
 			},
 		});
 
-		const tables = memory.sqlite
-			.prepare(
-				"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'",
-			)
-			.all() as { name: string }[];
+		// Ordinary tables only: the search index's shadow tables hold its own
+		// encoding, which no text scan can read, so the index is asked below.
+		const tables = (
+			memory.sqlite.prepare("PRAGMA main.table_list").all() as {
+				name: string;
+				type: string;
+			}[]
+		).filter(
+			(table) =>
+				table.type === "table" &&
+				!table.name.startsWith("sqlite_") &&
+				!table.name.startsWith("__drizzle"),
+		);
 		const holdingIt: string[] = [];
 		for (const { name } of tables) {
 			const rows = memory.sqlite.prepare(`SELECT * FROM "${name}"`).all();
@@ -1975,6 +1985,15 @@ describe("a Canvas's content, in logs and in telemetry", () => {
 			["artifact_comments", "artifact_versions", "artifacts"].sort(),
 		);
 		expect(holdingIt.every((name) => OWN_TABLES.has(name))).toBe(true);
+		// A board's JSON is never indexed for search, so no index holds its words.
+		for (const index of ["messages_fts", "artifacts_fts"]) {
+			expect(
+				memory.sqlite
+					.prepare(`SELECT count(*) FROM ${index} WHERE ${index} MATCH ?`)
+					.pluck()
+					.get(`"${SECRET_WORD}"`),
+			).toBe(0);
+		}
 	});
 });
 
@@ -2618,5 +2637,220 @@ describe("a board deleted from Knowledge -> Documents, with its poster files", (
 		expect(boardRows(boardId).body).toBeUndefined();
 		expect(fileIds()).toEqual(["other-poster", "same-name"]);
 		expect(boardRows(other.boardId).body).toBeDefined();
+	});
+});
+
+// ── Workspace Search over pictures, videos, canvases and apps ────────────
+//
+// Search finds these by what they hold: a picture's prompt, a canvas's words,
+// a video's takes and what Alfy saw in an uploaded picture. Those words live in
+// rows keyed by the artifact (`video_jobs`, `image_descriptions`) or inside its
+// body, so the ownership scope has to be what picks the artifact before any of
+// them is read: an incognito chat's, and a kept row whose chat is gone, must
+// never answer.
+describe("Workspace Search over pictures, videos, canvases and apps", () => {
+	/** A word that exists only inside the seeded artifacts' fields, never in a name. */
+	const WORD = "quokka";
+
+	function seedKinds(
+		conversationId: string,
+		prefix: string,
+		options: { withUpload?: boolean } = {},
+	): string[] {
+		const family = (
+			kind: string,
+			name: string,
+			contentText: string,
+		): string => {
+			const id = `${prefix}-${kind}`;
+			memory.db
+				.insert(schema.artifacts)
+				.values({
+					id,
+					userId: USER,
+					conversationId,
+					type: "artifact",
+					retrievalClass: "durable",
+					name,
+					contentText,
+					metadataJson: JSON.stringify({ artifactType: kind, title: name }),
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			return id;
+		};
+		const ids = [
+			family(
+				"image",
+				`${prefix} picture`,
+				serializeImageVersionBody({
+					v: 1,
+					fileId: `${prefix}-picture-file`,
+					width: 800,
+					height: 600,
+					hasAlpha: false,
+					baseFileId: null,
+					sources: [],
+					marks: null,
+					prompt: `a ${WORD} sitting on a rock`,
+					takeId: null,
+					seed: 1,
+					anchorFileId: null,
+					chainSinceAnchor: 0,
+				}),
+			),
+			family(
+				"video",
+				`${prefix} clip`,
+				serializeVideoVersionBody({
+					v: 1,
+					fileId: `${prefix}-clip-file`,
+					posterFileId: `${prefix}-clip-file`,
+					width: 1280,
+					height: 704,
+					durationMs: 5000,
+					sourceFileId: null,
+				}),
+			),
+			family(
+				"canvas",
+				`${prefix} board`,
+				JSON.stringify({
+					version: 1,
+					nodes: [
+						{
+							id: "n1",
+							type: "sticky",
+							position: { x: 0, y: 0 },
+							data: { kind: "sticky", text: `${WORD} habitat`, tone: "mint" },
+						},
+					],
+				}),
+			),
+			family("app", `${WORD} counter ${prefix}`, "<div>counter</div>"),
+		];
+		memory.db
+			.insert(schema.videoJobs)
+			.values({
+				id: `${prefix}-job`,
+				userId: USER,
+				conversationId,
+				artifactId: `${prefix}-video`,
+				origin: "turn",
+				requestJson: JSON.stringify({
+					v: 1,
+					prompt: `a ${WORD} swimming`,
+					durationSeconds: 5,
+					sourceFileId: null,
+					fromText: true,
+					title: "Clip",
+					summary: null,
+					artifactId: null,
+					explicitVariant: false,
+				}),
+				seed: 1,
+				status: "succeeded",
+				createdAt: NOW,
+			})
+			.run();
+		if (options.withUpload) {
+			const upload = `${prefix}-photo`;
+			memory.db
+				.insert(schema.artifacts)
+				.values({
+					id: upload,
+					userId: USER,
+					conversationId,
+					type: "source_document",
+					retrievalClass: "durable",
+					name: `${prefix}-IMG_0001.png`,
+					mimeType: "image/png",
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.imageDescriptions)
+				.values({
+					artifactId: upload,
+					userId: USER,
+					description: `a ${WORD} in the long grass`,
+					modelName: "test-model",
+					createdAt: NOW,
+				})
+				.run();
+			ids.push(upload);
+		}
+		return ids;
+	}
+
+	it("never returns an incognito chat's picture, video, canvas, app or uploaded picture", async () => {
+		seedKinds(INCOGNITO, "secret", { withUpload: true });
+
+		for (const scope of ["all", "documents", "media", "apps"] as const) {
+			const found = await searchWorkspace(USER, { query: WORD, scope });
+			expect(found.documents, scope).toEqual([]);
+			expect(found.totals, scope).toMatchObject({
+				documents: 0,
+				media: 0,
+				apps: 0,
+			});
+		}
+	});
+
+	it("finds the same kinds in a normal chat, so the refusal above is the scope and not a broken query", async () => {
+		const ids = seedKinds(NORMAL, "open", { withUpload: true });
+
+		const found = await searchWorkspace(USER, { query: WORD });
+
+		expect(found.documents.map((row) => row.displayArtifactId).sort()).toEqual(
+			[...ids].sort(),
+		);
+		expect(found.totals).toMatchObject({ media: 3, documents: 1, apps: 1 });
+	});
+
+	it("never returns them once their chat is deleted and an outside reference kept the rows", async () => {
+		const ids = seedKinds(INCOGNITO, "kept");
+		for (const id of ids) {
+			memory.db
+				.insert(schema.artifactLinks)
+				.values({
+					id: `link-${id}`,
+					userId: USER,
+					artifactId: id,
+					conversationId: NORMAL,
+					linkType: "attached_to_conversation",
+					createdAt: NOW,
+				})
+				.run();
+		}
+
+		await deleteConversationWithCleanup(USER, INCOGNITO);
+
+		// The setup is only worth something if rows were kept with their chat link
+		// cleared. Cleanup removes a picture's or a clip's row with its files; a
+		// board and an app are the kept ones.
+		const kept = memory.db
+			.select({
+				id: schema.artifacts.id,
+				conversationId: schema.artifacts.conversationId,
+			})
+			.from(schema.artifacts)
+			.all();
+		expect(kept.map((row) => row.id)).toEqual(
+			expect.arrayContaining(["kept-canvas", "kept-app"]),
+		);
+		expect(kept.every((row) => row.conversationId === null)).toBe(true);
+
+		for (const scope of ["all", "documents", "media", "apps"] as const) {
+			const found = await searchWorkspace(USER, { query: WORD, scope });
+			expect(found.documents, scope).toEqual([]);
+			expect(found.totals, scope).toMatchObject({
+				documents: 0,
+				media: 0,
+				apps: 0,
+			});
+		}
 	});
 });

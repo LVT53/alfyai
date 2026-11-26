@@ -174,12 +174,30 @@ describe("NEW", () => {
 		expect(rows).not.toContain(rowOf("memory"));
 	});
 
+	it("marks Memory NEW for the redesign, in both languages, and only from the day it reached the app", () => {
+		vi.setSystemTime(new Date("2026-11-24T12:00:00Z"));
+		const { unmount } = render(GuidePage);
+		const rows = screen
+			.getAllByText("NEW")
+			.map((mark) => mark.closest('[data-testid="guide-row"]'));
+		expect(rows).toContain(rowOf("memory"));
+		// The window ends with 2026-12-23: Memory is NEW for its thirty days.
+		unmount();
+		vi.setSystemTime(new Date("2026-12-23T23:59:59Z"));
+		uiLanguage.set("hu");
+		render(GuidePage);
+		const hungarian = screen
+			.getAllByText("ÚJ")
+			.map((mark) => mark.closest('[data-testid="guide-row"]'));
+		expect(hungarian).toContain(rowOf("memory"));
+	});
+
 	it("is gone after the thirty days, and nothing else ever wore it", () => {
 		// Past all the windows: "Alfy asks first" (2026-11-05), Videos
 		// (2026-11-15), Listen to a reply and Voices that read to you
-		// (2026-11-17), and Send with Enter (2026-11-18, NEW up to but not
-		// including 2026-12-18).
-		vi.setSystemTime(new Date("2026-12-18T00:00:00Z"));
+		// (2026-11-17), Send with Enter (2026-11-18) and Memory (2026-11-24, NEW
+		// up to but not including 2026-12-24).
+		vi.setSystemTime(new Date("2026-12-24T00:00:00Z"));
 		render(GuidePage);
 
 		expect(screen.queryByText("NEW")).not.toBeInTheDocument();

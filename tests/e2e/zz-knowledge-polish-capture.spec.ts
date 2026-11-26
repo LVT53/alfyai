@@ -16,6 +16,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { type Page, test } from "@playwright/test";
 import Database from "better-sqlite3";
 import { login, waitForHydration } from "./helpers";
+import { keepAdminOnTodaysMemoryPage } from "./memory-helpers";
 
 test.skip(
 	process.env.KNOWLEDGE_CAPTURE !== "1",
@@ -480,18 +481,26 @@ test.describe("knowledge polish captures", () => {
 	for (const theme of ["light", "dark"] as const) {
 		// -------------------------------------------------------------- memory
 		test(`memory states (${theme})`, async ({ page }) => {
+			// Today's list, kept by an account whose labels are not verified.
+			const restoreMemoryPage = keepAdminOnTodaysMemoryPage();
 			await stubMemory(page);
-			for (const [label, width, height] of WIDTHS) {
-				await page.setViewportSize({ width, height });
-				await page.goto("/knowledge?tab=memory");
-				await waitForHydration(page);
-				await setTheme(page, theme);
-				await expect(page.getByTestId("memory-list")).toBeVisible();
-				await shoot(page, `mem-rest-${label}-${theme}`, theme);
-				const search = page.getByRole("searchbox", { name: "Search memories" });
-				await search.fill("nextcloud");
-				await expect(search).toHaveValue("nextcloud");
-				await shoot(page, `mem-filtered-${label}-${theme}`, theme);
+			try {
+				for (const [label, width, height] of WIDTHS) {
+					await page.setViewportSize({ width, height });
+					await page.goto("/knowledge?tab=memory");
+					await waitForHydration(page);
+					await setTheme(page, theme);
+					await expect(page.getByTestId("memory-list")).toBeVisible();
+					await shoot(page, `mem-rest-${label}-${theme}`, theme);
+					const search = page.getByRole("searchbox", {
+						name: "Search memories",
+					});
+					await search.fill("nextcloud");
+					await expect(search).toHaveValue("nextcloud");
+					await shoot(page, `mem-filtered-${label}-${theme}`, theme);
+				}
+			} finally {
+				restoreMemoryPage();
 			}
 		});
 		test(`documents states (${theme})`, async ({ page }) => {

@@ -2,9 +2,9 @@
 # docs/plans/video-review-2026-11-17/review.md), as comfyui-clean.service does
 # for Qwen and comfyui-h3-clean.service for H3. Every video take leaves its mp4
 # (blocked and incognito clips included, with the prompt in its tags) in
-# output/ and its guide stills in input/; nothing else removes them. A day is
+# output/ and its still in input/; nothing else removes them. A day is
 # far past VIDEO_RENDER_DEADLINE_MS (15 minutes), the longest a resumed take
-# still fetches its finished segments from output/
+# still fetches its saved clip from output/
 # (tests/integration/comfyui-ltx-sweep.test.ts holds the two together).
 # Install: deploy/comfyui/README.md.
 [Unit]

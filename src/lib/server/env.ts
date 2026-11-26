@@ -86,6 +86,24 @@ interface Config {
 	memoryJudgeIdleMinutes: number;
 	memoryConsolidationIntervalMinutes: number;
 	memoryJudgeDryRun: boolean;
+	// Native Memory recall: percent of each chat's memory space kept for the
+	// person's basics, and in a project chat for the project's own memories.
+	memoryRecallCorePercent: number;
+	memoryRecallProjectPercent: number;
+	// Native Memory aging, in whole days: when a temporary entry becomes
+	// Earlier, and when an ongoing one goes quiet and then Earlier.
+	memoryTemporaryEarlierDays: number;
+	memoryOngoingQuietDays: number;
+	memoryOngoingEarlierDays: number;
+	// The Earlier gate's reranker floors, scores from 0 to 1: an Earlier entry
+	// in the top three joins a turn at or above `memoryEarlierRerankMin`, or at
+	// or above `memoryEarlierRerankWordMin` when the words agree.
+	memoryEarlierRerankMin: number;
+	memoryEarlierRerankWordMin: number;
+	// How long a Memory job waits for Hindsight, across its attempts, in whole
+	// minutes: for a retain, and for a consolidation or the bank's quiet.
+	memoryRetainWaitMinutes: number;
+	memoryConsolidationWaitMinutes: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -387,6 +405,54 @@ function normalizeConfiguredModelId(value: unknown): ModelId {
 function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+/**
+ * A whole percent from 0 to 100 written as digits, or null for anything else
+ * (text, a fraction, a sign, a value above 100), so the caller keeps what it
+ * had: the environment its default, an admin override the current value.
+ */
+export function parseWholePercent(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d{1,3}$/.test(trimmed)) return null;
+	const percent = Number(trimmed);
+	return percent <= 100 ? percent : null;
+}
+
+/**
+ * A whole number of days from 1 to 3650 written as digits, or null for
+ * anything else, so the caller keeps what it had (a default, or the current
+ * value for an admin override). Zero is refused: an entry would age at once.
+ */
+export function parseWholeDays(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d{1,4}$/.test(trimmed)) return null;
+	const days = Number(trimmed);
+	return days >= 1 && days <= 3650 ? days : null;
+}
+
+/**
+ * A whole number of minutes from 1 to 1440 (a day) written as digits, or null
+ * for anything else, so the caller keeps what it had. Zero is refused: a job
+ * would give up on Hindsight before asking it once.
+ */
+export function parseWholeMinutes(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d{1,4}$/.test(trimmed)) return null;
+	const minutes = Number(trimmed);
+	return minutes >= 1 && minutes <= 1440 ? minutes : null;
+}
+
+/**
+ * A plain decimal from 0 to 1 ("0.002", ".5", "1"), or null for anything else
+ * (a sign, an exponent, a word), so the caller keeps what it had: a typo must
+ * not move a score floor to a value nobody typed.
+ */
+export function parseUnitInterval(value: string | undefined): number | null {
+	const trimmed = value?.trim() ?? "";
+	if (!/^\d*\.?\d+$/.test(trimmed)) return null;
+	const parsed = Number(trimmed);
+	return parsed >= 0 && parsed <= 1 ? parsed : null;
 }
 
 /**
@@ -747,6 +813,24 @@ function readConfig(): Config {
 			parseIntegerEnv(process.env.MEMORY_CONSOLIDATION_INTERVAL_MINUTES, 1440),
 		),
 		memoryJudgeDryRun: process.env.MEMORY_JUDGE_DRY_RUN === "true",
+		memoryRecallCorePercent:
+			parseWholePercent(process.env.MEMORY_RECALL_CORE_PERCENT) ?? 25,
+		memoryRecallProjectPercent:
+			parseWholePercent(process.env.MEMORY_RECALL_PROJECT_PERCENT) ?? 50,
+		memoryTemporaryEarlierDays:
+			parseWholeDays(process.env.MEMORY_TEMPORARY_EARLIER_DAYS) ?? 21,
+		memoryOngoingQuietDays:
+			parseWholeDays(process.env.MEMORY_ONGOING_QUIET_DAYS) ?? 21,
+		memoryOngoingEarlierDays:
+			parseWholeDays(process.env.MEMORY_ONGOING_EARLIER_DAYS) ?? 90,
+		memoryEarlierRerankMin:
+			parseUnitInterval(process.env.MEMORY_EARLIER_RERANK_MIN) ?? 0.002,
+		memoryEarlierRerankWordMin:
+			parseUnitInterval(process.env.MEMORY_EARLIER_RERANK_WORD_MIN) ?? 0.0005,
+		memoryRetainWaitMinutes:
+			parseWholeMinutes(process.env.MEMORY_RETAIN_WAIT_MINUTES) ?? 30,
+		memoryConsolidationWaitMinutes:
+			parseWholeMinutes(process.env.MEMORY_CONSOLIDATION_WAIT_MINUTES) ?? 60,
 		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
 		atlasGlobalActiveLimit: Math.max(
 			1,

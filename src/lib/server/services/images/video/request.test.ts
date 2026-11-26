@@ -33,7 +33,7 @@ function request(overrides: Partial<VideoTakeRequest> = {}): VideoTakeRequest {
 }
 
 describe("a video take request", () => {
-	it("keeps a 10 s request's caption for its second segment, and an older row has none", () => {
+	it("keeps an older 10 s row's continuation caption, and drops a blank or wrong one", () => {
 		const tenSeconds = request({
 			durationSeconds: 10,
 			continuationPrompt: "The tide pulls back across the sand.",
@@ -41,11 +41,11 @@ describe("a video take request", () => {
 		expect(parseVideoTakeRequest(JSON.stringify(tenSeconds))).toEqual(
 			tenSeconds,
 		);
-		// A row written before segment 2 had a caption of its own.
+		// A row without one, as every new row is.
 		expect(
 			parseVideoTakeRequest(JSON.stringify(request({ durationSeconds: 10 }))),
 		).toEqual(request({ durationSeconds: 10 }));
-		// A blank or wrong one is no caption: segment 2 falls back to the prompt.
+		// A blank or wrong one is no caption.
 		for (const continuationPrompt of ["   ", 3, null]) {
 			expect(
 				parseVideoTakeRequest(
@@ -244,7 +244,7 @@ describe("the size derived from the source still", () => {
 });
 
 describe("the video's own numbers", () => {
-	it("runs 121 frames at 24 fps per segment", () => {
+	it("runs 121 frames at 24 fps for 5 s", () => {
 		expect(VIDEO_FPS).toBe(24);
 		expect(VIDEO_SEGMENT_FRAMES).toBe(121);
 		expect(VIDEO_SEGMENT_DURATION_MS).toBe(5_000);
@@ -302,6 +302,25 @@ describe("the checkpoint", () => {
 				type: "output",
 			},
 		});
+	});
+
+	it("reads an old row that was still on its first segment as that prompt", () => {
+		// What the chain wrote while segment 1 was rendering: its prompt, no saved
+		// clip yet. A list with no entry resolves by the row's own prompt id.
+		const rendering = {
+			promptId: "p1",
+			segment: 1,
+			segments: [{ promptId: "p1", media: null }],
+		};
+		expect(parseVideoCheckpoint(JSON.stringify(rendering))).toEqual({
+			promptId: "p1",
+			media: null,
+		});
+		expect(
+			parseVideoCheckpoint(
+				JSON.stringify({ promptId: "p1", segment: 1, segments: [] }),
+			),
+		).toEqual({ promptId: "p1", media: null });
 	});
 
 	it("answers null for anything unreadable", () => {

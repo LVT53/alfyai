@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareDatabase } from "./prepare-db";
 
 const PRE_RETIRED_RESEARCH_TAG = "1777140000011_file_production_requests";
@@ -218,6 +218,69 @@ describe("prepare-db script", () => {
 			);
 		} finally {
 			sqlite.close();
+		}
+	});
+
+	// The search index is kept by triggers; a restore through .dump, a raw
+	// REPLACE or a hand edit could leave it out of step with nobody noticing.
+	// Every db:prepare (each deploy, each npm start) counts it by row id and
+	// refills a table that is out of step, saying so.
+	it("refills a Workspace Search index that fell out of step, and says so", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
+		prepareDatabase(dbPath);
+		const seeded = new Database(dbPath);
+		try {
+			seeded.exec(`
+				INSERT INTO users (id, email, password_hash, created_at, updated_at)
+				VALUES ('u1', 'u1@example.com', 'hash', 1, 1);
+				INSERT INTO conversations (id, user_id, title, created_at, updated_at)
+				VALUES ('c1', 'u1', 'c', 1, 1);
+				INSERT INTO messages (id, conversation_id, role, content, created_at)
+				VALUES ('m1', 'c1', 'user', 'the garden plan', 1);
+				DELETE FROM messages_fts WHERE rowid = (SELECT rowid FROM messages WHERE id = 'm1');
+			`);
+		} finally {
+			seeded.close();
+		}
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			prepareDatabase(dbPath);
+			expect(
+				warn.mock.calls.map((call) => String(call[0])).join("\n"),
+			).toContain("Workspace Search index was out of step");
+		} finally {
+			warn.mockRestore();
+		}
+		const sqlite = new Database(dbPath, { readonly: true });
+		try {
+			expect(
+				sqlite
+					.prepare(
+						"SELECT count(*) FROM messages_fts WHERE messages_fts MATCH '\"garden\"'",
+					)
+					.pluck()
+					.get(),
+			).toBe(1);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("leaves a Workspace Search index that is in step alone", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
+		prepareDatabase(dbPath);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			prepareDatabase(dbPath);
+			expect(
+				warn.mock.calls.filter((call) =>
+					String(call[0]).includes("Workspace Search index"),
+				),
+			).toEqual([]);
+		} finally {
+			warn.mockRestore();
 		}
 	});
 

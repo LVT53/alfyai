@@ -7,15 +7,15 @@ AlfyAI is a conversational workspace where users can chat casually, use tools, w
 ### Language
 
 **Workspace Search**:
-The app-shell search surface for finding and opening a user's workspace material across conversations and documents. It is for navigating existing AlfyAI workspace content, not for searching the web, settings, admin records, or raw memory internals.
+The app-shell search surface for finding and opening a user's workspace material across conversations, the Memory entries the Memory page shows, documents and files, pictures, videos and apps. It is for navigating existing AlfyAI workspace content, not for searching the web, connections (mail, calendar, photos), settings, admin records, or raw memory internals.
 _Avoid_: search modal, global search, command palette, Ctrl+K modal
 
 **Workspace Search Result**:
-A navigable match returned by **Workspace Search**, such as a conversation title match, a conversation body match, or a document match. A result should carry enough human context to explain why it matched while still opening the owning workspace surface rather than becoming a separate transcript or document browser.
+A navigable match returned by **Workspace Search**, such as a conversation title match, a conversation body match, a Memory entry, or a document, picture, video or app match. A result should carry enough human context to explain why it matched while still opening the owning workspace surface rather than becoming a separate transcript or document browser.
 _Avoid_: raw search hit, database row, transcript result
 
 **Workspace Search Document Result**:
-A **Workspace Search Result** for a workspace document that opens the document directly in the document workspace. When the document has a containing or source chat, that chat may be offered as a secondary navigation target rather than replacing direct document open.
+A **Workspace Search Result** for a workspace document, picture, video or app that opens it directly in the document workspace. When the document has a containing or source chat, that chat may be offered as a secondary navigation target rather than replacing direct document open.
 _Avoid_: chat file result, attachment row, document preview modal
 
 **Workspace Search Source Navigation**:
@@ -27,7 +27,7 @@ A **Workspace Search Result** that matches text inside a conversation message ra
 _Avoid_: transcript browser row, message database hit, conversation title match
 
 **Lexical Workspace Search**:
-Workspace search behavior that finds literal words or phrases present in workspace material rather than conceptually related material. It is the expected baseline for navigation when a user remembers text, names, or titles from their workspace.
+Workspace search behavior that finds every word the user typed, in any order and inside longer words, in the literal text of workspace material rather than in conceptually related material. Case and accents are folded on both sides, so "arviz", "árvíz" and "ÁrVíZ" find "Árvíztűrő": short text (titles, names, prompts, descriptions, Memory entries) through the shared matcher, long text (message and document bodies) through a trigram full-text index. A word of one or two letters, which a trigram index cannot hold, is matched in long text with its typed, capitalised and capital spellings only. A JSON body or an App's code is never searched as text; a canvas is found by the words in its blocks, edge labels and notes, never by its structure. It is the expected baseline for navigation when a user remembers words, names, or titles from their workspace.
 _Avoid_: semantic workspace search, fuzzy memory search, related-content discovery
 
 **Workspace Search Metadata Match**:
@@ -35,11 +35,11 @@ A **Workspace Search Result** explained by contextual metadata such as a convers
 _Avoid_: folder search result, metadata browser
 
 **Workspace Search Default Results**:
-The compact no-query state of **Workspace Search**, showing a small set of recent conversations and recent documents so the surface remains navigational before a user searches. V1 should show at most three conversations and three documents in this state.
+The compact no-query state of **Workspace Search**, showing a small set of recent conversations and recent documents (of any kind) so the surface remains navigational before a user searches. It shows at most three conversations and three documents in this state, read from the newest rows only, never the whole library.
 _Avoid_: full recent history, library table, sidebar duplicate
 
 **Workspace Search Result Limits**:
-The compact caps that keep **Workspace Search** a fast navigation surface rather than a full results page. V1 query results show at most six conversations and six documents, with document overflow handed off to the Knowledge Library.
+The compact caps that keep **Workspace Search** a fast navigation surface rather than a full results page. Under All, each kind shows at most three results, in the order Chats, Memory, Documents, Pictures & videos, Apps, with a "Show all N" link when there are more; a kind's own chip shows twenty at a time with "Load more". Every chip carries the true number of matches of its kind, counted up to 100 and shown as "99+" above that, and a candidate read stops at 400 rows of its own kind, taking the strongest matches first (every word in the title or name, then in the project, label or summary, then only in the text; newest first within each), so a crowd of newer mentions never hides the chat or document the words name. Counts and pages are of chats, not messages.
 _Avoid_: unlimited modal results, full search page, transcript listing
 
 **Workspace Search Query Threshold**:
@@ -51,15 +51,15 @@ A short, clipped excerpt that explains why a **Workspace Search Result** matched
 _Avoid_: full message body, document excerpt panel, debug match text
 
 **Workspace Search Eligibility**:
-The rule that **Workspace Search** includes non-deleted workspace material the user can still open, including sealed conversations and historical generated documents. It excludes empty prepared conversations, cleared or erased workspace data, raw memory internals, settings, admin records, and web results.
+The rule that **Workspace Search** includes non-deleted workspace material the user can still open, including sealed conversations and historical generated documents, and the Memory entries the Memory page shows, for an account on native Memory with Memory switched on (across the personal bank and the projects the person owns). It excludes empty prepared conversations, a deleted chat's and an incognito chat's artifacts, cleared or erased workspace data, raw memory internals (facts, sources, earlier-state notes, older versions), an entry the Memory page hides, connections, settings, admin records, and web results.
 _Avoid_: sidebar visibility, prompt eligibility, memory retrieval scope
 
 **Workspace Search Scope**:
-The default account-wide reach of **Workspace Search** across the user's accessible conversations and workspace documents. It is not implicitly narrowed to the current chat, project folder, or page.
+The default account-wide reach of **Workspace Search** across the user's accessible conversations, Memory entries and workspace documents, pictures, videos and apps. It is not implicitly narrowed to the current chat, project folder, or page. The user narrows it with the chips All, Chats, Memory (only when memory is searchable), Documents, Pictures & videos and Apps; connections are not a scope, because nothing indexes them.
 _Avoid_: current-project search, page-local search, sidebar-only search
 
 **Workspace Search Document Eligibility**:
-The rule that files, generated outputs, skill notes, and chat attachments appear in **Workspace Search** only when they are openable as workspace documents. Workspace Search does not expose a separate attachment result type.
+The rule that files, generated outputs, skill notes, pictures, videos, apps, and chat attachments appear in **Workspace Search** only when they are openable as workspace documents. Workspace Search does not expose a separate attachment result type. A research report is a Document with the Report badge, and an uploaded picture or video sits under Pictures & videos.
 _Avoid_: raw attachment search, file metadata row, non-openable attachment result
 
 ## User Onboarding

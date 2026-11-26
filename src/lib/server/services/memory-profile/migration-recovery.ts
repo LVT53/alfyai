@@ -14,6 +14,7 @@ import { reopen } from "../jobs/ledger";
 import type { Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import { memoryDeliveryJob } from "./delivery-job";
+import { UNPUBLISHED_CHAT_FACTS } from "./delivery-policy";
 import { captureSettledNative } from "./delivery-runner";
 import { nativeMemoryClient } from "./hindsight-client";
 import { parseJsonRecord } from "./internal-json";
@@ -53,6 +54,9 @@ const recoveryErrors = new Set([
 	"memory_preparation_failed",
 	"native_consolidation_incomplete",
 	"native_operation_timeout",
+	// Two chats' completed retains meeting each other's facts end this way
+	// now, where they used to end `memory_preparation_failed`.
+	UNPUBLISHED_CHAT_FACTS,
 ]);
 
 function requireRecovery(condition: unknown): asserts condition {

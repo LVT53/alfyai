@@ -298,10 +298,27 @@ describe("the feature guide's content", () => {
 			"asksFirst",
 			"listenToAReply",
 			"videos",
+			"memory",
 			"picturesAndVideos",
 			"yourVoices",
 			"sendWithEnter",
 		]);
+	});
+
+	it("marks Memory NEW for the redesign that reached the app on 24 November", () => {
+		// The subject page and the Overview: the entry's line already describes
+		// both ("grouped by subject", "Earlier", "the overview").
+		const memory = GUIDE_ENTRIES.find((e) => e.id === "memory");
+		expect(memory?.added).toBe("2026-11-24");
+		expect(
+			isGuideEntryNew(memory?.added ?? "", new Date("2026-11-24T10:00:00Z")),
+		).toBe(true);
+		expect(
+			isGuideEntryNew(memory?.added ?? "", new Date("2026-12-23T23:59:59Z")),
+		).toBe(true);
+		expect(
+			isGuideEntryNew(memory?.added ?? "", new Date("2026-12-24T00:00:00Z")),
+		).toBe(false);
 	});
 
 	it("shows NEW for thirty days from the added date", () => {

@@ -1,10 +1,9 @@
-// The clip's bytes, decoded and joined by the ffmpeg the box already has.
+// The clip's bytes, decoded by the ffmpeg the box already has.
 //
-// LTX hands back an mp4; the rest of the take needs frames out of it (the last
-// frame to chain a second segment, the poster, and the WHOLE clip as the
-// explicit filter's raw check stream) and, for a 10 s take, two clips joined. ffmpeg/ffprobe are
-// the deployment's own binaries (`ffmpeg`, `ffprobe` on PATH): the feasibility
-// trial used them for the concat, and no npm package decodes h264 here.
+// LTX hands back an mp4; the rest of the take needs frames out of it (the
+// poster, and the WHOLE clip as the explicit filter's raw check stream) and its
+// container stripped of ComfyUI's tags. ffmpeg/ffprobe are the deployment's own
+// binaries (`ffmpeg`, `ffprobe` on PATH), and no npm package decodes h264 here.
 //
 // Every call works in its own temp directory and cleans it up, so a failed
 // decode leaves nothing behind. A missing binary is `unavailable` (the take
@@ -15,7 +14,6 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { LTX_VIDEO_FPS } from "../comfyui/ltx-spec";
 import { PICTURE_CHECK_SIDE } from "../picture-check/classifier";
 
 const run = promisify(execFile);
@@ -26,8 +24,8 @@ const FFMPEG_BINARY = "ffmpeg";
 const FFPROBE_BINARY = "ffprobe";
 
 /**
- * The longest one media call may take. A frame extraction is seconds; the
- * join, a whole-clip frame decode and a 10 s GIF are tens of seconds. 120 s is
+ * The longest one media call may take. A frame extraction is seconds; a
+ * whole-clip frame decode and a 10 s GIF are tens of seconds. 120 s is
  * generous for all of them and short enough that a wedged child cannot hold the
  * video kind's only slot: the render deadline (15 min) bounds the follow, this
  * bounds the media phase inside the same attempt, and the runner passes
@@ -185,51 +183,6 @@ export async function extractFrameAt(
 			throw new VideoMediaError(
 				"failed",
 				"ffmpeg decoded no frame from the clip.",
-			);
-		}
-		return new Uint8Array(png);
-	});
-}
-
-/**
- * The clip's last decoded frame: what a 10 s take feeds the second segment.
- * ffmpeg decodes the clip's last second and writes every frame to ONE file
- * (`-update 1`), so the file holds the very last frame whatever count ComfyUI
- * wrote. A single frame read near the end (`-sseof -0.1 -frames:v 1`) lands one
- * frame early: segment 2 then began on frame 119 of 121, a step back at 5 s of
- * every 10 s clip (review C-3, measured on a numbered clip).
- */
-export async function extractLastFrame(
-	mp4: Uint8Array,
-	options: MediaCallOptions = {},
-): Promise<Uint8Array> {
-	return inTempDir(async (dir) => {
-		const input = await writeClip(dir, "clip.mp4", mp4);
-		const output = join(dir, "last.png");
-		await runBinary(
-			FFMPEG_BINARY,
-			[
-				"-hide_banner",
-				"-loglevel",
-				"error",
-				"-sseof",
-				"-1",
-				"-i",
-				input,
-				"-update",
-				"1",
-				"-f",
-				"image2",
-				"-y",
-				output,
-			],
-			options,
-		);
-		const png = await readFile(output).catch(() => Buffer.alloc(0));
-		if (png.length === 0) {
-			throw new VideoMediaError(
-				"failed",
-				"ffmpeg decoded no last frame from the clip.",
 			);
 		}
 		return new Uint8Array(png);
@@ -420,10 +373,10 @@ export function videoGifArgs(input: string, output: string): string[] {
 }
 
 /**
- * The clip as a GIF. The whole clip is converted: unlike a segment's guide,
- * nothing here stops at five seconds, so a ten-second take lands as ten
- * seconds of GIF. A missing binary is `unavailable`; a decode that fails is
- * `failed`, exactly as the chain's own calls answer.
+ * The clip as a GIF. The whole clip is converted: nothing here stops at five
+ * seconds, so a ten-second take lands as ten seconds of GIF. A missing binary
+ * is `unavailable`; a decode that fails is `failed`, exactly as the other
+ * media calls answer.
  */
 export async function convertToGif(
 	mp4: Uint8Array,
@@ -438,129 +391,5 @@ export async function convertToGif(
 			throw new VideoMediaError("failed", "ffmpeg wrote no GIF from the clip.");
 		}
 		return gif;
-	});
-}
-
-async function hasAudioStream(
-	input: string,
-	options: MediaCallOptions = {},
-): Promise<boolean> {
-	const output = await runBinary(
-		FFPROBE_BINARY,
-		[
-			"-v",
-			"error",
-			"-select_streams",
-			"a",
-			"-show_entries",
-			"stream=index",
-			"-of",
-			"csv=p=0",
-			input,
-		],
-		options,
-	);
-	return String(output).trim() !== "";
-}
-
-/** How long the sound dips at a join, so the cut between two soundtracks never clicks. */
-const JOIN_FADE_SECONDS = 0.04;
-
-/**
- * Two clips joined end to end, in order: a 10 s take's segments. Re-encoded
- * once, because the join is not a plain concatenation (review C-3):
- *
- * - Segment 2 begins on its guide, segment 1's last frame (pass 2 pins its
- *   first latent frame to it), so its frame 0 is a copy of the frame just
- *   shown: it is dropped, and the clip runs 121 + 120 = 241 frames with
- *   neither a held frame nor a step back at 5 s.
- * - Its sound loses the same frame's length, so picture and sound stay in step,
- *   and each soundtrack fades over `JOIN_FADE_SECONDS` at the cut: segment 2's
- *   sound is a new soundtrack, and a hard cut between two clicks.
- * - One encode leaves no AAC priming in the middle (a stream copy kept segment
- *   2's, 21 ms of sound late by the end).
- *
- * A pair without a matching audio stream is joined as video only rather than
- * failing the take. ComfyUI's tags (the whole prompt and node graph) are not
- * carried into the clip we serve.
- */
-export async function concatClips(
-	clips: readonly Uint8Array[],
-	options: MediaCallOptions = {},
-): Promise<Uint8Array> {
-	if (clips.length === 1) return clips[0] as Uint8Array;
-	if (clips.length === 0) {
-		throw new VideoMediaError("failed", "There is no clip to join.");
-	}
-	return inTempDir(async (dir) => {
-		const inputs: string[] = [];
-		for (const [index, clip] of clips.entries()) {
-			inputs.push(await writeClip(dir, `clip-${index}.mp4`, clip));
-		}
-		const output = join(dir, "joined.mp4");
-		let audio = true;
-		for (const input of inputs) {
-			audio = audio && (await hasAudioStream(input, options));
-		}
-		const frameSeconds = (1 / LTX_VIDEO_FPS).toFixed(6);
-		const fade = JOIN_FADE_SECONDS.toFixed(3);
-		const last = inputs.length - 1;
-		const parts: string[] = [];
-		const joined: string[] = [];
-		for (let index = 0; index <= last; index += 1) {
-			// Every segment after the first starts on a copy of its guide.
-			parts.push(
-				index === 0
-					? `[0:v]setpts=PTS-STARTPTS[v0]`
-					: `[${index}:v]trim=start_frame=1,setpts=PTS-STARTPTS[v${index}]`,
-			);
-			joined.push(`[v${index}]`);
-			if (!audio) continue;
-			const steps: string[] = [];
-			if (index > 0) {
-				steps.push(
-					`atrim=start=${frameSeconds}`,
-					"asetpts=PTS-STARTPTS",
-					`afade=t=in:d=${fade}`,
-				);
-			}
-			if (index < last) {
-				// A fade at the end of a stream of unknown length: reversed, it is a
-				// fade in.
-				steps.push("areverse", `afade=t=in:d=${fade}`, "areverse");
-			}
-			parts.push(`[${index}:a]${steps.join(",")}[a${index}]`);
-			joined.push(`[a${index}]`);
-		}
-		parts.push(
-			`${joined.join("")}concat=n=${inputs.length}:v=1:a=${audio ? 1 : 0}[v]${audio ? "[a]" : ""}`,
-		);
-		const args = [
-			"-hide_banner",
-			"-loglevel",
-			"error",
-			...inputs.flatMap((input) => ["-i", input]),
-			"-filter_complex",
-			parts.join(";"),
-			"-map",
-			"[v]",
-			...(audio ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : []),
-			"-c:v",
-			"libx264",
-			"-pix_fmt",
-			"yuv420p",
-			"-preset",
-			"veryfast",
-			"-crf",
-			"18",
-			"-map_metadata",
-			"-1",
-			"-movflags",
-			"+faststart",
-			"-y",
-			output,
-		];
-		await runBinary(FFMPEG_BINARY, args, options);
-		return new Uint8Array(await readFile(output));
 	});
 }

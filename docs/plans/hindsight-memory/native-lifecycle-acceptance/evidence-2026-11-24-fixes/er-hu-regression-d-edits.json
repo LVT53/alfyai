@@ -1,0 +1,5 @@
+[
+  {"card": "A felhasználó másik macskája Bodza, fehér.", "action": "edit", "text": "A felhasználó másik macskája Bodza, szürke."},
+  {"card": "A felhasználó egyik macskája Mák, fekete.", "action": "edit", "text": "A felhasználó egyik macskája Mák."},
+  {"card": "A felhasználó gluténmentesen étkezik.", "action": "remove"}
+]

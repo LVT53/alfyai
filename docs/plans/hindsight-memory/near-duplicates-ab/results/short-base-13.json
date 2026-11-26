@@ -1,0 +1,317 @@
+{
+	"suite": "near-duplicates A/B, 2026-11-24",
+	"scenario": "short",
+	"variant": "base",
+	"index": 13,
+	"bank": "ab-short-base-13-a7e1830c",
+	"startedAt": "2026-11-24T17:52:23.703Z",
+	"status": "ok",
+	"error": null,
+	"loadedFacts": 5,
+	"beforeDeletion": {
+		"raw": [
+			{
+				"id": "a414c29f-4e47-4d37-b514-56ca32222e59",
+				"document_id": "pending",
+				"text": "A felhasználó kerékpárja narancssárga. | Involving: user",
+				"mentioned_at": "2026-11-20T12:00:00+00:00"
+			},
+			{
+				"id": "6f3c8784-e032-4e3c-95ea-ceaf7d26c9b4",
+				"document_id": "correction",
+				"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+				"mentioned_at": "2026-11-12T12:00:00+00:00"
+			},
+			{
+				"id": "cb97a307-0724-4ae1-8018-2fec4bb83218",
+				"document_id": "newer",
+				"text": "A felhasználó kerékpárja kék. | Involving: user",
+				"mentioned_at": "2026-11-10T12:00:00+00:00"
+			},
+			{
+				"id": "2bb835c3-0355-4310-be0d-7cce8e31bbe0",
+				"document_id": "old-replay-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			},
+			{
+				"id": "a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+				"document_id": "old-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			}
+		],
+		"observations": [
+			{
+				"id": "3d7a82ef-6e8a-4bb7-bbf5-30a2279dff2c",
+				"text": "A felhasználó kerékpárja narancssárga. (2026-11-12 12:00: A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.))",
+				"source_memory_ids": [
+					"a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+					"cb97a307-0724-4ae1-8018-2fec4bb83218",
+					"6f3c8784-e032-4e3c-95ea-ceaf7d26c9b4",
+					"2bb835c3-0355-4310-be0d-7cce8e31bbe0",
+					"a414c29f-4e47-4d37-b514-56ca32222e59"
+				]
+			},
+			{
+				"id": "bef8282b-eb13-4994-bdeb-e0ed3990a65b",
+				"text": "A felhasználónak van egy fehér kajakja.",
+				"source_memory_ids": [
+					"a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+					"2bb835c3-0355-4310-be0d-7cce8e31bbe0"
+				]
+			}
+		]
+	},
+	"afterDeletion": {
+		"raw": [
+			{
+				"id": "6f3c8784-e032-4e3c-95ea-ceaf7d26c9b4",
+				"document_id": "correction",
+				"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+				"mentioned_at": "2026-11-12T12:00:00+00:00"
+			},
+			{
+				"id": "cb97a307-0724-4ae1-8018-2fec4bb83218",
+				"document_id": "newer",
+				"text": "A felhasználó kerékpárja kék. | Involving: user",
+				"mentioned_at": "2026-11-10T12:00:00+00:00"
+			},
+			{
+				"id": "2bb835c3-0355-4310-be0d-7cce8e31bbe0",
+				"document_id": "old-replay-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			},
+			{
+				"id": "a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+				"document_id": "old-bike",
+				"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+				"mentioned_at": "2026-11-01T12:00:00+00:00"
+			}
+		],
+		"observations": [
+			{
+				"id": "e8603948-9ce5-452b-b75b-9acebe100339",
+				"text": "A felhasználónak van egy zöld kerékpárja. (2026-11-01 12:00: A felhasználónak van egy piros kerékpárja és egy fehér kajakja.)",
+				"source_memory_ids": [
+					"a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+					"cb97a307-0724-4ae1-8018-2fec4bb83218",
+					"6f3c8784-e032-4e3c-95ea-ceaf7d26c9b4",
+					"2bb835c3-0355-4310-be0d-7cce8e31bbe0"
+				]
+			},
+			{
+				"id": "bef8282b-eb13-4994-bdeb-e0ed3990a65b",
+				"text": "A felhasználónak van egy fehér kajakja.",
+				"source_memory_ids": [
+					"a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+					"2bb835c3-0355-4310-be0d-7cce8e31bbe0"
+				]
+			}
+		]
+	},
+	"histories": {
+		"e8603948-9ce5-452b-b75b-9acebe100339": [
+			{
+				"previous_text": "A felhasználónak van egy piros kerékpárja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00+00:00",
+				"changed_at": "2026-11-24T17:54:16.939490+00:00",
+				"new_source_memory_ids": [
+					"cb97a307-0724-4ae1-8018-2fec4bb83218"
+				],
+				"source_facts": [
+					{
+						"id": "a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "cb97a307-0724-4ae1-8018-2fec4bb83218",
+						"text": "A felhasználó kerékpárja kék. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			},
+			{
+				"previous_text": "A felhasználónak van egy kék kerékpárja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-10T12:00:00+00:00",
+				"changed_at": "2026-11-24T17:54:31.014726+00:00",
+				"new_source_memory_ids": [
+					"6f3c8784-e032-4e3c-95ea-ceaf7d26c9b4"
+				],
+				"source_facts": [
+					{
+						"id": "a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "cb97a307-0724-4ae1-8018-2fec4bb83218",
+						"text": "A felhasználó kerékpárja kék. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "6f3c8784-e032-4e3c-95ea-ceaf7d26c9b4",
+						"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			},
+			{
+				"previous_text": "A felhasználónak van egy zöld kerékpárja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-12T12:00:00+00:00",
+				"changed_at": "2026-11-24T17:54:43.999296+00:00",
+				"new_source_memory_ids": [
+					"2bb835c3-0355-4310-be0d-7cce8e31bbe0"
+				],
+				"source_facts": [
+					{
+						"id": "a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "cb97a307-0724-4ae1-8018-2fec4bb83218",
+						"text": "A felhasználó kerékpárja kék. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "6f3c8784-e032-4e3c-95ea-ceaf7d26c9b4",
+						"text": "A felhasználó kerékpárja zöld; a korábbi kék leírás téves volt, és a kerékpár színe nem változott meg. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "2bb835c3-0355-4310-be0d-7cce8e31bbe0",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			}
+		],
+		"bef8282b-eb13-4994-bdeb-e0ed3990a65b": [
+			{
+				"previous_text": "A felhasználónak van egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00+00:00",
+				"changed_at": "2026-11-24T17:53:31.815197+00:00",
+				"new_source_memory_ids": [
+					"2bb835c3-0355-4310-be0d-7cce8e31bbe0"
+				],
+				"source_facts": []
+			},
+			{
+				"previous_text": "A felhasználónak van egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00+00:00",
+				"changed_at": "2026-11-24T17:54:02.678065+00:00",
+				"new_source_memory_ids": [
+					"a0d05e22-92d9-4d0f-b5a4-690f6578d2e0"
+				],
+				"source_facts": [
+					{
+						"id": "a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			},
+			{
+				"previous_text": "A felhasználónak van egy fehér kajakja.",
+				"previous_tags": [],
+				"previous_occurred_start": null,
+				"previous_occurred_end": null,
+				"previous_mentioned_at": "2026-11-01T12:00:00+00:00",
+				"changed_at": "2026-11-24T17:54:43.999296+00:00",
+				"new_source_memory_ids": [
+					"2bb835c3-0355-4310-be0d-7cce8e31bbe0"
+				],
+				"source_facts": [
+					{
+						"id": "a0d05e22-92d9-4d0f-b5a4-690f6578d2e0",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": false
+					},
+					{
+						"id": "2bb835c3-0355-4310-be0d-7cce8e31bbe0",
+						"text": "A felhasználónak van egy piros kerékpárja és egy fehér kajakja. | Involving: user",
+						"type": "world",
+						"context": "Synthetic user message or explicit source edit. Preserve attribution and original assertion time.",
+						"is_new": true
+					}
+				]
+			}
+		]
+	},
+	"analysis": {
+		"twin": false,
+		"near": false,
+		"duplicate": false,
+		"pairs": [],
+		"checks": {
+			"greenCurrent": true,
+			"kayakKept": true,
+			"orangeLeak": false,
+			"oldColourCurrent": false,
+			"historyKept": true,
+			"inventedDate": false,
+			"sisterKept": false,
+			"compoundRow": false,
+			"rows": 2
+		}
+	},
+	"analysisBefore": {
+		"twin": false,
+		"near": false,
+		"duplicate": false,
+		"pairs": [],
+		"checks": {
+			"greenCurrent": false,
+			"kayakKept": true,
+			"orangeLeak": true,
+			"oldColourCurrent": false,
+			"historyKept": true,
+			"inventedDate": false,
+			"sisterKept": false,
+			"compoundRow": false,
+			"rows": 2
+		}
+	},
+	"seconds": 143,
+	"finishedAt": "2026-11-24T17:54:46.497Z"
+}

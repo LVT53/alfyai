@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
+import { StreamReplayJournal } from "./stream-replay-journal";
+import { streamNormalChatOutputEvent } from "./stream";
+
+describe("review D: wire journal capacity under typed output events", () => {
+	it("J1: how many ordinary answer tokens fit in the 200,000-byte replay journal", () => {
+		const sha = "a".repeat(64);
+		const scope = {
+			version: 1 as const,
+			turnId: sha,
+			segmentId: sha,
+			attemptId: `${sha}:attempt:0`,
+			stepId: `${sha}:attempt:0:step:0`,
+			phase: "working" as const,
+		};
+		const journal = new StreamReplayJournal();
+		let seq = 0;
+		const first = streamNormalChatOutputEvent({
+			...scope,
+			sequence: ++seq,
+			type: "block_start",
+			blockId: `${scope.stepId}:text:txt-0:0`,
+			nativeId: "txt-0",
+			kind: "text",
+			role: "provisional",
+		} as NormalChatOutputEvent);
+		journal.append(first);
+		let frameBytes = 0;
+		let tokens = 0;
+		while (journal.read().complete) {
+			const frame = streamNormalChatOutputEvent({
+				...scope,
+				sequence: ++seq,
+				type: "block_delta",
+				blockId: `${scope.stepId}:text:txt-0:0`,
+				text: "word ",
+			} as NormalChatOutputEvent);
+			frameBytes = Buffer.byteLength(frame, "utf8");
+			journal.append(frame);
+			if (journal.read().complete) tokens++;
+			if (tokens > 20000) break;
+		}
+		console.log("J1 frame bytes per delta:", frameBytes, "tokens before journal overflow:", tokens);
+		expect(tokens).toBeGreaterThan(2000);
+	});
+});

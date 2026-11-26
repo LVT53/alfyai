@@ -1,0 +1,1512 @@
+{
+	"config3-after1": {
+		"personal/en/1": {
+			"E": [],
+			"I": [
+				"looking for a new apartment there (there = Szeged)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [
+				"Her knees are injured (one knee)"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [
+				"two-bedroom apartment (entry: two rooms)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/4": {
+			"E": [],
+			"I": [
+				"'having moved from Szeged' hung on the preference sentence (invented link)"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"bouldering in a Gyor hall"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/5": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"personal/hu/1": {
+			"E": [],
+			"I": [
+				"miutan korabban Szegeden elt (flat search 'after' living in Szeged)",
+				"occse szinten Szegeden el ('also')",
+				"ukulelet jatszik (learning -> plays)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"ugyfellogon (client-logo compound)"
+			],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"egy orat vesz japan nyelvbol (calque)"
+			],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder"
+			],
+			"missing": []
+		},
+		"personal/hu/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"Bakonyban (no article)"
+			],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"ugyfel logoterven (compound)",
+				"egy ora japanorakat vesz (agreement)",
+				"Bakonyban (no article)"
+			],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/5": {
+			"E": [],
+			"I": [
+				"logotervet keszit penteken (must hand in -> is making)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"japan orakbol (calque)",
+				"Lili es Mak mellett occse ... Szegeden el (garbled)",
+				"aki tanar, es ... elnek (agreement)"
+			],
+			"W": 0,
+			"loans": [
+				"boulder",
+				"sci-fi"
+			],
+			"missing": [
+				"p22"
+			]
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/en/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/en/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"celja ... a projekt celja (the goal twice)"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"melyet fabol epitenek (relative clause, wrong antecedent)"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		}
+	},
+	"config3-after1-english-entries": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"short sight (for short-sighted)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		}
+	},
+	"config3-after1-large-scope": {
+		"_about": "104 entries (personal.large.json), English, the shipped prompt, 3 runs: the entries nowhere in the paragraph, by index into the file (first pass by pattern, each checked against the text).",
+		"personal/en/1": {
+			"chars": 1925,
+			"missing": [
+				46,
+				47,
+				53,
+				54,
+				55,
+				56,
+				58,
+				59,
+				60,
+				61,
+				62,
+				65,
+				66,
+				67,
+				68,
+				69,
+				74,
+				75,
+				81,
+				82,
+				83,
+				88,
+				89,
+				98,
+				102,
+				103
+			],
+			"sentences": 10
+		},
+		"personal/en/2": {
+			"chars": 2744,
+			"missing": [
+				43,
+				46,
+				60,
+				66,
+				69,
+				102
+			],
+			"sentences": 9
+		},
+		"personal/en/3": {
+			"chars": 1813,
+			"missing": [
+				2,
+				6,
+				33,
+				34,
+				40,
+				46,
+				48,
+				53,
+				54,
+				55,
+				56,
+				58,
+				59,
+				60,
+				61,
+				65,
+				68,
+				74,
+				75,
+				78,
+				88,
+				89,
+				92,
+				96,
+				98,
+				99,
+				102,
+				103
+			],
+			"sentences": 10
+		}
+	},
+	"config3-after2": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [
+				"hawaii guitar (ukulele)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"plant-eater",
+				"climbs rocks"
+			],
+			"W": 2,
+			"Wnotes": [
+				"tudomanyos-fantasztikus",
+				"tejcukor"
+			],
+			"loans": [],
+			"missing": [
+				"p21"
+			]
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/4": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/5": {
+			"E": [],
+			"I": [
+				"small guitar (ukulele)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"independent designer",
+				"client emblem",
+				"climbing on rocks"
+			],
+			"W": 1,
+			"Wnotes": [
+				"tudomanyos-fantasztikus"
+			],
+			"loans": [],
+			"missing": [
+				"p07"
+			]
+		},
+		"personal/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"jelkeptervet (coinage for logo design)",
+				"japan nyelvbol (calque)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [
+				"boulder"
+			],
+			"missing": [
+				"p08"
+			]
+		},
+		"personal/hu/2": {
+			"E": [],
+			"I": [
+				"konyvesbolt jelkeptervezesen (brand identity -> logo design)",
+				"hawaii gitaron (ukulele -> another instrument)"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"Onallo tervezokent (for szabaduszo grafikus)",
+				"jelkeptervezes (coinage)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/hu/3": {
+			"E": [],
+			"I": [
+				"hawaii gitaron"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"onallo grafikuskent",
+				"jelkepet (coinage)",
+				"sziklazik (non-word)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/hu/4": {
+			"E": [],
+			"I": [
+				"mikozben ... kunyhot epit (simultaneity)",
+				"de penteken le kell adnia (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"jelkepi arculat / jelkeptervet (coinage)",
+				"onallo grafikuskent",
+				"japan nyelvbol",
+				"sziklazik (non-word)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p08"
+			]
+		},
+		"personal/hu/5": {
+			"E": [],
+			"I": [
+				"onallo kepzomuvesz (graphic designer -> fine artist)",
+				"tejtermekerzekeny (lactose -> dairy)",
+				"hawaii gitaron"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"magyar anyanyelvu ... husmentes etrendet koveto onallo kepzomuvesz (chain)",
+				"masodfoku kepzesre",
+				"jelkepet (coinage)",
+				"sziklazik (non-word)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"single covering (single-pitch roof)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a tetofedo lemezek (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/2": {
+			"E": [],
+			"I": [
+				"ezert a szerkezet fabol keszul (cause link)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/3": {
+			"E": [],
+			"I": [
+				"konnyen megmunkalhato szerkezet (easy to work moved from the wood to the structure)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a beton alapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"betonaljat (a railway sleeper, not a foundation)",
+				"mig (contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		}
+	},
+	"config3-after3": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 2,
+			"Wnotes": [
+				"embléma",
+				"arculat"
+			],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [
+				"'having moved to Gyor from Szeged' hung on the preference sentence"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"a cat named Mak, and her brother Bence lives in Szeged (broken list)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/4": {
+			"E": [],
+			"I": [
+				"though she is looking for a new apartment there (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 2,
+			"Wnotes": [
+				"grafikus",
+				"logó"
+			],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/en/5": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"personal/hu/1": {
+			"E": [],
+			"I": [
+				"szinten ott el ('also' there)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"kovasz kenyeret (kovaszos)",
+				"hetente ketszer boulder (no verb)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/3": {
+			"E": [],
+			"I": [
+				"knee, alcohol, visit and trip listed as 'temporary tasks'"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"boulderzik (mangled)",
+				"Jelenlegi ideiglenes feladatai kozze tartozik, hogy ... gyogytornara jar ... (garbled)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/4": {
+			"E": [],
+			"I": [
+				"lives in the flat 'because' she looks for a new one (invented cause)"
+			],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"Bakonyban (no article)",
+				"most Gyorben lakik ..., mert uj lakast keres (garbled cause)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": []
+		},
+		"personal/hu/5": {
+			"E": [],
+			"I": [
+				"'A szegedi evek ota' misstates the move from Szeged"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"A szegedi evek ota Gyorben lakik (garbled)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [
+				"jelkep-terv (coined for logoterv)"
+			],
+			"loans": [
+				"freelance",
+				"boulder"
+			],
+			"missing": []
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/4": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/en/5": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/2": {
+			"E": [],
+			"I": [
+				"ezert fabol epitik meg (cause link)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/3": {
+			"E": [],
+			"I": [],
+			"L": 1,
+			"P": 0,
+			"U": [
+				"the goal said twice"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/4": {
+			"E": [],
+			"I": [
+				"de a kunyho ajtaja (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig a betonalapot (mig contrast)"
+			],
+			"W": 0,
+			"Wnotes": [],
+			"invented": [],
+			"loans": [],
+			"missing": []
+		}
+	},
+	"config3-before": {
+		"personal/en/1": {
+			"E": [],
+			"I": [
+				"learning Japanese and playing the ukulele (learning -> plays)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"p11",
+				"p15",
+				"p16",
+				"p21",
+				"p24",
+				"p25",
+				"p26",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"p02",
+				"p03",
+				"p21",
+				"p30"
+			]
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [
+				"garden hut for her grandparents (it is in their garden)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"p02",
+				"p03",
+				"p04",
+				"p05",
+				"p09",
+				"p15",
+				"p16",
+				"p21",
+				"p23",
+				"p24",
+				"p25",
+				"p26",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/en/4": {
+			"E": [],
+			"I": [
+				"playing the ukulele (learning -> plays)",
+				"two-bedroom home (entry: two rooms)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"p05",
+				"p15",
+				"p16",
+				"p21",
+				"p25",
+				"p26",
+				"p27",
+				"p28",
+				"p30"
+			]
+		},
+		"personal/en/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"p03",
+				"p04",
+				"p11",
+				"p12",
+				"p21",
+				"p25",
+				"p26",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder",
+				"sci-fi"
+			],
+			"missing": [
+				"p01",
+				"p03",
+				"p04",
+				"p05",
+				"p07",
+				"p09",
+				"p21",
+				"p27",
+				"p28",
+				"p29"
+			]
+		},
+		"personal/hu/2": {
+			"E": [],
+			"I": [
+				"jelenleg egy logotervet keszit penteken (must hand in -> is making)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder"
+			],
+			"missing": [
+				"p03",
+				"p04",
+				"p05",
+				"p07",
+				"p08",
+				"p15",
+				"p16",
+				"p21",
+				"p23",
+				"p24",
+				"p25",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/hu/3": {
+			"E": [],
+			"I": [
+				"akik mellett hetente ketszer boulderezik es japanul tanul (family linked to bouldering)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"A Gyorben lako freelance grafikuskent dolgozik (no subject)",
+				"Csaladja a parja Mark tanar, ..., akik mellett (broken list)"
+			],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder"
+			],
+			"missing": [
+				"p07",
+				"p08",
+				"p09",
+				"p11",
+				"p21",
+				"p25",
+				"p26",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/hu/4": {
+			"E": [],
+			"I": [
+				"marciusban Lisszabonba utazik, mikozben az anyosa jovo heten jon (simultaneity)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder"
+			],
+			"missing": [
+				"p03",
+				"p21",
+				"p25",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/hu/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"japant tanul"
+			],
+			"W": 0,
+			"loans": [
+				"freelance",
+				"boulder"
+			],
+			"missing": [
+				"p03",
+				"p04",
+				"p05",
+				"p07",
+				"p21",
+				"p25",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"j10",
+				"j11"
+			]
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [
+				"wall frame built with the wood ordered from the sawmill (use moved)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"j09"
+			]
+		},
+		"project/en/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/en/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"j03",
+				"j04"
+			]
+		},
+		"project/hu/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"celja ... tarolasa ... kunyhoval (goal turned into storage 'with a hut')"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"j11"
+			]
+		},
+		"project/hu/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/3": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"j03",
+				"j05",
+				"j09",
+				"j11"
+			]
+		},
+		"project/hu/4": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig Peter ontotte (mig contrast)"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": []
+		},
+		"project/hu/5": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [
+				"mig Peter ontotte (mig contrast)"
+			],
+			"W": 0,
+			"loans": [],
+			"missing": [
+				"j04",
+				"j11"
+			]
+		}
+	},
+	"config3-before-english-entries": {
+		"personal/en/1": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p01",
+				"p02",
+				"p03",
+				"p04",
+				"p05",
+				"p15",
+				"p21",
+				"p23",
+				"p24",
+				"p25",
+				"p26",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/en/2": {
+			"E": [],
+			"I": [
+				"though she is looking for a larger flat (contrast)",
+				"playing the ukulele (learning -> plays)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p01",
+				"p03",
+				"p04",
+				"p05",
+				"p15",
+				"p21",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"personal/en/3": {
+			"E": [],
+			"I": [
+				"though she is temporarily attending physiotherapy (contrast with hobbies)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"p01",
+				"p03",
+				"p04",
+				"p05",
+				"p09",
+				"p15",
+				"p21",
+				"p24",
+				"p25",
+				"p27",
+				"p28",
+				"p29",
+				"p30"
+			]
+		},
+		"project/en/1": {
+			"E": [],
+			"I": [
+				"though the paint colour (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"j11"
+			]
+		},
+		"project/en/2": {
+			"E": [],
+			"I": [],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": [
+				"j03",
+				"j09"
+			]
+		},
+		"project/en/3": {
+			"E": [],
+			"I": [
+				"but the paint colour (contrast)"
+			],
+			"L": 0,
+			"P": 0,
+			"U": [],
+			"W": 0,
+			"Wnotes": [],
+			"loans": [],
+			"missing": []
+		}
+	}
+}

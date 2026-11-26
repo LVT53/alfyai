@@ -1,0 +1,71 @@
+import { asSchema } from "ai";
+import { describe, expect, it } from "vitest";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import { createNormalChatTools } from "./index";
+
+// Review measurement (not a product test): how many tokens the engine's own
+// capacity check (normal-chat-model/completion.ts, countCatalogue) charges for
+// the real tool catalogue, and what that leaves of a model's context once the
+// constructed context sits at its target.
+
+async function catalogueTokens(capabilities: string[]) {
+	const { tools } = createNormalChatTools({
+		userId: "user-1",
+		conversationId: "conversation-1",
+		turnId: "turn-1",
+		modelId: "model1",
+		enabledConnectionCapabilities: new Set(capabilities) as never,
+	});
+	const catalogue = await Promise.all(
+		Object.entries(tools).map(async ([name, definition]) => ({
+			type: "function",
+			function: {
+				name,
+				description: (definition as { description?: string }).description,
+				parameters: await asSchema(
+					(definition as { inputSchema: never }).inputSchema,
+				).jsonSchema,
+			},
+		})),
+	);
+	return {
+		tools: Object.keys(tools).length,
+		names: Object.keys(tools).join(","),
+		tokens: estimateTokenCount(JSON.stringify(catalogue)),
+	};
+}
+
+describe("review measurement: real tool catalogue against the capacity check", () => {
+	it("reports the catalogue size and the room it needs", async () => {
+		const base = await catalogueTokens([]);
+		const all = await catalogueTokens([
+			"files",
+			"calendar",
+			"email",
+			"photos",
+			"media",
+			"location",
+			"contacts",
+			"repos",
+			"tasks",
+		]);
+		const margin = 4096;
+		const rows = [];
+		for (const context of [131072, 146000, 200000]) {
+			// No explicit output cap: the app reserves context - floor(0.9 * context).
+			const reserve = context - Math.floor(context * 0.9);
+			const usable = context - reserve;
+			const target = Math.floor(usable * 0.9);
+			rows.push({
+				context,
+				outputReserve: reserve,
+				targetConstructedContext: target,
+				roomLeftAtTarget: context - reserve - target - margin,
+				baseCatalogueFits: base.tokens <= context - reserve - target - margin,
+				allCatalogueFits: all.tokens <= context - reserve - target - margin,
+			});
+		}
+		console.log(JSON.stringify({ base, all, rows }, null, 1));
+		expect(base.tools).toBeGreaterThan(0);
+	}, 120000);
+});

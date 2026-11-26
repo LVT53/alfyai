@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import * as configStore from "$lib/server/config-store";
-import { HINDSIGHT_ENGINE_COMMIT, NATIVE_BANK_CONFIG } from "./contracts";
+import { HINDSIGHT_ENGINE_COMMIT, nativeBankConfig } from "./contracts";
 import { HindsightClient, NativeMemoryError } from "./hindsight-client";
 import { splitNativeNotes } from "./presentation";
 
@@ -42,7 +42,7 @@ describe("native extraction preview", () => {
 				});
 			}
 			if (String(url).endsWith("/config"))
-				return Response.json({ config: NATIVE_BANK_CONFIG });
+				return Response.json({ config: nativeBankConfig("personal") });
 			return Response.json(output);
 		});
 		return {

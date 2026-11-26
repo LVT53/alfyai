@@ -24,14 +24,12 @@ vi.mock("$lib/server/config-store", () => ({
 
 import type { LtxVideoVariant } from "$lib/server/services/images/comfyui/ltx-spec";
 import {
-	buildVideoContinuationPrompt,
 	buildVideoPrompt,
 	LTX24_I2V_INSTRUCTION,
 	VIDEO_CAPTION_ALT_RULES,
 	VIDEO_CAPTION_HOUSE_RULES,
 	VIDEO_CAPTION_MAX_CHARS,
 	VIDEO_CAPTION_TEXT_RULES,
-	videoContinuationNote,
 } from "$lib/server/services/video-caption";
 
 beforeEach(() => {
@@ -65,12 +63,12 @@ describe("the official LTX instruction", () => {
 	});
 });
 
-/** The one system message a builder sends, through the endpoint stub. */
+/** The one system message the builder sends, through the endpoint stub. */
 async function captureSystemMessage(
 	options: {
 		variant?: LtxVideoVariant;
 		fromText?: boolean;
-		first?: string;
+		durationSeconds?: 5 | 10;
 	} = {},
 ): Promise<string> {
 	const fetchImpl = vi.fn(async () => jsonResponse("A caption."));
@@ -78,12 +76,11 @@ async function captureSystemMessage(
 		fetchImpl: fetchImpl as unknown as typeof fetch,
 		...(options.variant ? { variant: options.variant } : {}),
 		...(options.fromText !== undefined ? { fromText: options.fromText } : {}),
+		...(options.durationSeconds
+			? { durationSeconds: options.durationSeconds }
+			: {}),
 	};
-	if (options.first) {
-		await buildVideoContinuationPrompt("idea", options.first, buildOptions);
-	} else {
-		await buildVideoPrompt("idea", buildOptions);
-	}
+	await buildVideoPrompt("idea", buildOptions);
 	const body = JSON.parse(
 		String(
 			(fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body,
@@ -124,8 +121,7 @@ describe("the caption request's instruction blocks", () => {
 		);
 		// The correction the vendored instruction needs for a take with no
 		// still: no reference image, the scene from the request alone. It may
-		// not deny a frame outright: a continuation's opening frame is the
-		// previous segment's last frame.
+		// not deny a frame outright: the clip still opens on one.
 		expect(rules).not.toMatch(/no first frame/i);
 		expect(rules).toContain(
 			"No reference image is attached: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself.",
@@ -193,7 +189,7 @@ describe("the caption request's instruction blocks", () => {
 		);
 		// The correction says what the vendored instruction assumes and a text
 		// take does not have, then where the scene comes from instead. It does
-		// not claim a frame cannot exist: a continuation opens on one.
+		// not claim a frame cannot exist: the clip still opens on one.
 		expect(VIDEO_CAPTION_TEXT_RULES).not.toMatch(/no first frame/i);
 		expect(VIDEO_CAPTION_TEXT_RULES).toContain(
 			"No reference image is attached: the request alone supplies the scene, so establish its subject, setting and light from the person's words yourself.",
@@ -236,19 +232,6 @@ describe("the caption request's instruction blocks", () => {
 		expect(sent).not.toContain(VIDEO_CAPTION_ALT_RULES);
 	});
 
-	it("puts the continuation note last, after the alt rules", async () => {
-		const first =
-			"Initially a grey cat walks across a rug toward a closed door.";
-		const sent = await captureSystemMessage({ variant: "alt", first });
-		expect(sent).toBe(
-			[
-				LTX24_I2V_INSTRUCTION,
-				VIDEO_CAPTION_ALT_RULES,
-				videoContinuationNote(first),
-			].join("\n\n"),
-		);
-	});
-
 	it("keeps the renderability rules verbatim and leaves out the house rules' image sentence", () => {
 		// Our own block, ASCII English like everything the app writes into a
 		// model request (ruling 79), and no third-party text.
@@ -276,6 +259,59 @@ describe("the caption request's instruction blocks", () => {
 		);
 		expect(VIDEO_CAPTION_ALT_RULES).toMatch(/leave out nothing it did name/i);
 	});
+});
+
+describe("the length the caption is told it covers", () => {
+	// A take is one render of five or ten seconds, so it is captioned once, and
+	// the caption model is told how much of the clip that caption covers.
+	const BLOCKS = [
+		{ name: "the house rules", variant: "standard", fromText: false },
+		{ name: "the alt rules", variant: "alt", fromText: false },
+		{ name: "the text-take rules", variant: "alt", fromText: true },
+	] as const;
+
+	it.each(BLOCKS)(
+		"tells the model a 10 s take covers ten seconds: $name",
+		async ({ variant, fromText }) => {
+			const sent = await captureSystemMessage({
+				variant,
+				fromText,
+				durationSeconds: 10,
+			});
+			expect(sent).toContain("- The caption covers ten seconds of action.");
+			expect(sent).not.toMatch(/five seconds of action/i);
+		},
+	);
+
+	it.each(BLOCKS)(
+		"changes nothing else in $name for a 10 s take",
+		async ({ variant, fromText }) => {
+			const five = await captureSystemMessage({
+				variant,
+				fromText,
+				durationSeconds: 5,
+			});
+			const ten = await captureSystemMessage({
+				variant,
+				fromText,
+				durationSeconds: 10,
+			});
+			expect(ten).toBe(
+				five.replace("covers five seconds", "covers ten seconds"),
+			);
+		},
+	);
+
+	it.each(BLOCKS)(
+		"tells the model a take that states no length covers five seconds: $name",
+		async ({ variant, fromText }) => {
+			const sent = await captureSystemMessage({ variant, fromText });
+			expect(sent).toContain("- The caption covers five seconds of action.");
+			expect(sent).toBe(
+				await captureSystemMessage({ variant, fromText, durationSeconds: 5 }),
+			);
+		},
+	);
 });
 
 describe("buildVideoPrompt", () => {
@@ -326,7 +362,7 @@ describe("buildVideoPrompt", () => {
 		// Qwen's chat template answers 400 "System message must be at the
 		// beginning." (measured on the box on 2026-11-17, when the house rules
 		// went in a second system message and every caption fell back to the
-		// person's words). This fake keeps that rule, for both builders.
+		// person's words). This fake keeps that rule.
 		const strictTemplate = vi.fn(async (_url: string, init?: RequestInit) => {
 			const body = JSON.parse(String(init?.body)) as {
 				messages: { role: string }[];
@@ -347,14 +383,7 @@ describe("buildVideoPrompt", () => {
 		expect(await buildVideoPrompt("the tide comes in", { fetchImpl })).toBe(
 			"A slow tide fills the frame.",
 		);
-		expect(
-			await buildVideoContinuationPrompt(
-				"the tide comes in",
-				"Initially the tide comes in.",
-				{ fetchImpl },
-			),
-		).toBe("A slow tide fills the frame.");
-		expect(strictTemplate).toHaveBeenCalledTimes(2);
+		expect(strictTemplate).toHaveBeenCalledTimes(1);
 	});
 
 	it("tells the caption model it is not shown the still, and keeps the house rules", () => {
@@ -473,103 +502,5 @@ describe("buildVideoPrompt", () => {
 			role: "user",
 			content: "User Raw Input Prompt: the tide comes in.",
 		});
-	});
-});
-
-describe("buildVideoContinuationPrompt: a 10 s clip's second five seconds", () => {
-	const first = "Initially a grey cat walks across a rug toward a closed door.";
-
-	it("asks what happens next, from where the first five seconds end", async () => {
-		const fetchImpl = vi.fn(async () =>
-			jsonResponse("The cat reaches the door and paws at its edge."),
-		);
-		const caption = await buildVideoContinuationPrompt(
-			"the cat walks to the door",
-			first,
-			{ fetchImpl: fetchImpl as unknown as typeof fetch },
-		);
-		expect(caption).toBe("The cat reaches the door and paws at its edge.");
-		const body = JSON.parse(
-			String(
-				(fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body,
-			),
-		);
-		expect(body.messages).toEqual([
-			{
-				role: "system",
-				content: [
-					LTX24_I2V_INSTRUCTION,
-					VIDEO_CAPTION_HOUSE_RULES,
-					videoContinuationNote(first),
-				].join("\n\n"),
-			},
-			{
-				role: "user",
-				content: "User Raw Input Prompt: the cat walks to the door.",
-			},
-		]);
-		const note = videoContinuationNote(first);
-		expect(note).toContain(first);
-		// Segment 2 starts on segment 1's last frame: its caption goes on from
-		// there (review C-2: the same caption replayed the action from its start
-		// and spoke its dialogue twice).
-		expect(note).toMatch(/second five seconds/i);
-		expect(note).toMatch(/do not start the action over/i);
-		expect(note).toMatch(/do not repeat any dialogue/i);
-		expect(note.replace(first, "")).toMatch(/^[\x20-\x7E\n]+$/);
-	});
-
-	it("gives a text take's continuation the text-take block, note last", async () => {
-		const sent = await captureSystemMessage({
-			variant: "alt",
-			fromText: true,
-			first,
-		});
-		expect(sent).not.toContain(VIDEO_CAPTION_ALT_RULES);
-		const note = videoContinuationNote(first);
-		expect(sent).toBe(
-			[LTX24_I2V_INSTRUCTION, VIDEO_CAPTION_TEXT_RULES, note].join("\n\n"),
-		);
-		// The frame-preservation rule stays out; the no-image correction stays
-		// in. The note still names segment 2's own opening frame, and the block
-		// no longer denies that a frame exists.
-		expect(sent).not.toMatch(/stays? in frame/i);
-		expect(sent).not.toMatch(/no first frame/i);
-		expect(sent).toContain(
-			"No reference image is attached: the request alone supplies the scene",
-		);
-	});
-
-	it("has none without a caption endpoint, or when the endpoint gives nothing usable", async () => {
-		config.url = "";
-		const unused = vi.fn();
-		expect(
-			await buildVideoContinuationPrompt("idea", first, {
-				fetchImpl: unused as unknown as typeof fetch,
-			}),
-		).toBeNull();
-		expect(unused).not.toHaveBeenCalled();
-
-		config.url = "http://127.0.0.1:11434";
-		for (const answer of [
-			new Response("nope", { status: 500 }),
-			jsonResponse("   "),
-			jsonResponse("I cannot see the image, so here is a guess."),
-		]) {
-			const fetchImpl = vi.fn(async () => answer);
-			expect(
-				await buildVideoContinuationPrompt("idea", first, {
-					fetchImpl: fetchImpl as unknown as typeof fetch,
-				}),
-			).toBeNull();
-		}
-		const down = vi.fn(async () => {
-			throw new TypeError("fetch failed");
-		});
-		expect(
-			await buildVideoContinuationPrompt("idea", first, {
-				fetchImpl: down as unknown as typeof fetch,
-			}),
-		).toBeNull();
 	});
 });

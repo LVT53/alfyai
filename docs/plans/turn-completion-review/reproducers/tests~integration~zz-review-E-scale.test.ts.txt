@@ -1,0 +1,67 @@
+// @vitest-environment node
+// Reviewer E: does the optional enrichment of a SMALL page cost O(page) or
+// O(conversation)? Seeds a big synthetic conversation directly through SQL and
+// times getMessageReadUsageProjections for 10 selected assistants.
+import { writeFileSync } from "node:fs";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import * as schema from "$lib/server/db/schema";
+import { accountingReadFixture } from "./accounting-read-fixture";
+
+const OUT =
+	"/private/tmp/claude-501/-Users-lvt53--claude-spares-spare-YLpADY/4ed27dd1-a849-4a5a-9d21-f1d9c1655ae8/scratchpad/scale-out.txt";
+let f: Awaited<ReturnType<typeof accountingReadFixture>>;
+beforeEach(async () => {
+	f = await accountingReadFixture();
+});
+afterEach(() => f?.close());
+
+function seedBig(assistants: number) {
+	const insMsg = f.sqlite.prepare(
+		"insert into messages (id, conversation_id, message_sequence, role, content, created_at) values (?,?,?,?,?,?)",
+	);
+	const insUsage = f.sqlite.prepare(
+		"insert into usage_events (id, user_id, conversation_id, message_id, model_id, billing_month, cost_usd_micros, total_tokens) values (?,?,?,?,?,?,?,?)",
+	);
+	const insAnalytics = f.sqlite.prepare(
+		"insert into message_analytics (id, message_id, user_id, model, generation_time_ms) values (?,?,?,?,?)",
+	);
+	f.sqlite.exec("begin");
+	let seq = 0;
+	for (let n = 0; n < assistants; n++) {
+		seq++;
+		insMsg.run(`bu-${n}`, "c", seq, "user", `U${n}`, 1_800_000_000 + seq);
+		seq++;
+		insMsg.run(`ba-${n}`, "c", seq, "assistant", `A${n}`, 1_800_000_000 + seq);
+		insUsage.run(`bue-${n}`, "u", "c", `ba-${n}`, "m", "2026-11", 10, 5);
+		insAnalytics.run(`bme-${n}`, `ba-${n}`, "u", "m", 100);
+	}
+	f.sqlite.exec("commit");
+}
+
+it("times optional enrichment of a 10-assistant page against growing conversations", async () => {
+	const lines: string[] = [];
+	for (const size of [200, 2000, 10000]) {
+		f.sqlite.exec("delete from message_analytics; delete from usage_events; delete from messages;");
+		seedBig(size);
+		const ids = Array.from({ length: 10 }, (_, i) => `ba-${size - 1 - i}`);
+		// warm up
+		await f.analytics.getMessageReadUsageProjections("c", ids);
+		const t0 = performance.now();
+		const reps = 5;
+		for (let i = 0; i < reps; i++)
+			await f.analytics.getMessageReadUsageProjections("c", ids);
+		const enrichMs = (performance.now() - t0) / reps;
+		const t1 = performance.now();
+		for (let i = 0; i < reps; i++)
+			await f.readers.listMessageWindow("c", { limit: 20 });
+		const windowMs = (performance.now() - t1) / reps;
+		lines.push(
+			`assistants=${size} messages=${size * 2}  enrich(10 ids)=${enrichMs.toFixed(2)}ms  listMessageWindow(limit 20)=${windowMs.toFixed(2)}ms`,
+		);
+	}
+	writeFileSync(OUT, lines.join("\n"));
+	expect(lines.length).toBe(3);
+	void eq;
+	void schema;
+}, 120_000);

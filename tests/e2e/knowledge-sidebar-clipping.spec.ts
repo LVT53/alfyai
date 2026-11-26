@@ -10,6 +10,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import commonDict from "../../src/lib/i18n/common";
 import {
 	cleanUpConversation,
 	seedDocument,
@@ -33,6 +34,8 @@ const SIDEBARS = [
 /** The sidebar as it opens by default. */
 const DEFAULT_SIDEBAR = { name: "default", collapsed: false, width: 300 };
 type Sidebar = { name: string; collapsed: boolean; width: number };
+/** The sidebar's search pill, as it is named to assistive technology (the English interface). */
+const SEARCH_PILL = commonDict.en["sidebar.searchConversations"];
 /** Straddles the sidebar's edge on purpose: it is the edge you drag. */
 const ON_THE_EDGE = /"Resize sidebar"/;
 
@@ -237,7 +240,7 @@ test.describe("The sidebar and the Knowledge page at narrow widths", () => {
 			await openKnowledge(page, baseURL as string, SIDEBARS[1]);
 			await expect(chip).toBeHidden();
 			await expect(
-				page.getByRole("button", { name: "Search conversations" }),
+				page.getByRole("button", { name: SEARCH_PILL }),
 			).toContainText("Search");
 		} finally {
 			await context.close();

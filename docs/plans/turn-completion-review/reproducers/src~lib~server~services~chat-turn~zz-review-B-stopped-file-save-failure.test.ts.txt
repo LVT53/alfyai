@@ -1,0 +1,453 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getConversationCostSummary } from "$lib/server/services/analytics";
+import {
+	assignPendingWritesToAssistantMessage,
+	listPendingWritesForConversation,
+} from "$lib/server/services/connections/pending-writes";
+import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
+import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
+import type {
+	ChatMessage,
+	ToolCallEntry,
+} from "$lib/server/services/messages-types";
+import type { NormalChatContinuationSnapshot } from "$lib/server/services/normal-chat-model";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import type { TaskState } from "$lib/server/services/task-state/types";
+import type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
+import {
+	SERVER_STREAM_TIMELINE_MARKS,
+	STREAM_TIMELINE_PAYLOAD_VERSION,
+	type StreamTimelineTerminalPayload,
+} from "$lib/services/stream-timeline";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
+import {
+	registerActiveChatStream,
+	requestActiveChatStreamStop,
+	unregisterActiveChatStream,
+} from "./active-streams";
+import type { AskResumeCapture } from "./ask-questions";
+import type { LegacyContextTraceSectionInput } from "./context-trace";
+import { decodeUiMessageStreamParts } from "./stream";
+import { completeStreamTurn } from "./stream-completion";
+
+// The post-turn side effects finalize.ts fans out to now live in
+// ./finalize-steps and message creation in $lib/server/services/messages;
+// completeStreamTurn no longer injects them. Seam at those module boundaries so
+// these glue tests can still assert on exactly what finalize hands each step.
+const {
+	mockCreateMessage,
+	mockPersistUserTurnAttachments,
+	mockPersistAssistantTurnState,
+	mockPersistAssistantEvidence,
+	mockRunPostTurnTasks,
+	mockRecordAssistantTurnAnalytics,
+	mockRecordCompletedTurnContextUsage,
+	mockGenerateFollowUpSuggestions,
+	mockResolveTurnReplyLanguage,
+	mockListMessageWindow,
+	mockGetConversation,
+	mockStampAskQuestion,
+	mockSettleAskQuestion,
+	mockUpdateAssistantToolCallResult,
+} = vi.hoisted(() => ({
+	mockStampAskQuestion: vi.fn(),
+	mockSettleAskQuestion: vi.fn(),
+	mockUpdateAssistantToolCallResult: vi.fn(),
+	mockGetConversation: vi.fn(),
+	mockCreateMessage: vi.fn(),
+	mockPersistUserTurnAttachments: vi.fn(),
+	mockPersistAssistantTurnState: vi.fn(),
+	mockPersistAssistantEvidence: vi.fn(),
+	mockRunPostTurnTasks: vi.fn(),
+	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
+	mockRecordCompletedTurnContextUsage: vi.fn(),
+	mockGenerateFollowUpSuggestions: vi.fn(),
+	mockResolveTurnReplyLanguage: vi.fn(),
+	mockListMessageWindow: vi.fn(async () => ({
+		messages: [] as Array<{ role: string; content: string }>,
+		hasMoreBefore: false,
+	})),
+}));
+
+// Owner idea (variant A) — seamed exactly like the other control-model-backed
+// post-turn steps in this file (finalize-steps etc.): the glue tests below
+// assert what completeStreamTurn hands this seam and what it does with the
+// result, never the real control model.
+vi.mock("./follow-up-suggestions", async (importOriginal) => ({
+	generateFollowUpSuggestions: mockGenerateFollowUpSuggestions,
+	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT: 6,
+	goneMarkLettersOf: (
+		await importOriginal<typeof import("./follow-up-suggestions")>()
+	).goneMarkLettersOf,
+}));
+
+// A reply that paused to ask is tied to its question by finalize (the store is
+// tested on a real database in ask-questions.test.ts): the glue tests below
+// assert what completeStreamTurn hands it and what the terminal frame says of it.
+vi.mock("./ask-questions", () => ({
+	stampAskQuestion: mockStampAskQuestion,
+	// a segment that carries a reply on from an answer settles the question it answers
+	settleAskQuestion: mockSettleAskQuestion,
+}));
+
+// The language of the conversation for the person, named after the reply
+// (reply-language.ts), seamed: the glue tests below assert what
+// completeStreamTurn asks it and what it does with the answer; the reader and
+// the call are tested in language.test.ts, conversation-language.test.ts and
+// reply-language.test.ts.
+vi.mock("./reply-language", () => ({
+	resolveTurnReplyLanguage: mockResolveTurnReplyLanguage,
+}));
+
+// Post-turn prompt usage write (context usage ring). Seamed so the glue
+// tests can assert what completion hands it and what it carries back onto
+// the terminal metadata / finalize without a database.
+vi.mock("$lib/server/services/chat-turn/context-usage", () => ({
+	recordCompletedTurnContextUsage: mockRecordCompletedTurnContextUsage,
+}));
+
+// A stopped turn asks whether its conversation is still there before it saves
+// anything (completeStreamTurn: deleting a chat stops its reply first).
+vi.mock("$lib/server/services/conversations", () => ({
+	getConversation: mockGetConversation,
+}));
+
+vi.mock("$lib/server/services/messages", () => ({
+	createMessage: mockCreateMessage,
+	updateAssistantToolCallResult: mockUpdateAssistantToolCallResult,
+	updateMessageEvidence: vi.fn(async () => undefined),
+	updateMessageWebCitationAudit: vi.fn(async () => undefined),
+	listConversationMessagesForExport: vi.fn(async () => []),
+	// The bounded prior-turn window completion reads for the follow-up
+	// suggester (see the recentHistory block in stream-completion.ts).
+	listMessageWindow: mockListMessageWindow,
+}));
+
+// The activity rows a turn's tool calls leave are not what these tests are
+// about, and the messages they would point at are mocked: left real, each write
+// fails its foreign key and logs. Plain functions, so vi.resetAllMocks() leaves them.
+vi.mock("$lib/server/services/activity-events", () => ({
+	recordToolCallActivityEvents: async () => undefined,
+	recordSkillUseActivityEvent: async () => undefined,
+	recordTurnOriginActivityEvent: async () => undefined,
+}));
+
+vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
+	nameConversationAfterTurn: vi.fn(),
+	persistUserTurnAttachments: mockPersistUserTurnAttachments,
+	persistAssistantTurnState: mockPersistAssistantTurnState,
+	persistAssistantEvidence: mockPersistAssistantEvidence,
+	runPostTurnTasks: mockRunPostTurnTasks,
+	recordAssistantTurnAnalytics: mockRecordAssistantTurnAnalytics,
+}));
+
+vi.mock("$lib/server/config-store", () => ({
+	getConfig: vi.fn(() => ({ contextDiagnosticsDebug: false })),
+}));
+
+vi.mock("$lib/server/services/analytics", () => ({
+	getConversationCostSummary: vi.fn(async () => ({
+		totalCostUsdMicros: 0,
+		totalTokens: 0,
+	})),
+	recordMessageAnalytics: vi.fn(async () => undefined),
+}));
+
+vi.mock("$lib/server/services/task-state", () => ({
+	getProjectReferenceContext: vi.fn(async () => null),
+}));
+
+// Issue 7.5 — finalize.ts's pending-write reconciliation falls back to these
+// real store functions (no override param exists on completeStreamTurn,
+// unlike the file-production job functions below which are injected
+// directly). Mock the module so the stream-completion glue tests below can
+// assert on the exact ids/assistantMessageId it stamps, without touching a
+// real database.
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	listPendingWritesForConversation: vi.fn(async () => []),
+	assignPendingWritesToAssistantMessage: vi.fn(async () => undefined),
+}));
+
+const defaultLatestContextTraceSections: LegacyContextTraceSectionInput[] = [
+	{
+		name: "Project Folder Sibling Context",
+		source: "memory",
+		body: "Title: Font options",
+		inclusionLevel: "legacy_full",
+		itemIds: ["conversation:conv-fonts"],
+		itemTitles: ["Font options"],
+		signalReasons: ["project_folder_sibling:query_match"],
+	},
+];
+
+function createDeferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+	await Promise.resolve();
+	await Promise.resolve();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("completeStreamTurn", () => {
+	const mockTouchConversation = vi.fn();
+	const mockEnqueueChunk = vi.fn();
+	const mockCloseDownstream = vi.fn();
+	const mockClearStreamBuffer = vi.fn();
+	const mockGetStreamBuffer = vi.fn();
+	const mockSyncGeneratedFiles = vi.fn();
+	const mockGetChatFilesForMsg = vi.fn();
+	const mockGetFileProductionJobs = vi.fn();
+	const mockAssignFileProductionJobs = vi.fn();
+	const mockEstimateTokenCount = vi.fn().mockReturnValue(100);
+	const mockGetConversationCostSummary =
+		getConversationCostSummary as ReturnType<typeof vi.fn>;
+	const mockGetProjectReferenceContext =
+		getProjectReferenceContext as ReturnType<typeof vi.fn>;
+	const mockListPendingWrites = listPendingWritesForConversation as ReturnType<
+		typeof vi.fn
+	>;
+	const mockAssignPendingWrites =
+		assignPendingWritesToAssistantMessage as ReturnType<typeof vi.fn>;
+
+	function getLatestEndPayload(): Record<string, unknown> {
+		const endEvent = mockEnqueueChunk.mock.calls
+			.flatMap((call: string[]) => decodeUiMessageStreamParts(call[0] ?? ""))
+			.find(isDataStreamMetadataEvent);
+
+		expect(endEvent).toBeDefined();
+		if (!endEvent) return {};
+		return (endEvent.data ?? {}) as Record<string, unknown>;
+	}
+
+	function getLatestFinishPayload(): Record<string, unknown> {
+		const finishEvent = mockEnqueueChunk.mock.calls
+			.flatMap((call: string[]) => decodeUiMessageStreamParts(call[0] ?? ""))
+			.find((event) => event !== "[DONE]" && event.type === "finish");
+
+		expect(finishEvent).toBeDefined();
+		if (!finishEvent) return {};
+		return finishEvent as Record<string, unknown>;
+	}
+
+	function getStreamParts(): Array<UiMessageStreamPart | "[DONE]"> {
+		return mockEnqueueChunk.mock.calls.flatMap((call: string[]) =>
+			decodeUiMessageStreamParts(call[0] ?? ""),
+		);
+	}
+
+	function expectModelSafeTerminalError() {
+		const parts = getStreamParts();
+		const errorIndex = parts.findIndex(
+			(part) => part !== "[DONE]" && part.type === "data-stream-error",
+		);
+		expect(errorIndex).toBeGreaterThanOrEqual(0);
+		expect(parts.some(isDataStreamMetadataEvent)).toBe(false);
+		expect(parts.slice(errorIndex)).toEqual([
+			expect.objectContaining({
+				type: "data-stream-error",
+				transient: true,
+				data: expect.objectContaining({
+					code: "backend_failure",
+					message: expect.any(String),
+				}),
+			}),
+			{ type: "finish", finishReason: "error" },
+			"[DONE]",
+		]);
+	}
+
+	function isDataStreamMetadataEvent(
+		event: UiMessageStreamPart | "[DONE]",
+	): event is UiMessageStreamPart & {
+		type: "data-stream-metadata";
+		data: unknown;
+	} {
+		return event !== "[DONE]" && event.type === "data-stream-metadata";
+	}
+
+	const defaultUserMsg = { id: "user-msg-1" };
+	const defaultAssistantMsg = { id: "asst-msg-1" };
+	const defaultServerTimeline: StreamTimelineTerminalPayload = {
+		version: STREAM_TIMELINE_PAYLOAD_VERSION,
+		server: {
+			[SERVER_STREAM_TIMELINE_MARKS.ROUTE_PARSE]: 1,
+			[SERVER_STREAM_TIMELINE_MARKS.PRELUDE]: 8,
+			[SERVER_STREAM_TIMELINE_MARKS.MODEL_STREAM_REQUEST]: 35,
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: 42,
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING]: 44,
+			[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: 55,
+			[SERVER_STREAM_TIMELINE_MARKS.END]: 89,
+		},
+	};
+	const defaultTurnState = {
+		activeWorkingSet: [],
+		taskState: null,
+		contextDebug: null,
+		workCapsule: {} as unknown as undefined,
+	};
+
+	beforeEach(() => {
+		vi.resetAllMocks();
+		// The conversation is there, unless a test says it was deleted.
+		mockGetConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "Chat",
+			sidebarPinned: false,
+			sidebarSortOrder: null,
+			createdAt: 1,
+			updatedAt: 1,
+		});
+		mockCreateMessage
+			.mockResolvedValueOnce(defaultUserMsg)
+			.mockResolvedValueOnce(defaultAssistantMsg);
+		mockPersistUserTurnAttachments.mockResolvedValue(undefined);
+		mockPersistAssistantTurnState.mockResolvedValue(defaultTurnState);
+		mockPersistAssistantEvidence.mockResolvedValue(undefined);
+		mockRunPostTurnTasks.mockResolvedValue(undefined);
+		mockResolveTurnReplyLanguage.mockResolvedValue({
+			language: "en",
+			reply: "en",
+			via: "model",
+		});
+		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
+		mockTouchConversation.mockResolvedValue(undefined);
+		mockGetStreamBuffer.mockReturnValue(null);
+		mockSyncGeneratedFiles.mockResolvedValue(undefined);
+		mockGetChatFilesForMsg.mockResolvedValue([]);
+		mockListPendingWrites.mockResolvedValue([]);
+		mockAssignPendingWrites.mockResolvedValue(undefined);
+		mockGetFileProductionJobs.mockResolvedValue([]);
+		mockAssignFileProductionJobs.mockResolvedValue(undefined);
+		mockEnqueueChunk.mockReturnValue(true);
+		mockEstimateTokenCount.mockReturnValue(100);
+		mockGetConversationCostSummary.mockResolvedValue({
+			totalCostUsdMicros: 0,
+			totalTokens: 0,
+		});
+		mockGetProjectReferenceContext.mockResolvedValue(null);
+		mockRecordCompletedTurnContextUsage.mockImplementation(
+			async (params: { contextStatus: unknown }) => params.contextStatus,
+		);
+		// Default: the question of a paused reply is stamped (only those turns ask).
+		mockStampAskQuestion.mockResolvedValue(true);
+		// Default: the question a resume answers is settled and its answer written.
+		mockSettleAskQuestion.mockResolvedValue({ id: "q-1" });
+		mockUpdateAssistantToolCallResult.mockResolvedValue(true);
+		// Default: no follow-ups (mirrors the control model degrading silently
+		// on any skip/failure) — individual tests below override this to assert
+		// the emit/persist path.
+		mockGenerateFollowUpSuggestions.mockResolvedValue(null);
+		// Default: an empty prior-turn window (a first turn) — the follow-up
+		// tests below override this to assert the history hand-off.
+		mockListMessageWindow.mockResolvedValue({
+			messages: [],
+			hasMoreBefore: false,
+		});
+	});
+	const defaultParams = {
+		wasStopped: false,
+		conversationId: "conv-1",
+		streamId: "stream-1",
+		modelId: "model-1",
+		modelDisplayName: "Model One",
+		userId: "user-1",
+		normalizedMessage: "user message",
+		upstreamMessage: "upstream message",
+		skipPersistUserMessage: false,
+		isReconnect: false,
+		thinkingContent: "<thinking>reason</thinking>",
+		fullResponse: "response text",
+		toolCallRecords: [],
+		skillControlEnvelopePayloads: [],
+		serverSegments: [],
+		attachmentIds: ["att-1"],
+		activeDocumentArtifactId: "doc-1",
+		requestStartTime: Date.now() - 5000,
+		preparedContext: {
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: defaultLatestContextTraceSections,
+		},
+		latestProviderUsage: null,
+		serverTimeline: defaultServerTimeline,
+		touchConversation: mockTouchConversation,
+		enqueueChunk: mockEnqueueChunk,
+		closeDownstream: mockCloseDownstream,
+		clearStreamBuffer: mockClearStreamBuffer,
+		getStreamBuffer: mockGetStreamBuffer,
+		syncGeneratedFilesToMemory: mockSyncGeneratedFiles,
+		getChatFilesForAssistantMessage: mockGetChatFilesForMsg,
+		getFileProductionJobs: mockGetFileProductionJobs,
+		assignFileProductionJobsToAssistantMessage: mockAssignFileProductionJobs,
+		estimateTokenCount: mockEstimateTokenCount,
+	};
+
+	// Reviewer B reproducer. Contract (AGENTS.md chat-turn, stream-completion.ts:602-610,
+	// existing test "still reports a failure when the conversation is there"): a stopped
+	// turn whose conversation is still there but whose save fails ends with the error.
+	// The only difference here is that the turn called produce_file.
+	describe("reviewer B: stopped turn with a file-production call whose save fails", () => {
+		let streamController: AbortController;
+		beforeEach(() => {
+			streamController = new AbortController();
+			vi.spyOn(console, "error").mockImplementation(() => {});
+			vi.spyOn(console, "info").mockImplementation(() => {});
+			registerActiveChatStream({
+				streamId: "stream-1",
+				userId: "user-1",
+				conversationId: "conv-1",
+				controller: streamController,
+			});
+			requestActiveChatStreamStop({ streamId: "stream-1", userId: "user-1" });
+		});
+		afterEach(() => {
+			unregisterActiveChatStream("stream-1", streamController);
+		});
+
+		it.each([
+			{ label: "no file-production call (control)", records: [] as ToolCallEntry[] },
+			{
+				label: "a produce_file call",
+				records: [
+					{
+						name: "produce_file",
+						input: {},
+						status: "done",
+						metadata: { jobId: "job-new" },
+					},
+				] as ToolCallEntry[],
+			},
+		])("assistant persistence offline, $label: ends with an explicit error", async ({ records }) => {
+			mockCreateMessage
+				.mockReset()
+				.mockResolvedValueOnce({ id: "user-msg-1" })
+				.mockRejectedValueOnce(new Error("assistant persistence offline"));
+			mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new", files: [] }]);
+
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped: true,
+				toolCallRecords: records,
+			});
+
+			// Conversation still there; nothing was saved.
+			const parts = getStreamParts();
+			console.log(
+				"REVIEW-B parts:",
+				JSON.stringify(
+					parts.map((p) => (p === "[DONE]" ? p : { type: p.type, data: (p as { data?: unknown }).data })),
+				),
+			);
+			expectModelSafeTerminalError();
+		});
+	});
+});

@@ -52,7 +52,7 @@ async function setup() {
 			calls++;
 			let data: unknown = {};
 			if (path.endsWith("/config"))
-				data = { config: native.NATIVE_BANK_CONFIG };
+				data = { config: native.nativeBankConfig("personal") };
 			else if (path.endsWith("/memories") && options?.method === "POST")
 				data = { operation_id: JSON.parse(String(options?.body)).operation_id };
 			else if (path.endsWith("/consolidate"))
@@ -118,6 +118,29 @@ async function setup() {
 	};
 }
 describe("Memory delivery through real job engine", () => {
+	it("delivers for an account the migration guard excludes: delivery is not a migration", async () => {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.schema.users)
+			.set({ memoryMigrationExcluded: true })
+			.where(eq(f.schema.users.id, h.userId))
+			.run();
+		const { memoryMigrationGuard } = await import("./migration-guard");
+		expect(memoryMigrationGuard(h.userId)).toEqual({
+			allowed: false,
+			reason: "excluded",
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		const pub = await import("./publication");
+		expect(pub.readPublishedMemory(h.userId, f.bank.id)[0].text).toBe(
+			"Green kayak",
+		);
+	});
 	it("deduplicates enqueue and publishes only after native completion", async () => {
 		const f = await setup();
 		const a = await f.enqueue();
@@ -190,13 +213,23 @@ describe("Memory delivery through real job engine", () => {
 		const original = f.fetcher.getMockImplementation();
 		if (!original) throw new Error("fixture");
 		let failures = 3;
+		let received = false;
 		const identities: string[] = [];
 		f.fetcher.mockImplementation(async (url, init) => {
 			if (String(url).endsWith("/memories") && init?.method === "POST") {
 				identities.push(JSON.parse(String(init.body)).operation_id);
 				if (failures-- > 0)
 					return new Response("lost acknowledgement", { status: 503 });
+				received = true;
 			}
+			// Hindsight never received the lost ones: it does not know the operation,
+			// so each try asks and then sends the same ID again.
+			if (
+				!received &&
+				String(url).includes("/operations/") &&
+				!String(url).includes("consolidate-op")
+			)
+				return new Response(JSON.stringify({ status: "not_found" }));
 			return original(url, init);
 		});
 		const job = await f.enqueue();
@@ -574,7 +607,7 @@ it("waits for a late configuration commit before completing reset cleanup", asyn
 	const f = await setup();
 	const actions = await import("./curation-actions");
 	const clients = await import("./hindsight-client");
-	const { NATIVE_BANK_CONFIG } = await import("./contracts");
+	const { nativeBankConfig } = await import("./contracts");
 	let bankExists = false;
 	let exactConfigVisible = false;
 	let finishRemoteWrite: (() => void) | undefined;
@@ -612,7 +645,7 @@ it("waits for a late configuration commit before completing reset cleanup", asyn
 			return bankExists
 				? new Response(
 						JSON.stringify({
-							config: exactConfigVisible ? NATIVE_BANK_CONFIG : {},
+							config: exactConfigVisible ? nativeBankConfig("personal") : {},
 						}),
 					)
 				: new Response("missing", { status: 404 });
@@ -727,6 +760,427 @@ it("keeps an unconfirmed checkpoint after a lost first submission and never rese
 	});
 });
 
+it("publishing a snapshot records its facts' labels and event dates", async () => {
+	const f = await setup();
+	const original = f.fetcher.getMockImplementation();
+	if (!original) throw Error("fixture");
+	f.fetcher.mockImplementation(async (url, init) => {
+		if (String(url).includes("/memories/list"))
+			return Response.json({
+				total: 2,
+				offset: 0,
+				items: [
+					{
+						id: "f",
+						text: "Green kayak",
+						fact_type: "world",
+						consolidated_at: "2026-11-18T00:00:00Z",
+						document_id: f.source.id,
+						tags: [f.source.id, "kind:lasting", "subject:interests"],
+						occurred_start: null,
+						occurred_end: null,
+					},
+					{
+						id: "o",
+						text: "Green kayak",
+						fact_type: "observation",
+						source_memory_ids: ["f"],
+					},
+				],
+			});
+		return original(url, init);
+	});
+	await f.enqueue();
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+		"succeeded",
+	);
+	const { readFactLabels } = await import("./fact-labels");
+	expect(readFactLabels(f.db, f.bank.id).get("f")).toEqual({
+		kind: "lasting",
+		subject: "interests",
+		eventAt: null,
+		origin: "extraction",
+	});
+});
+
+describe("bank configuration 3 reaches every bank", () => {
+	async function boundAt(version: string, live: unknown) {
+		const f = await setup();
+		f.db
+			.update(f.schema.memoryBanks)
+			.set({
+				nativeBaseUrl: "http://synthetic",
+				nativeCredentialHash: "synthetic-hash",
+				nativeConfigVersion: version,
+			})
+			.run();
+		const state = {
+			live,
+			versionAtPatch: undefined as string | null | undefined,
+		};
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw Error("fixture");
+		let deleted = false;
+		f.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (init?.method === "DELETE" && !path.includes("/documents/"))
+				deleted = true;
+			if (path.endsWith("/config") && deleted)
+				return new Response("missing", { status: 404 });
+			if (path.endsWith("/config") && init?.method === "PATCH") {
+				state.versionAtPatch = f.db
+					.select()
+					.from(f.schema.memoryBanks)
+					.get()?.nativeConfigVersion;
+				state.live = JSON.parse(String(init.body)).updates;
+				return Response.json({ config: state.live });
+			}
+			if (path.endsWith("/config") && init?.method !== "DELETE")
+				return Response.json({ config: state.live });
+			return original(url, init);
+		});
+		const patches = () =>
+			f.fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH");
+		return { f, state, patches };
+	}
+
+	it("upgrades a config-1 bank straight to config 3 with one PATCH, and no sentinel", async () => {
+		const native = await import("./contracts");
+		const { f, state, patches } = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(JSON.parse(String(patches()[0][1]?.body)).updates).toEqual(
+			native.nativeBankConfig("personal"),
+		);
+		// The bank holds the person's data, so it stays at config 1 until the
+		// readback proves config 3: nothing can hold it in between.
+		expect(state.versionAtPatch).toBe(native.HINDSIGHT_ENGINE_COMMIT);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("marks the epoch's labels unverified when it upgrades a config-1 bank", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(false);
+	});
+
+	it("keeps an epoch the label migration verified verified when it upgrades a config-1 bank", async () => {
+		const native = await import("./contracts");
+		const labels = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		// What migration 143 and then the label migration did before this
+		// delivery reached the bank: every fact in it predates the upgrade.
+		f.db.transaction((tx) => {
+			labels.markMemoryLabelsUnverified(tx, h.userId, f.bank.epoch);
+			expect(labels.markMemoryLabelsVerified(tx, h.userId, f.bank.epoch)).toBe(
+				true,
+			);
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+		expect(labels.memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("marks a verified epoch again when a creation the previous release sent landed as config 1", async () => {
+		const native = await import("./contracts");
+		const labels = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		f.db.transaction((tx) => {
+			labels.markMemoryLabelsUnverified(tx, h.userId, f.bank.epoch);
+			labels.markMemoryLabelsVerified(tx, h.userId, f.bank.epoch);
+		});
+		expect(labels.memoryLabelsVerified(h.userId)).toBe(true);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(labels.memoryLabelsVerified(h.userId)).toBe(false);
+	});
+
+	it("marks them when a creation the previous release sent landed as config 1", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(memoryLabelsVerified(h.userId)).toBe(false);
+	});
+
+	it("leaves them verified for a bank created at config 3", async () => {
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const f = await setup();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("verifies a bank already on config 3 without a PATCH", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_VERSION,
+			native.nativeBankConfig("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(0);
+	});
+
+	it("refuses a bank on config 3 whose live config is another kind's", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_VERSION,
+			native.nativeBankConfig("project"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{ errorCode: "native_config_mismatch" },
+		);
+		expect(patches()).toHaveLength(0);
+	});
+
+	it("upgrades a config-2 bank with one PATCH, keeps its labels verified, and keeps its version until config 3 is read back", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f, state, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_2_VERSION,
+			native.nativeBankConfig2("personal"),
+		);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(JSON.parse(String(patches()[0][1]?.body)).updates).toEqual(
+			native.nativeBankConfig("personal"),
+		);
+		expect(state.versionAtPatch).toBe(native.NATIVE_BANK_CONFIG_2_VERSION);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+		// Config 2 already labelled every new fact: nothing to verify again.
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("settles a creation the config-2 release left pending, then upgrades it, labels still verified", async () => {
+		const native = await import("./contracts");
+		const { memoryLabelsVerified } = await import("./labels-verified");
+		const { f, state, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.nativeBankConfig2("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(state.versionAtPatch).toBe(native.NATIVE_BANK_CONFIG_2_VERSION);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+		expect(memoryLabelsVerified(h.userId)).toBe(true);
+	});
+
+	it("records a creation that landed as config 3 without another PATCH", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.nativeBankConfig("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("refuses a bank recorded as config 3 whose live config is config 2", async () => {
+		const native = await import("./contracts");
+		const first = await boundAt(
+			native.NATIVE_BANK_CONFIG_VERSION,
+			native.nativeBankConfig2("personal"),
+		);
+		await first.f.enqueue();
+		await h.engine.drain(first.f.jobs.memoryDeliveryJob);
+		expect(
+			first.f.db.select().from(first.f.schema.memoryDeliveryJobs).get(),
+		).toMatchObject({ errorCode: "native_config_mismatch" });
+		expect(first.patches()).toHaveLength(0);
+	});
+
+	it("refuses a config-2 bank that holds the other kind's config, as production does, and sends nothing", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_2_VERSION,
+			native.nativeBankConfig2("project"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{ errorCode: "native_config_mismatch" },
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_2_VERSION);
+	});
+
+	it("records config 3 for a config-2 bank whose upgrade landed but whose version write was lost, with no second PATCH", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_2_VERSION,
+			native.nativeBankConfig("personal"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("records no version for a creation left pending that holds the other kind's config", async () => {
+		const native = await import("./contracts");
+		const { f, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.nativeBankConfig("project"),
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()).toMatchObject(
+			{ errorCode: "native_config_mismatch" },
+		);
+		expect(patches()).toHaveLength(0);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_PENDING);
+	});
+
+	it("settles a creation the previous release left pending, then upgrades it", async () => {
+		const native = await import("./contracts");
+		const { f, state, patches } = await boundAt(
+			native.NATIVE_BANK_CONFIG_PENDING,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(1);
+		expect(state.versionAtPatch).toBe(native.HINDSIGHT_ENGINE_COMMIT);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	/** The first upgrade PATCH is lost before Hindsight reads it. */
+	async function lostUpgrade() {
+		const native = await import("./contracts");
+		const bound = await boundAt(
+			native.HINDSIGHT_ENGINE_COMMIT,
+			native.PREVIOUS_NATIVE_BANK_CONFIG,
+		);
+		const upgrading = bound.f.fetcher.getMockImplementation();
+		if (!upgrading) throw Error("fixture");
+		let lose = true;
+		bound.f.fetcher.mockImplementation(async (url, init) => {
+			if (String(url).endsWith("/config") && init?.method === "PATCH" && lose) {
+				lose = false;
+				throw Error("synthetic loss before native received the request");
+			}
+			return upgrading(url, init);
+		});
+		return { ...bound, native };
+	}
+
+	it("sends an upgrade again when its PATCH did not land, until it does", async () => {
+		const { f, patches, native } = await lostUpgrade();
+		await f.enqueue();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		for (let i = 0; i < 3; i++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			vi.setSystemTime(Date.now() + 16000);
+		}
+		expect(f.db.select().from(f.schema.memoryDeliveryJobs).get()?.status).toBe(
+			"succeeded",
+		);
+		expect(patches()).toHaveLength(2);
+		expect(
+			f.db.select().from(f.schema.memoryBanks).get()?.nativeConfigVersion,
+		).toBe(native.NATIVE_BANK_CONFIG_VERSION);
+	});
+
+	it("a reset deletes a bank whose upgrade did not land", async () => {
+		const { f } = await lostUpgrade();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await f.jobs.prepareNativeMemoryErasure(h.userId);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		const cleanup = f.db
+			.select()
+			.from(f.schema.memoryDeliveryJobs)
+			.all()
+			.find((job) => job.kind === "cleanup");
+		expect(cleanup?.status).toBe("succeeded");
+		expect(
+			f.fetcher.mock.calls.filter(
+				([url, init]) =>
+					init?.method === "DELETE" && !String(url).includes("/documents/"),
+			),
+		).toHaveLength(1);
+	});
+});
+
 it("does not treat an older bound but unversioned configuration as settled", async () => {
 	const f = await setup();
 	const { NATIVE_BANK_CONFIG_LEGACY_UNKNOWN } = await import("./contracts");
@@ -772,6 +1226,8 @@ function fakeRetains(
 		onPost?: (operationId: string) => void;
 		/** Runs as the facts are listed. */
 		onList?: () => void;
+		/** Until a retain completes, the bank holds one fact, under another document. */
+		otherDocument?: boolean;
 	} = {},
 ) {
 	const original = f.fetcher.getMockImplementation();
@@ -815,7 +1271,25 @@ function fakeRetains(
 				!options.leftBehind &&
 				![...operations.values()].includes("completed")
 			)
-				return new Response(JSON.stringify({ total: 0, offset: 0, items: [] }));
+				return new Response(
+					JSON.stringify(
+						options.otherDocument
+							? {
+									total: 1,
+									offset: 0,
+									items: [
+										{
+											id: "other-fact",
+											text: "Another chat's fact",
+											fact_type: "world",
+											consolidated_at: "2026-11-18T00:00:00Z",
+											document_id: "another-source",
+										},
+									],
+								}
+							: { total: 0, offset: 0, items: [] },
+					),
+				);
 		}
 		return original(url, init);
 	});
@@ -823,6 +1297,8 @@ function fakeRetains(
 		calls,
 		bodies,
 		posted: () => bodies.map((body) => body.operation_id),
+		/** Hindsight forgets an operation, as it does once a receipt expires. */
+		forget: (id: string) => operations.delete(id),
 	};
 }
 
@@ -855,20 +1331,55 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			userId: h.userId,
 			from: ["failed"],
 		});
+	/**
+	 * Drains, lets the one-minute hold-back before a resubmission pass, and
+	 * drains again. Needs `vi.useFakeTimers({ toFake: ["Date"] })`.
+	 */
+	async function drainPastHoldBack(f: Fixture) {
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		vi.setSystemTime(Date.now() + 61_000);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+	}
+	const ended = (f: Fixture) =>
+		JSON.parse(revision(f)?.context ?? "{}").nativeRetainEnded;
 
-	it("resubmits it once under a new operation ID and accepts the source when that completes", async () => {
+	it("holds a failed retain back a minute, then resubmits it once under a new operation ID", async () => {
 		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const fake = fakeRetains(f, {
 			endOf: (nth) => (nth === 0 ? "failed" : "completed"),
 		});
 		await f.enqueue();
+		const failedAt = Date.now();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		// S1: nothing is rotated or sent until the refusal that failed it has had a minute to pass.
+		expect(fake.posted()).toEqual([f.source.nativeOperationId]);
+		expect(job(f)).toMatchObject({
+			status: "queued",
+			errorCode: "native_retain_resubmit_due",
+			retryable: true,
+		});
+		// run_after is kept in whole seconds.
+		expect(job(f)?.runAfter?.getTime()).toBeGreaterThanOrEqual(
+			Math.floor((failedAt + 60_000) / 1000) * 1000,
+		);
+		expect(revision(f)).toMatchObject({
+			nativeOperationId: f.source.nativeOperationId,
+			context: "User statement",
+		});
+		vi.setSystemTime(Date.now() + 61_000);
 		await h.engine.drain(f.jobs.memoryDeliveryJob);
 		const [failed, fresh] = fake.posted();
 		expect(fake.posted()).toHaveLength(2);
 		expect(fresh).not.toBe(failed);
 		// The same source goes out again: only its operation ID is new.
 		expect(fake.bodies[1].items).toEqual(fake.bodies[0].items);
-		expect(job(f)).toMatchObject({ status: "succeeded", attemptCount: 1 });
+		expect(job(f)).toMatchObject({ status: "succeeded", attemptCount: 2 });
+		// The hold-back was a wait: no attempt of the job's three was spent on it.
+		const { parseDeliveryRetryState } = await import("./delivery-policy");
+		expect(
+			parseDeliveryRetryState(JSON.parse(job(f)?.retryState ?? "null")).waits,
+		).toBe(1);
 		expect(revision(f)).toMatchObject({
 			state: "accepted",
 			nativeAcknowledged: true,
@@ -879,58 +1390,110 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 		});
 	});
 
-	it("ends for good when the resubmitted retain fails too", async () => {
+	it("ends for good when the resubmitted retain fails too, and records that end", async () => {
 		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const fake = fakeRetains(f, { endOf: () => "failed" });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toHaveLength(2);
+		// N1: its own code, so an operator never mistakes a failed consolidation for it.
 		expect(job(f)).toMatchObject({
 			status: "failed",
-			errorCode: "native_operation_failed",
+			errorCode: "native_retain_resubmit_failed",
 			retryable: false,
-			attemptCount: 1,
+			attemptCount: 2,
 		});
 		expect(revision(f)).toMatchObject({
 			nativeSubmitted: true,
 			nativeAcknowledged: false,
 			nativeOperationId: fake.posted()[1],
 		});
+		// S2: the end is on the revision, whatever Hindsight later remembers.
+		expect(ended(f)).toEqual({
+			operationId: fake.posted()[1],
+			reason: "resubmit_failed",
+		});
 	});
 
-	it("sends no third operation when that failed job is reopened", async () => {
+	it.each(["remembers", "has forgotten"])(
+		"sends no third operation when that failed job is reopened and Hindsight %s the resubmitted one",
+		async (memory) => {
+			const f = await setup();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const fake = fakeRetains(f, { endOf: () => "failed" });
+			const queued = await f.enqueue();
+			await drainPastHoldBack(f);
+			expect(job(f)?.status).toBe("failed");
+			if (memory === "has forgotten") fake.forget(fake.posted()[1]);
+			const callsBefore = fake.calls.length;
+			await reopen(f, queued.row.id);
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(job(f)).toMatchObject({
+				status: "failed",
+				errorCode: "native_retain_resubmit_failed",
+			});
+			// S2: the recorded end decides before Hindsight is asked anything.
+			expect(fake.calls.slice(callsBefore)).toEqual([]);
+			expect(new Set(fake.posted()).size).toBe(2);
+			expect(fake.posted()).toHaveLength(2);
+			expect(revision(f)?.nativeOperationId).toBe(fake.posted()[1]);
+		},
+	);
+
+	it("resubmits although the bank holds another document's facts", async () => {
 		const f = await setup();
-		const fake = fakeRetains(f, { endOf: () => "failed" });
-		const queued = await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
-		expect(job(f)?.status).toBe("failed");
-		await reopen(f, queued.row.id);
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
-		expect(job(f)).toMatchObject({
-			status: "failed",
-			errorCode: "native_operation_failed",
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const fake = fakeRetains(f, {
+			endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+			otherDocument: true,
 		});
-		// Two operations, and the reopening sent nothing: the one resubmission is spent.
-		expect(new Set(fake.posted()).size).toBe(2);
+		await f.enqueue();
+		await drainPastHoldBack(f);
+		// N2: only a fact under this source's own document stops the resubmission.
 		expect(fake.posted()).toHaveLength(2);
-		expect(revision(f)?.nativeOperationId).toBe(fake.posted()[1]);
+		expect(job(f)?.status).toBe("succeeded");
+	});
+
+	it("accepts a sent retain Hindsight reports completed without sending it again", async () => {
+		const f = await setup();
+		const id = f.source.nativeOperationId as string;
+		const fake = fakeRetains(f, { known: { [id]: "completed" } });
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true })
+			.run();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		// N3: the answer to the GET is enough; no POST of a finished operation.
+		expect(fake.calls).toEqual([`GET ${id}`]);
+		expect(fake.posted()).toEqual([]);
+		expect(job(f)?.status).toBe("succeeded");
+		expect(revision(f)).toMatchObject({
+			state: "accepted",
+			nativeAcknowledged: true,
+		});
 	});
 
 	it("stays terminal when the failed operation left a fact under the document", async () => {
 		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const fake = fakeRetains(f, { endOf: () => "failed", leftBehind: true });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toEqual([f.source.nativeOperationId]);
 		expect(job(f)).toMatchObject({
 			status: "failed",
-			errorCode: "native_operation_failed",
+			errorCode: "native_retain_left_facts",
 			retryable: false,
 		});
-		// Nothing was rotated or marked: the source is as the failed attempt left it.
-		expect(revision(f)).toMatchObject({
-			nativeOperationId: f.source.nativeOperationId,
-			context: "User statement",
+		// Nothing was rotated: only the end is recorded (S2).
+		expect(revision(f)?.nativeOperationId).toBe(f.source.nativeOperationId);
+		expect(JSON.parse(revision(f)?.context ?? "{}")).toEqual({
+			nativeRetainEnded: {
+				operationId: f.source.nativeOperationId,
+				reason: "facts_left_behind",
+			},
 		});
 	});
 
@@ -970,7 +1533,7 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 		});
 		vi.useFakeTimers({ toFake: ["Date"] });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		// The new ID and the marker were already committed when the call went out.
 		expect(stored?.id).toBeTruthy();
 		expect(stored?.id).not.toBe(failed);
@@ -999,16 +1562,15 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			if (when === "first attempt") await f.enqueue();
 			else await reopen(f, await failedByEarlierRelease(f));
 			await h.engine.drain(f.jobs.memoryDeliveryJob);
-			expect(fake.posted()).toEqual([failed]);
+			// N3: a reopened job asks first and sends nothing to a cancelled operation.
+			expect(fake.posted()).toEqual(when === "first attempt" ? [failed] : []);
 			expect(job(f)).toMatchObject({
 				status: "failed",
-				errorCode: "native_operation_failed",
+				errorCode: "native_retain_cancelled",
 				retryable: false,
 			});
-			expect(revision(f)).toMatchObject({
-				nativeOperationId: failed,
-				context: "User statement",
-			});
+			expect(revision(f)?.nativeOperationId).toBe(failed);
+			expect(ended(f)).toEqual({ operationId: failed, reason: "cancelled" });
 		},
 	);
 
@@ -1019,8 +1581,9 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			endOf: () => "failed",
 			onList: () => f.rev.revokeMemorySources(h.userId, [f.source.id]),
 		});
+		vi.useFakeTimers({ toFake: ["Date"] });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toEqual([failed]);
 		expect(job(f)?.status).toBe("failed");
 		expect(revision(f)).toMatchObject({
@@ -1032,10 +1595,11 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 
 	it.each([
 		{ sent: false, acknowledged: false, first: "POST" },
-		{ sent: true, acknowledged: true, first: "POST" },
+		// Acknowledged: the retain finished, and nothing about it is sent or asked again.
+		{ sent: true, acknowledged: true, first: null },
 		{ sent: true, acknowledged: false, first: "GET" },
 	])(
-		"asks about the operation first only for a sent, unacknowledged retain (sent $sent, acknowledged $acknowledged)",
+		"asks about the operation first only for a sent, unacknowledged retain, and never sends an acknowledged one (sent $sent, acknowledged $acknowledged)",
 		async ({ sent, acknowledged, first }) => {
 			const f = await setup();
 			const id = f.source.nativeOperationId as string;
@@ -1046,11 +1610,31 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 				.run();
 			await f.enqueue();
 			await h.engine.drain(f.jobs.memoryDeliveryJob);
-			expect(fake.calls[0]).toBe(`${first} ${id}`);
+			expect(fake.calls[0] ?? null).toBe(first && `${first} ${id}`);
 			expect(job(f)?.status).toBe("succeeded");
 			expect(revision(f)?.nativeOperationId).toBe(id);
 		},
 	);
+
+	it("never sends an acknowledged retain again, even once Hindsight has forgotten its operation", async () => {
+		const f = await setup();
+		const id = f.source.nativeOperationId as string;
+		// Hindsight no longer knows the operation: a POST would retain the source anew.
+		const fake = fakeRetains(f);
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.run();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(fake.posted()).toEqual([]);
+		expect(fake.calls).toEqual([]);
+		expect(job(f)?.status).toBe("succeeded");
+		expect(revision(f)).toMatchObject({
+			state: "accepted",
+			nativeOperationId: id,
+		});
+	});
 
 	it.each(["a not_found status", "a 404"])(
 		"sends a retry's own ID again when Hindsight does not know the operation yet (%s)",
@@ -1095,8 +1679,9 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 					.onConflictDoNothing()
 					.run(),
 		});
+		vi.useFakeTimers({ toFake: ["Date"] });
 		await f.enqueue();
-		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		await drainPastHoldBack(f);
 		expect(fake.posted()).toEqual([failed]);
 		expect(job(f)).toMatchObject({
 			status: "queued",
@@ -1105,6 +1690,115 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 		expect(revision(f)).toMatchObject({
 			nativeOperationId: failed,
 			context: "User statement",
+		});
+	});
+
+	describe("with a real chat context envelope", () => {
+		/**
+		 * The source as a chat delivers it: the envelope chat-delivery.ts writes,
+		 * with the assistant's reply as context, in a real conversation.
+		 */
+		async function chatSource(f: Fixture) {
+			const { memoryTextHash } = await import("./revisions");
+			f.db
+				.insert(f.schema.conversations)
+				.values({ id: "chat", userId: h.userId, title: "Synthetic chat" })
+				.run();
+			f.db
+				.insert(f.schema.messages)
+				.values([
+					{
+						id: "user-message",
+						conversationId: "chat",
+						role: "user",
+						content: "My kayak is green",
+						messageSequence: 1,
+					},
+					{
+						id: "reply",
+						conversationId: "chat",
+						role: "assistant",
+						content: "A green kayak sounds lovely.",
+						messageSequence: 2,
+					},
+				])
+				.run();
+			const envelope = {
+				messageSequence: 1,
+				conversationId: "chat",
+				sourceRole: "user",
+				guidance:
+					"Only the source user message is a new assertion. Other messages are context for attribution and dependent replies; assistant claims are not user facts.",
+				messages: [
+					{
+						id: "reply",
+						role: "assistant",
+						sourceId: "$current",
+						textHash: memoryTextHash("My kayak is green"),
+						messageTextHash: memoryTextHash("A green kayak sounds lovely."),
+					},
+				],
+			};
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({
+					conversationId: "chat",
+					messageId: "user-message",
+					context: JSON.stringify(envelope),
+				})
+				.run();
+			return envelope;
+		}
+
+		it("keeps every key of the envelope through a resubmission and adds only its marker", async () => {
+			const f = await setup();
+			const envelope = await chatSource(f);
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const fake = fakeRetains(f, {
+				endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+			});
+			await f.enqueue();
+			await drainPastHoldBack(f);
+			expect(job(f)?.status).toBe("succeeded");
+			const [failed] = fake.posted();
+			expect(JSON.parse(revision(f)?.context ?? "{}")).toEqual({
+				...envelope,
+				nativeRetainResubmittedFrom: failed,
+			});
+		});
+
+		it("sends the same context both times, the reply included, and never the marker", async () => {
+			const f = await setup();
+			await chatSource(f);
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const fake = fakeRetains(f, {
+				endOf: (nth) => (nth === 0 ? "failed" : "completed"),
+			});
+			await f.enqueue();
+			await drainPastHoldBack(f);
+			const [first, second] = fake.bodies.map(
+				(body) => body.items[0].context as string,
+			);
+			expect(second).toBe(first);
+			// The resolved context is real: the assistant's reply reached Hindsight.
+			expect(first).toContain("A green kayak sounds lovely.");
+			expect(first).not.toContain("nativeRetain");
+		});
+
+		it("records a cancelled retain's end without losing the envelope", async () => {
+			const f = await setup();
+			const envelope = await chatSource(f);
+			fakeRetains(f, { endOf: () => "cancelled" });
+			await f.enqueue();
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			expect(job(f)?.errorCode).toBe("native_retain_cancelled");
+			expect(JSON.parse(revision(f)?.context ?? "{}")).toEqual({
+				...envelope,
+				nativeRetainEnded: {
+					operationId: f.source.nativeOperationId,
+					reason: "cancelled",
+				},
+			});
 		});
 	});
 
@@ -1159,6 +1853,47 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			).toBe(true);
 		});
 
+		it("does not wait on a retain whose end is recorded, even once Hindsight has forgotten it", async () => {
+			const f = await setup();
+			const ended = f.source.nativeOperationId as string;
+			// Hindsight no longer knows the ended operation: asking about it would be unanswerable.
+			const fake = fakeRetains(f);
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({
+					nativeSubmitted: true,
+					context: JSON.stringify({
+						nativeRetainEnded: {
+							operationId: ended,
+							reason: "resubmit_failed",
+						},
+					}),
+				})
+				.run();
+			const other = f.rev.recordMemorySource({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				eventId: "other-event",
+				lineageId: "other-message",
+				text: "My oar is red",
+				context: "User statement",
+				assertedAt: new Date("2026-11-19"),
+			});
+			await f.jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId: f.bank.id,
+				epoch: 0,
+				kind: "source",
+				sourceId: other.id,
+				requestId: "other-request",
+			});
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			// The other chat's retain goes out; the ended one is never asked about.
+			expect(fake.calls).toContain(`POST ${other.nativeOperationId}`);
+			expect(fake.calls).not.toContain(`GET ${ended}`);
+		});
+
 		it("waits for the new operation, never the failed one, before another source of the bank is sent", async () => {
 			const f = await setup();
 			const failed = f.source.nativeOperationId as string;
@@ -1188,5 +1923,1148 @@ describe("Memory delivery when Hindsight reports a retain failed", () => {
 			expect(fake.calls.slice(0, sentOther)).toEqual([`GET ${fresh}`]);
 			expect(fake.calls).not.toContain(`GET ${failed}`);
 		});
+	});
+});
+
+describe("a cleanup wait on a retain Hindsight has forgotten", () => {
+	/** How a job ended: its status and its error code. */
+	async function outcome(f: Fixture, jobId: string) {
+		const { eq } = await import("drizzle-orm");
+		const row = f.db
+			.select()
+			.from(f.schema.memoryDeliveryJobs)
+			.where(eq(f.schema.memoryDeliveryJobs.id, jobId))
+			.get();
+		return { status: row?.status, code: row?.errorCode };
+	}
+	/**
+	 * A chat sent long ago and never acknowledged, with no recorded end: its
+	 * delivery ended native_operation_timeout, and Hindsight has since forgotten
+	 * the operation, so it answers 404 for it.
+	 */
+	function forgottenRetain(f: Fixture) {
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true })
+			.run();
+		return fakeRetains(f, { unknownIs404: true });
+	}
+	/** Withdraws the chat and queues its cleanup, with Memory off as in the cleanup tests above. */
+	async function withdraw(f: Fixture) {
+		f.rev.revokeMemorySources(h.userId, [f.source.id]);
+		f.db.update(f.schema.users).set({ memoryEnabled: false }).run();
+		return f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source_cleanup",
+			sourceId: f.source.id,
+			requestId: "cleanup",
+		});
+	}
+	const deletedDocument = (f: Fixture) =>
+		f.fetcher.mock.calls.some(
+			([url, init]) =>
+				String(url).endsWith(`/documents/${f.source.id}`) &&
+				init?.method === "DELETE",
+		);
+
+	it("cleans up the withdrawn chat", async () => {
+		const f = await setup();
+		const forgotten = f.source.nativeOperationId as string;
+		const fake = forgottenRetain(f);
+		const cleanup = await withdraw(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, cleanup.row.id)).toEqual({
+			status: "succeeded",
+			code: null,
+		});
+		expect(fake.calls).toContain(`GET ${forgotten}`);
+		expect(deletedDocument(f)).toBe(true);
+	});
+
+	it("delivers another chat of the same bank", async () => {
+		const f = await setup();
+		const forgotten = f.source.nativeOperationId as string;
+		const fake = forgottenRetain(f);
+		const other = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "other-event",
+			lineageId: "other-message",
+			text: "My oar is red",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		// Once the other chat's retain is in, Hindsight holds its fact.
+		const inner = f.fetcher.getMockImplementation();
+		if (!inner) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) =>
+			String(url).includes("/memories/list") &&
+			fake.posted().includes(other.nativeOperationId as string)
+				? new Response(
+						JSON.stringify({
+							total: 2,
+							offset: 0,
+							items: [
+								{
+									id: "oar",
+									text: "Red oar",
+									fact_type: "world",
+									consolidated_at: "2026-11-19T00:00:00Z",
+									document_id: other.id,
+								},
+								{
+									id: "oar-observation",
+									text: "Red oar",
+									fact_type: "observation",
+									source_memory_ids: ["oar"],
+								},
+							],
+						}),
+					)
+				: inner(url, init),
+		);
+		const delivery = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: other.id,
+			requestId: "other-request",
+		});
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, delivery.row.id)).toEqual({
+			status: "succeeded",
+			code: null,
+		});
+		expect(fake.calls).toContain(`GET ${forgotten}`);
+		expect(fake.calls).toContain(`POST ${other.nativeOperationId}`);
+		const pub = await import("./publication");
+		expect(
+			pub.readPublishedMemory(h.userId, f.bank.id).map((row) => row.text),
+		).toEqual(["Red oar"]);
+	});
+
+	it("erases the bank", async () => {
+		const f = await setup();
+		const forgotten = f.source.nativeOperationId as string;
+		const { HINDSIGHT_ENGINE_COMMIT } = await import("./contracts");
+		f.db
+			.update(f.schema.memoryBanks)
+			.set({
+				nativeBaseUrl: "http://synthetic",
+				nativeCredentialHash: "synthetic-hash",
+				nativeConfigVersion: HINDSIGHT_ENGINE_COMMIT,
+			})
+			.run();
+		const fake = forgottenRetain(f);
+		await f.jobs.prepareNativeMemoryErasure(h.userId);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		const cleanup = f.db
+			.select()
+			.from(f.schema.memoryDeliveryJobs)
+			.all()
+			.find((row) => row.kind === "cleanup");
+		expect(JSON.parse(cleanup?.nativeOperationIdsJson ?? "[]")).toEqual([
+			forgotten,
+		]);
+		expect({ status: cleanup?.status, code: cleanup?.errorCode }).toEqual({
+			status: "succeeded",
+			code: null,
+		});
+		expect(fake.calls).toContain(`GET ${forgotten}`);
+		expect(
+			f.fetcher.mock.calls.some(
+				([url, init]) =>
+					init?.method === "DELETE" &&
+					String(url).endsWith(`/banks/${f.bank.id}`),
+			),
+		).toBe(true);
+	});
+
+	it("still fails native_not_found when the bank itself is gone", async () => {
+		const f = await setup();
+		forgottenRetain(f);
+		const inner = f.fetcher.getMockImplementation();
+		if (!inner) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) =>
+			String(url).endsWith(`/banks/${f.bank.id}/config`) &&
+			init?.method === "GET"
+				? new Response("missing", { status: 404 })
+				: inner(url, init),
+		);
+		const cleanup = await withdraw(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, cleanup.row.id)).toEqual({
+			status: "failed",
+			code: "native_not_found",
+		});
+		expect(deletedDocument(f)).toBe(false);
+	});
+
+	it("leaves every wait that is not a cleanup failing on an operation Hindsight does not know", async () => {
+		const f = await setup();
+		const inner = f.fetcher.getMockImplementation();
+		if (!inner) throw new Error("Missing fixture fetch");
+		// Hindsight answers 404 for the delivery's own consolidation.
+		f.fetcher.mockImplementation(async (url, init) =>
+			String(url).endsWith("/operations/consolidate-op")
+				? new Response("missing", { status: 404 })
+				: inner(url, init),
+		);
+		const delivery = await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(await outcome(f, delivery.row.id)).toEqual({
+			status: "failed",
+			code: "native_not_found",
+		});
+		expect(f.db.select().from(f.schema.memoryPublishedRows).all()).toEqual([]);
+	});
+});
+
+/**
+ * A Hindsight that takes its time, on a faked clock: every status read of an
+ * operation moves the clock on by `stepMs`, and an operation is done once the
+ * clock passes its time. The pending list shows the consolidation while it runs.
+ */
+function slowHindsight(
+	f: Fixture,
+	options: {
+		stepMs: number;
+		retainDoneAt: number;
+		consolidationDoneAt: number;
+	},
+) {
+	const original = f.fetcher.getMockImplementation();
+	if (!original) throw new Error("Missing fixture fetch");
+	const posted: string[] = [];
+	let consolidations = 0;
+	const status = (id: string) =>
+		id.startsWith("slow-consolidation")
+			? Date.now() >= options.consolidationDoneAt
+				? "completed"
+				: "processing"
+			: Date.now() >= options.retainDoneAt
+				? "completed"
+				: "processing";
+	f.fetcher.mockImplementation(async (url, init) => {
+		const path = String(url);
+		if (path.endsWith("/memories") && init?.method === "POST") {
+			const body = JSON.parse(String(init.body));
+			posted.push(body.operation_id);
+			return new Response(JSON.stringify({ operation_id: body.operation_id }));
+		}
+		if (path.endsWith("/consolidate"))
+			return new Response(
+				JSON.stringify({
+					operation_id: `slow-consolidation-${++consolidations}`,
+				}),
+			);
+		if (path.includes("/operations?")) {
+			const running = [...Array(consolidations).keys()]
+				.map((n) => `slow-consolidation-${n + 1}`)
+				.filter((id) => status(id) !== "completed");
+			return new Response(
+				JSON.stringify({
+					operations: path.includes("status=processing")
+						? running.map((id) => ({ id, status: "processing" }))
+						: [],
+				}),
+			);
+		}
+		if (path.includes("/operations/")) {
+			const id = decodeURIComponent(path.split("/operations/")[1]);
+			vi.setSystemTime(Date.now() + options.stepMs);
+			return new Response(JSON.stringify({ status: status(id) }));
+		}
+		return original(url, init);
+	});
+	return { posted };
+}
+
+describe("Memory delivery waits for Hindsight without spending attempts", () => {
+	const job = (f: Fixture) =>
+		f.db.select().from(f.schema.memoryDeliveryJobs).get();
+	/** Drains, moving the clock past each requeue's delay, until the job settles. */
+	async function untilSettled(f: Fixture, rounds = 40) {
+		const seen: Array<{ status: string; code: string | null }> = [];
+		for (let i = 0; i < rounds; i++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			const row = job(f);
+			if (!row) throw new Error("Missing job");
+			seen.push({ status: row.status, code: row.errorCode });
+			if (row.status === "succeeded" || row.status === "failed") return seen;
+			vi.setSystemTime(Date.now() + 61_000);
+		}
+		throw new Error("The job never settled");
+	}
+
+	it("keeps waiting while Hindsight works on a retain, past the attempt limit, and then delivers", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		const fake = slowHindsight(f, {
+			stepMs: 3 * 60_000,
+			retainDoneAt: start + 27 * 60_000,
+			consolidationDoneAt: 0,
+		});
+		await f.enqueue();
+		const seen = await untilSettled(f);
+		expect(seen.at(-1)).toEqual({ status: "succeeded", code: null });
+		// Every handback was a wait, never a failure.
+		expect(
+			seen.slice(0, -1).every((s) => s.code === "native_retain_waiting"),
+		).toBe(true);
+		const row = job(f);
+		const { NATIVE_DELIVERY_ATTEMPT_LIMIT } = await import("./contracts");
+		expect(row?.attemptCount).toBeGreaterThan(NATIVE_DELIVERY_ATTEMPT_LIMIT);
+		// The one operation was sent again only under its own ID.
+		expect(new Set(fake.posted)).toEqual(new Set([f.source.nativeOperationId]));
+	});
+
+	it("acceptance: under a busy model no delivery ends native_operation_timeout while Hindsight works, and waiting spends no attempt", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		// The model is held busy: the retain takes 20 minutes and the consolidation
+		// another 40, each well past the old 180-second wait.
+		slowHindsight(f, {
+			stepMs: 4 * 60_000,
+			retainDoneAt: start + 20 * 60_000,
+			consolidationDoneAt: start + 60 * 60_000,
+		});
+		await f.enqueue();
+		const seen: Array<{ status: string; code: string | null }> = [];
+		for (let round = 0; round < 60; round++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			const row = job(f);
+			if (!row) throw new Error("Missing job");
+			seen.push({ status: row.status, code: row.errorCode });
+			if (row.status !== "queued") break;
+			vi.setSystemTime(Date.now() + 61_000);
+		}
+		expect(seen.at(-1)).toEqual({ status: "succeeded", code: null });
+		// Never failed, never timed out: every handback was a wait on Hindsight.
+		expect(seen.some((s) => s.code === "native_operation_timeout")).toBe(false);
+		expect(seen.some((s) => s.status === "failed")).toBe(false);
+		expect(new Set(seen.slice(0, -1).map((s) => s.code))).toEqual(
+			new Set(["native_retain_waiting", "native_consolidation_waiting"]),
+		);
+		const row = job(f);
+		const { parseDeliveryRetryState } = await import("./delivery-policy");
+		const waits = parseDeliveryRetryState(
+			JSON.parse(row?.retryState ?? "null"),
+		).waits;
+		// Every attempt but the one that finished was a wait: none was counted.
+		expect((row?.attemptCount ?? 0) - waits).toBe(1);
+	}, 60_000);
+
+	it("ends a delivery native_operation_timeout only once the consolidation's whole wait has passed", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		slowHindsight(f, {
+			stepMs: 6 * 60_000,
+			retainDoneAt: 0,
+			consolidationDoneAt: Number.POSITIVE_INFINITY,
+		});
+		await f.enqueue();
+		const seen = await untilSettled(f);
+		const last = seen.at(-1);
+		expect(last).toEqual({
+			status: "failed",
+			code: "native_operation_timeout",
+		});
+		expect(job(f)?.retryable).toBe(true);
+		// The default consolidation wait is an hour: nothing ended before it.
+		expect(Date.now() - start).toBeGreaterThanOrEqual(60 * 60_000);
+		expect(
+			seen.slice(0, -1).every((s) => s.code === "native_consolidation_waiting"),
+		).toBe(true);
+	});
+});
+
+describe("work in flight holds its bank", () => {
+	// A job put back mid-flight is queued, not running, yet its writes may sit
+	// in Hindsight unpublished: an import's next delivery was sent while one
+	// waited, each refused the other's publication, and every later delivery
+	// of the bank failed (2026-11-25).
+	async function bankWork() {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const first = (await f.enqueue()).row.id;
+		const enqueue = async (
+			bankId: string,
+			name: string,
+			kind: "source" | "action" | "source_cleanup" = "source",
+		) => {
+			const source =
+				kind === "action"
+					? null
+					: f.rev.recordMemorySource({
+							userId: h.userId,
+							bankId,
+							epoch: 0,
+							eventId: `${name}-event`,
+							lineageId: `${name}-message`,
+							text: `Synthetic ${name} statement`,
+							context: "User statement",
+							assertedAt: new Date("2026-11-19"),
+						});
+			const job = await f.jobs.enqueueMemoryDelivery({
+				userId: h.userId,
+				bankId,
+				epoch: 0,
+				kind,
+				...(source ? { sourceId: source.id } : { actionId: `${name}-action` }),
+				requestId: `${name}-request`,
+			});
+			return { id: job.row.id, sourceId: source?.id ?? null };
+		};
+		const set = (
+			id: string,
+			values: Partial<typeof f.schema.memoryDeliveryJobs.$inferInsert>,
+		) =>
+			f.db
+				.update(f.schema.memoryDeliveryJobs)
+				.set(values)
+				.where(eq(f.schema.memoryDeliveryJobs.id, id))
+				.run();
+		/** What the failure policy leaves: queued again after an attempt, with its code. */
+		const putBack = (
+			id: string,
+			{
+				code = "native_consolidation_waiting",
+				due = true,
+				startedAt = new Date(Date.now() - 600_000),
+			}: { code?: string | null; due?: boolean; startedAt?: Date } = {},
+		) =>
+			set(id, {
+				status: "queued",
+				errorCode: code,
+				startedAt,
+				runAfter: new Date(Date.now() + (due ? -1_000 : 60_000)),
+			});
+		const sent = (sourceId: string) =>
+			f.db
+				.update(f.schema.memorySourceRevisions)
+				.set({ nativeSubmitted: true, nativeAcknowledged: true })
+				.where(eq(f.schema.memorySourceRevisions.id, sourceId))
+				.run();
+		const claim = () =>
+			h.ledger.claimNext(f.jobs.memoryDeliveryJob, {
+				workerId: "test-worker",
+				userId: h.userId,
+			})?.row.id ?? null;
+		return { f, first, enqueue, set, putBack, sent, claim };
+	}
+
+	it("claims in the usual order when nothing is in flight", async () => {
+		const { f, first, enqueue, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+
+		expect(claim()).toBe(first);
+	});
+
+	it("starts no new chat delivery of the bank while a sent one is put back mid-flight", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		sent(f.source.id);
+		putBack(first, { due: false });
+		await enqueue(f.bank.id, "other");
+
+		expect(claim()).toBeNull();
+	});
+
+	it("resumes the chat in flight when due, before newer work the claim order puts first", async () => {
+		const { f, first, enqueue, set, putBack, sent, claim } = await bankWork();
+		sent(f.source.id);
+		putBack(first);
+		const other = await enqueue(f.bank.id, "other");
+		set(other.id, { priority: 0 });
+		set(first, { priority: 10 });
+
+		expect(claim()).toBe(first);
+	});
+
+	it("holds the bank behind a sent chat put back for a counted failure or a lost worker, not only a wait", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+		sent(f.source.id);
+		putBack(first, { code: "native_unavailable", due: false });
+		expect(claim()).toBeNull();
+		putBack(first, { code: "memory_worker_lost", due: false });
+		expect(claim()).toBeNull();
+	});
+
+	it("does not hold the bank behind a chat put back before it was sent", async () => {
+		// Nothing of it is in Hindsight: a live chat of the bank goes on.
+		const { f, first, enqueue, putBack, claim } = await bankWork();
+		const other = await enqueue(f.bank.id, "other");
+		putBack(first, { code: "native_unavailable", due: false });
+
+		expect(claim()).toBe(other.id);
+	});
+
+	it("holds the bank behind a chat put back in the middle of its dependency repair, though it sent no chat", async () => {
+		// An unchanged resend never sends its chat, but its repair retains
+		// replacements that nothing published yet.
+		const { f, first, enqueue, set, putBack, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+		putBack(first, { code: "native_retain_waiting", due: false });
+		set(first, {
+			checkpoint: JSON.stringify({
+				dependencyRepair: { version: 1, steps: [] },
+			}),
+		});
+		expect(claim()).toBeNull();
+
+		// A malformed checkpoint holds nothing and breaks nothing.
+		set(first, { checkpoint: "{not json" });
+		expect(claim()).not.toBeNull();
+	});
+
+	it("holds the bank behind a sent chat whose job was reopened by hand", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		await enqueue(f.bank.id, "other");
+		// An operator's reattach: the job is queued with no code, its chat sent.
+		sent(f.source.id);
+		putBack(first, { code: null, due: false });
+
+		expect(claim()).toBeNull();
+		putBack(first, { code: null });
+		expect(claim()).toBe(first);
+	});
+
+	it("holds a reopened job that sent nothing behind a chat in flight", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		const other = await enqueue(f.bank.id, "other");
+		// A Retry or an operator's resend: queued again, no code, nothing sent.
+		putBack(first, { code: null });
+		sent(other.sourceId as string);
+		putBack(other.id, { startedAt: new Date(Date.now() - 60_000) });
+
+		expect(claim()).toBe(other.id);
+	});
+
+	it("lets one sent chat in flight run at a time: the earliest started, even while it is not due", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		const other = await enqueue(f.bank.id, "other");
+		sent(f.source.id);
+		sent(other.sourceId as string);
+		putBack(first, { startedAt: new Date(Date.now() - 600_000) });
+		putBack(other.id, { startedAt: new Date(Date.now() - 60_000) });
+		expect(claim()).toBe(first);
+
+		putBack(first, { due: false, startedAt: new Date(Date.now() - 600_000) });
+		expect(claim()).toBeNull();
+	});
+
+	it("ranks a sent chat before an action put back earlier", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		const action = await enqueue(f.bank.id, "note", "action");
+		putBack(action.id, { startedAt: new Date(Date.now() - 3_600_000) });
+		sent(f.source.id);
+		putBack(first, { startedAt: new Date(Date.now() - 60_000) });
+
+		// Earliest started alone would hold the chat behind the action.
+		expect(claim()).toBe(first);
+	});
+
+	it("lets a person's action through while a chat is in flight, and holds a new chat behind an action in flight", async () => {
+		const { f, first, enqueue, putBack, sent, set, claim } = await bankWork();
+		// A pending Remove or Edit holds the chats' publications until it ends
+		// (`assertCurationPublication`): holding it behind a chat would leave
+		// each waiting for the other.
+		const action = await enqueue(f.bank.id, "note", "action");
+		sent(f.source.id);
+		putBack(first, { due: false });
+		expect(claim()).toBe(action.id);
+
+		set(first, {
+			status: "queued",
+			errorCode: null,
+			startedAt: null,
+			runAfter: null,
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: false, nativeAcknowledged: false })
+			.run();
+		putBack(action.id, { due: false });
+		expect(claim()).toBeNull();
+		putBack(action.id);
+		expect(claim()).toBe(action.id);
+	});
+
+	it("lets a withdrawn chat's cleanup through while a chat is in flight, and holds new chats while the cleanup is in flight", async () => {
+		const { f, first, enqueue, putBack, sent, set, claim } = await bankWork();
+		sent(f.source.id);
+		putBack(first, { due: false });
+		const cleanup = await enqueue(f.bank.id, "withdrawn", "source_cleanup");
+		expect(claim()).toBe(cleanup.id);
+
+		// Put back mid-flight, its repair may have written replacements that
+		// nothing published yet: a new chat waits for it.
+		putBack(cleanup.id, { due: false });
+		set(first, {
+			status: "queued",
+			errorCode: null,
+			startedAt: null,
+			runAfter: null,
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: false, nativeAcknowledged: false })
+			.run();
+		expect(claim()).toBeNull();
+		putBack(cleanup.id);
+		expect(claim()).toBe(cleanup.id);
+	});
+
+	it("holds only the bank whose work is in flight", async () => {
+		const { f, first, enqueue, putBack, sent, claim } = await bankWork();
+		f.db
+			.insert(f.schema.projects)
+			.values({ id: "synthetic-project", userId: h.userId, name: "Garden" })
+			.run();
+		const project = f.rev.ensureMemoryBank(h.userId, {
+			kind: "project",
+			projectId: "synthetic-project",
+		});
+		sent(f.source.id);
+		putBack(first, { due: false });
+		await enqueue(f.bank.id, "held-chat");
+		const elsewhere = await enqueue(project.id, "project-chat");
+
+		expect(claim()).toBe(elsewhere.id);
+	});
+});
+
+describe("another chat's unpublished facts in Hindsight", () => {
+	/**
+	 * A second chat of the bank, sent, its retain finished and its facts in
+	 * Hindsight's listing, with its delivery job in `status`.
+	 */
+	async function withOtherChat(
+		status: "queued" | "failed",
+		options: { errorCode?: string; landed?: boolean } = {},
+	) {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const other = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "other-event",
+			lineageId: "other-message",
+			text: "My oar is red",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, other.id))
+			.run();
+		const otherJob = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: other.id,
+			requestId: "other-request",
+		});
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({
+				status,
+				startedAt: new Date(Date.now() - 600_000),
+				errorCode: options.errorCode ?? "memory_preparation_failed",
+				runAfter: new Date(Date.now() + 3_600_000),
+			})
+			.where(eq(f.schema.memoryDeliveryJobs.id, otherJob.row.id))
+			.run();
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const response = await original(url, init);
+			if (!String(url).includes("/memories/list") || options.landed === false)
+				return response;
+			const data = (await response.json()) as {
+				items: Array<Record<string, unknown>>;
+			};
+			const items = [
+				...data.items,
+				{
+					id: "other-fact",
+					text: "Red oar",
+					fact_type: "world",
+					consolidated_at: "2026-11-19T00:00:00Z",
+					document_id: other.id,
+				},
+				{
+					id: "other-observation",
+					text: "Red oar",
+					fact_type: "observation",
+					source_memory_ids: ["other-fact"],
+				},
+			];
+			return new Response(
+				JSON.stringify({ ...data, total: items.length, items }),
+			);
+		});
+		const posts = () =>
+			f.fetcher.mock.calls.filter(
+				([url, init]) =>
+					String(url).endsWith("/memories") && init?.method === "POST",
+			).length;
+		const mine = () =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.sourceId, f.source.id))
+				.get();
+		const myChat = () =>
+			f.db
+				.select()
+				.from(f.schema.memorySourceRevisions)
+				.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+				.get();
+		return { f, other, otherJob: otherJob.row.id, posts, mine, myChat };
+	}
+
+	it("sends no chat while a chat that failed after sending holds facts there, and ends retryable with its attempt unspent", async () => {
+		const { f, posts, mine, myChat } = await withOtherChat("failed");
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(posts()).toBe(0);
+		expect(myChat()?.nativeSubmitted).toBe(false);
+		const { parseDeliveryRetryState } = await import("./delivery-policy");
+		expect(
+			parseDeliveryRetryState(JSON.parse(mine()?.retryState ?? "null")).waits,
+		).toBe(1);
+	});
+
+	it("sends as usual when the failed chat left no fact in Hindsight", async () => {
+		const { f, posts, mine } = await withOtherChat("failed", {
+			landed: false,
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()?.status).toBe("succeeded");
+		expect(posts()).toBe(1);
+	});
+
+	it("leaves a chat refused for its content out instead of waiting on it", async () => {
+		const { f, mine } = await withOtherChat("failed", {
+			errorCode: "memory_dependency_check_rejected",
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()?.status).toBe("succeeded");
+	});
+
+	it("ends retryable, not for good, when its publication meets the facts of another sent chat whose delivery is live", async () => {
+		// Both chats' facts are in Hindsight (from before this rule): the claim
+		// holds the other behind this one, so waiting would hold both. Each ends
+		// retryable for the operator's repair.
+		const { f, mine, myChat } = await withOtherChat("queued", {
+			errorCode: "native_consolidation_waiting",
+		});
+		const { eq } = await import("drizzle-orm");
+		// This chat was sent by an earlier attempt, which began before the
+		// other's: it is the bank's first piece in flight and goes on to publish.
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		const job = await f.enqueue();
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			.set({
+				startedAt: new Date(Date.now() - 3_600_000),
+				errorCode: "native_consolidation_waiting",
+			})
+			.where(eq(f.schema.memoryDeliveryJobs.id, job.row.id))
+			.run();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(myChat()?.state).toBe("pending");
+	});
+
+	/** This test's own chat withdrawn after it was delivered, with its cleanup queued; Hindsight forgets a deleted document's facts. */
+	async function withdrawn(f: Fixture) {
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		f.rev.revokeMemorySources(h.userId, [f.source.id]);
+		const transport = f.fetcher.getMockImplementation();
+		if (!transport) throw new Error("Missing fixture fetch");
+		const gone = new Set<string>();
+		f.fetcher.mockImplementation(async (url, init) => {
+			const path = String(url);
+			if (init?.method === "DELETE" && path.includes("/documents/"))
+				gone.add(decodeURIComponent(path.split("/documents/")[1]));
+			const response = await transport(url, init);
+			if (!path.includes("/memories/list")) return response;
+			const data = (await response.json()) as {
+				items: Array<{
+					id: string;
+					document_id?: string;
+					source_memory_ids?: string[];
+				}>;
+			};
+			const dropped = new Set(
+				data.items
+					.filter((item) => item.document_id && gone.has(item.document_id))
+					.map((item) => item.id),
+			);
+			const items = data.items.filter(
+				(item) =>
+					!dropped.has(item.id) &&
+					!(item.source_memory_ids ?? []).some((id) => dropped.has(id)),
+			);
+			return new Response(
+				JSON.stringify({ ...data, total: items.length, items }),
+			);
+		});
+		const cleanup = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source_cleanup",
+			sourceId: f.source.id,
+			requestId: `source-cleanup:${f.source.id}`,
+		});
+		const job = () =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.id, cleanup.row.id))
+				.get();
+		const deleted = () => gone.has(f.source.id);
+		return { job, deleted };
+	}
+
+	it("a withdrawn chat's cleanup takes it out of Hindsight, then waits before its repair while another chat is in flight", async () => {
+		const { f, posts } = await withOtherChat("queued", {
+			errorCode: "native_consolidation_waiting",
+		});
+		const cleanup = await withdrawn(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(cleanup.deleted()).toBe(true);
+		expect(cleanup.job()).toMatchObject({
+			status: "queued",
+			errorCode: "native_bank_busy_waiting",
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("a cleanup ends retryable before its repair when a chat whose delivery ended holds facts there", async () => {
+		const { f, posts } = await withOtherChat("failed");
+		const cleanup = await withdrawn(f);
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(cleanup.deleted()).toBe(true);
+		expect(cleanup.job()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("stays retryable when its publication meets the facts of a chat whose delivery failed", async () => {
+		const { f, mine } = await withOtherChat("failed");
+		const { eq } = await import("drizzle-orm");
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({ nativeSubmitted: true, nativeAcknowledged: true })
+			.where(eq(f.schema.memorySourceRevisions.id, f.source.id))
+			.run();
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+	});
+});
+
+describe("an import drained while a delivery waits on Hindsight (2026-11-25)", () => {
+	it("sends the next chat of the bank only once the waiting one has published", async () => {
+		const f = await setup();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const start = Date.now();
+		// The consolidation outlasts the five-minute wait slice, so the first
+		// delivery is handed back, queued, while Hindsight still works.
+		const fake = slowHindsight(f, {
+			stepMs: 3 * 60_000,
+			retainDoneAt: 0,
+			consolidationDoneAt: start + 12 * 60_000,
+		});
+		const first = await f.enqueue();
+		const next = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId: "next-event",
+			lineageId: "next-message",
+			text: "My oar is red",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		const second = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: "source",
+			sourceId: next.id,
+			requestId: "next-request",
+		});
+		const { eq } = await import("drizzle-orm");
+		const status = (id: string) =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.id, id))
+				.get();
+
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+		expect(status(first.row.id)).toMatchObject({
+			status: "queued",
+			errorCode: "native_consolidation_waiting",
+		});
+		// The old claim rule started the next chat here, mid-consolidation.
+		expect(status(second.row.id)).toMatchObject({
+			status: "queued",
+			startedAt: null,
+		});
+		expect(fake.posted).toEqual([f.source.nativeOperationId]);
+
+		for (let round = 0; round < 40; round++) {
+			if (status(second.row.id)?.status === "succeeded") break;
+			vi.setSystemTime(Date.now() + 61_000);
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+		}
+		expect(status(first.row.id)?.status).toBe("succeeded");
+		expect(status(second.row.id)?.status).toBe("succeeded");
+		expect(fake.posted).toEqual([
+			f.source.nativeOperationId,
+			next.nativeOperationId,
+		]);
+	});
+});
+
+describe("a person's note or a repair's replacement unpublished in Hindsight", () => {
+	/**
+	 * A writer of the bank with no chat delivery of its own, sent, its facts in
+	 * Hindsight's listing (cited by an observation unless `cited` is false),
+	 * owned by a job in `status`.
+	 */
+	async function withWriter(
+		kind: "note" | "replacement",
+		status: "queued" | "failed" | "succeeded",
+		options: { cited?: boolean } = {},
+	) {
+		const f = await setup();
+		const { eq } = await import("drizzle-orm");
+		const { randomUUID } = await import("node:crypto");
+		const actionId = randomUUID();
+		const owner = await f.jobs.enqueueMemoryDelivery({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			kind: kind === "note" ? "action" : "source_cleanup",
+			...(kind === "note" ? { actionId } : { sourceId: f.source.id }),
+			requestId: `${kind}-owner`,
+		});
+		const writer = f.rev.recordMemorySource({
+			userId: h.userId,
+			bankId: f.bank.id,
+			epoch: 0,
+			eventId:
+				kind === "note"
+					? `manual:${actionId}`
+					: `dependency:${owner.row.id}:${f.source.id}`,
+			lineageId: kind === "note" ? actionId : "replaced-message",
+			text: "Synthetic written statement",
+			context: "User statement",
+			assertedAt: new Date("2026-11-19"),
+		});
+		f.db
+			.update(f.schema.memorySourceRevisions)
+			.set({
+				nativeSubmitted: true,
+				nativeAcknowledged: true,
+				...(kind === "replacement" ? { state: "repair_held" } : {}),
+			})
+			.where(eq(f.schema.memorySourceRevisions.id, writer.id))
+			.run();
+		f.db
+			.update(f.schema.memoryDeliveryJobs)
+			// Queued, it stays live and is not due within the test.
+			.set({ status, runAfter: new Date(Date.now() + 3_600_000) })
+			.where(eq(f.schema.memoryDeliveryJobs.id, owner.row.id))
+			.run();
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const response = await original(url, init);
+			if (!String(url).includes("/memories/list")) return response;
+			const data = (await response.json()) as {
+				items: Array<Record<string, unknown>>;
+			};
+			const items = [
+				...data.items,
+				{
+					id: "written-fact",
+					text: "Written statement",
+					fact_type: "world",
+					consolidated_at: "2026-11-19T00:00:00Z",
+					document_id: writer.id,
+				},
+				...(options.cited === false
+					? []
+					: [
+							{
+								id: "written-observation",
+								text: "Written statement",
+								fact_type: "observation",
+								source_memory_ids: ["written-fact"],
+							},
+						]),
+			];
+			return new Response(
+				JSON.stringify({ ...data, total: items.length, items }),
+			);
+		});
+		const posts = () =>
+			f.fetcher.mock.calls.filter(
+				([url, init]) =>
+					String(url).endsWith("/memories") && init?.method === "POST",
+			).length;
+		const mine = () =>
+			f.db
+				.select()
+				.from(f.schema.memoryDeliveryJobs)
+				.where(eq(f.schema.memoryDeliveryJobs.sourceId, f.source.id))
+				.all()
+				.find((job) => job.kind === "source");
+		const { unpublishedChats } = await import("./publication");
+		const listed = (ownJobId?: string) =>
+			f.db.transaction(
+				(tx) => unpublishedChats(tx, f.bank, [], ownJobId).chats,
+			);
+		return { f, writer, owner: owner.row.id, posts, mine, listed };
+	}
+
+	it("lists a person's note as live while its action's job is queued", async () => {
+		const note = await withWriter("note", "queued");
+		expect(note.listed()).toEqual([
+			{ id: note.writer.id, kind: "note", live: true },
+		]);
+	});
+
+	it("lists a repair's replacement as ended once its job failed, and never to that job itself", async () => {
+		const replacement = await withWriter("replacement", "failed");
+		expect(replacement.listed()).toEqual([
+			{ id: replacement.writer.id, kind: "replacement", live: false },
+		]);
+		expect(replacement.listed(replacement.owner)).toEqual([]);
+	});
+
+	it("lists nothing once the writer's job succeeded", async () => {
+		const done = await withWriter("note", "succeeded");
+		expect(done.listed()).toEqual([]);
+	});
+
+	it("does not send a chat while a person's note, sent by an action still running, has facts there", async () => {
+		const { f, posts, mine } = await withWriter("note", "queued");
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "queued",
+			errorCode: "native_bank_busy_waiting",
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("ends a chat retryable before it sends while a replacement whose repair ended has facts there", async () => {
+		const { f, posts, mine } = await withWriter("replacement", "failed");
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+			retryable: true,
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("still stops a chat for leftover facts no consolidation has taken up yet: the next one will cite them", async () => {
+		const { f, writer, posts, mine } = await withWriter(
+			"replacement",
+			"failed",
+			{ cited: false },
+		);
+		const original = f.fetcher.getMockImplementation();
+		if (!original) throw new Error("Missing fixture fetch");
+		f.fetcher.mockImplementation(async (url, init) => {
+			const response = await original(url, init);
+			if (!String(url).includes("/memories/list")) return response;
+			const data = (await response.json()) as {
+				items: Array<Record<string, unknown>>;
+			};
+			const items = data.items.map((item) =>
+				item.document_id === writer.id
+					? { ...item, consolidated_at: null }
+					: item,
+			);
+			return new Response(JSON.stringify({ ...data, items }));
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()).toMatchObject({
+			status: "failed",
+			errorCode: "memory_bank_unpublished_facts",
+		});
+		expect(posts()).toBe(0);
+	});
+
+	it("sends as usual when no observation rests on the leftover facts: publication judges observations", async () => {
+		const { f, posts, mine } = await withWriter("replacement", "failed", {
+			cited: false,
+		});
+		await f.enqueue();
+		await h.engine.drain(f.jobs.memoryDeliveryJob);
+
+		expect(mine()?.status).toBe("succeeded");
+		expect(posts()).toBe(1);
 	});
 });

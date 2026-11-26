@@ -52,9 +52,9 @@ SQLite persistence — all in a single Node deployment.
   with. Leave `COMFYUI_H3_URL` empty and H3 pictures are off.
 - **Video** — `COMFYUI_LTX_URL` points Alfy at a ComfyUI server running LTX-2.5; leave it empty and
   video making is off. A video take is its own job kind (one at a time, because LTX and H3 cannot
-  be resident on the card together). A 5 s clip is one render at 1280x704 (704x1280 for a portrait
-  still, both sides multiples of 32); a 10 s clip is two 5 s segments chained last-frame to
-  first-frame and joined, so the second segment starts exactly where the first ended. The clip is
+  be resident on the card together). A clip is one render at 1280x704 (704x1280 for a portrait
+  still, both sides multiples of 32), 121 frames for 5 s and 241 for 10 s at 24 fps, sharpened and
+  upscaled x2 before it is encoded. The clip is
   stored as an mp4 with a poster and a thumbnail, and the explicit-picture filter checks **every
   frame** of it before anything is kept: one pass writes the frames at the classifier's size and
   batches of 16 run on one session — 8 inference runs for a 5 s clip (≈3.7–4.2 s on the app host)
@@ -202,6 +202,23 @@ its D3 dependency graph and emitting upstream circular-dependency warnings. -->
 - **Atlas report quality:** `scripts/atlas-eval.ts` measures and compares Atlas pipelines against a
   live deployment. See [docs/atlas.md](docs/atlas.md#report-quality-evaluation-scriptsatlas-evalts).
 
+### Workspace Search's index
+
+Long text (message bodies, the text of documents and files) is found through two full-text indexes
+that triggers keep in step with every write (migration `1777140000145` builds and fills them during
+`npm run db:prepare`). To check them against their tables, or refill them if they ever fall out of
+step (a table restored by hand, say), run on the server:
+
+```bash
+npm run search:index
+npm run search:index -- --rebuild
+```
+
+The check prints counts by row id and exits 1 when a row is missing or extra; the rebuild empties
+both indexes and fills them again in one transaction (about a second for production's text), then
+prints the check. Neither prints any text. `npm run db:prepare` (every deploy and every `npm start`)
+runs the same count and refills a table whose index is out of step, with a `[prepare-db]` warning.
+
 ## Deployment
 
 `scripts/deploy.sh` builds each deploy into its own immutable `releases/<sha>/` directory and cuts the
@@ -266,6 +283,6 @@ When Memory is on, eligible earlier chats can contribute to Memory without a sep
 
 `HINDSIGHT_NEW_ACCOUNTS_ENABLED` is an environment-only rollout switch, default false, read through runtime config. Enabling it makes newly created accounts native-authority with an opaque tenant and known memory interval in their account-creation transaction. Existing accounts stay legacy until explicit per-user migration. This switch is independent of worker pause; a native outage never silently switches users back to legacy. Enable it only with the authorized replacement rollout.
 
-See [private service setup and operational boundaries](deploy/hindsight/README.md). `HINDSIGHT_URL`, `HINDSIGHT_WORKER_ENABLED` (default false), and `HINDSIGHT_CONCURRENCY` (default 1, app job concurrency) pass through runtime config. The deployment's `HINDSIGHT_URL` and optional comma-separated `HINDSIGHT_ALLOWED_URLS` pin the permitted private destinations, including stored bank bindings. `HINDSIGHT_TENANT_MASTER_KEYS`, `HINDSIGHT_TENANT_ACTIVE_KEY`, `HINDSIGHT_TENANT_KEYS` (static compatibility), `HINDSIGHT_ADMISSION_KEY`, `HINDSIGHT_OVERNIGHT_IDLE` and `HINDSIGHT_RESTORE_HOLD` are environment-only. The restore hold blocks app HTTP and startup workers during isolated backup verification. The default tenant extension automatically provisions opaque authenticated tenant schemas. Keys never belong in browser/admin settings. Native inference and deliberate edit/remove calls share a bounded private proxy: daytime one, explicit healthy idle ceiling six. Job concurrency is not model concurrency. Already admitted background calls finish during a downshift, and failed activity tracking degrades chat gracefully.
+See [private service setup and operational boundaries](deploy/hindsight/README.md). `HINDSIGHT_URL`, `HINDSIGHT_WORKER_ENABLED` (default false), and `HINDSIGHT_CONCURRENCY` (default 1, app job concurrency) pass through runtime config. The deployment's `HINDSIGHT_URL` and optional comma-separated `HINDSIGHT_ALLOWED_URLS` pin the permitted private destinations, including stored bank bindings. `HINDSIGHT_TENANT_MASTER_KEYS`, `HINDSIGHT_TENANT_ACTIVE_KEY`, `HINDSIGHT_TENANT_KEYS` (static compatibility), `HINDSIGHT_ADMISSION_KEY`, `HINDSIGHT_OVERNIGHT_IDLE` and `HINDSIGHT_RESTORE_HOLD` are environment-only. The restore hold blocks app HTTP and startup workers during isolated backup verification. The default tenant extension automatically provisions opaque authenticated tenant schemas. Keys never belong in browser/admin settings. Native inference and deliberate edit/remove calls share a bounded private proxy: daytime one, explicit healthy idle ceiling six. Job concurrency is not model concurrency. Already admitted background calls finish during a downshift, and failed activity tracking degrades chat gracefully. Native recall shares each chat's memory space: `MEMORY_RECALL_CORE_PERCENT` (default 25) is kept for the person's basics and, in a project chat, `MEMORY_RECALL_PROJECT_PERCENT` (default 50) for that project's own memories; what the message is about fills the rest. Both are admin-overridable; if they add up to more than 100, the project's share fills first. Entries age at read time: a temporary entry counts as earlier `MEMORY_TEMPORARY_EARLIER_DAYS` (default 21) after the later of its last mention and its event, and an ongoing one goes quiet after `MEMORY_ONGOING_QUIET_DAYS` (21) and earlier after `MEMORY_ONGOING_EARLIER_DAYS` (90) without a new fact; lasting entries and anything the person added or edited never age. Earlier entries are not brought up on their own, only when a message is about them. All three are admin-overridable whole days from 1 to 3650. A message is about an Earlier entry that ranks in its bank's top three when the reranker (`TEI_RERANKER_URL`, one call a turn, at most 500 ms) scores the person's own words against it at or above `MEMORY_EARLIER_RERANK_MIN` (default 0.002), or at or above `MEMORY_EARLIER_RERANK_WORD_MIN` (default 0.0005) when the message also shares a significant word with it; both are admin-overridable decimals from 0 to 1. With no reranker, a timeout or an error, the word rule alone decides and the turn goes on. A Memory job waits for Hindsight's own operation state instead of a fixed three minutes: `MEMORY_RETAIN_WAIT_MINUTES` (default 30) for a retain and `MEMORY_CONSOLIDATION_WAIT_MINUTES` (default 60) for a consolidation or the bank's quiet, in all across its attempts; waiting spends none of the job's attempts. Both are admin-overridable whole minutes from 1 to 1440.
 
 No native pipeline performs the legacy nightly persona rewrite. Existing legacy account scheduling/data remains only behind its authority gate until migration and rollback retirement are separately approved. The replacement does not import unreliable old extracted facts: per-user chat backfill follows the agreed opt-out/history policy and explicit migration plan. Service health alone does not prove local-model readiness or semantic acceptance.

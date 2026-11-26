@@ -1,0 +1,392 @@
+{
+	"question-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"task-nothing-kept-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 10
+	},
+	"purchase-kept-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"purchase-lasting-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"purchase-any-temporary-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"plan-temporary-v2": {
+		"pass": 10,
+		"of": 10,
+		"en": "5/5",
+		"hu": "5/5",
+		"errors": 0
+	},
+	"plan-any-lasting-v2": {
+		"pass": 0,
+		"of": 10,
+		"en": "0/5",
+		"hu": "0/5",
+		"errors": 0
+	},
+	"preference-kept-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"preference-kept-lasting-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"preference-after-reply-kept-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"preference-after-reply-kept-lasting-v2": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"question-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"task-nothing-kept-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 10
+	},
+	"purchase-kept-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"purchase-lasting-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"purchase-any-temporary-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"plan-temporary-v3": {
+		"pass": 10,
+		"of": 10,
+		"en": "5/5",
+		"hu": "5/5",
+		"errors": 0
+	},
+	"plan-any-lasting-v3": {
+		"pass": 0,
+		"of": 10,
+		"en": "0/5",
+		"hu": "0/5",
+		"errors": 0
+	},
+	"preference-kept-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"preference-kept-lasting-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"preference-after-reply-kept-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"preference-after-reply-kept-lasting-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"brainstorm-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"brainstorm-v3-no-dropped-option": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"brainstorm-v3-outcome-kept": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"brainstorm-v3-facts": 0,
+	"lasting-kept-v3": {
+		"pass": 0,
+		"of": 0,
+		"en": "0/0",
+		"hu": "0/0",
+		"errors": 20
+	},
+	"labels": {
+		"all": {
+			"facts": 0,
+			"kindRight": 0,
+			"subjectRight": 0,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 0,
+			"lastingFacts": 0
+		},
+		"en": {
+			"facts": 0,
+			"kindRight": 0,
+			"subjectRight": 0,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 0,
+			"lastingFacts": 0
+		},
+		"hu": {
+			"facts": 0,
+			"kindRight": 0,
+			"subjectRight": 0,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 0,
+			"lastingFacts": 0
+		},
+		"bySet": {
+			"lasting": {
+				"facts": 0,
+				"kindRight": 0,
+				"subjectRight": 0,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 0,
+				"lastingFacts": 0
+			},
+			"ongoing": {
+				"facts": 0,
+				"kindRight": 0,
+				"subjectRight": 0,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 0,
+				"lastingFacts": 0
+			},
+			"temporary": {
+				"facts": 0,
+				"kindRight": 0,
+				"subjectRight": 0,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 0,
+				"lastingFacts": 0
+			},
+			"project": {
+				"facts": 0,
+				"kindRight": 0,
+				"subjectRight": 0,
+				"unlabelledKind": 0,
+				"lastingAsTemporaryOrOngoing": 0,
+				"lastingFacts": 0
+			}
+		}
+	},
+	"classifier": {
+		"all": {
+			"facts": 84,
+			"kindRight": 81,
+			"subjectRight": 71,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 0,
+			"lastingFacts": 34
+		},
+		"en": {
+			"facts": 44,
+			"kindRight": 42,
+			"subjectRight": 36,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 0,
+			"lastingFacts": 17
+		},
+		"hu": {
+			"facts": 40,
+			"kindRight": 39,
+			"subjectRight": 35,
+			"unlabelledKind": 0,
+			"lastingAsTemporaryOrOngoing": 0,
+			"lastingFacts": 17
+		}
+	},
+	"classifier-purchase-extracted-by-v3": {
+		"all": {
+			"facts": 21,
+			"lasting": 21,
+			"ongoing": 0,
+			"temporary": 0,
+			"unlabelled": 0,
+			"labelledTemporaryByExtraction": 2,
+			"ofThose_nowLasting": 2,
+			"ofThose_nowOngoing": 0,
+			"ofThose_stillTemporary": 0
+		},
+		"en": {
+			"facts": 10,
+			"lasting": 10,
+			"ongoing": 0,
+			"temporary": 0,
+			"unlabelled": 0,
+			"labelledTemporaryByExtraction": 1,
+			"ofThose_nowLasting": 1,
+			"ofThose_nowOngoing": 0,
+			"ofThose_stillTemporary": 0
+		},
+		"hu": {
+			"facts": 11,
+			"lasting": 11,
+			"ongoing": 0,
+			"temporary": 0,
+			"unlabelled": 0,
+			"labelledTemporaryByExtraction": 1,
+			"ofThose_nowLasting": 1,
+			"ofThose_nowOngoing": 0,
+			"ofThose_stillTemporary": 0
+		}
+	},
+	"classifier-purchase-extracted-by-v2": {
+		"all": {
+			"facts": 22,
+			"lasting": 22,
+			"ongoing": 0,
+			"temporary": 0,
+			"unlabelled": 0,
+			"labelledTemporaryByExtraction": 13,
+			"ofThose_nowLasting": 13,
+			"ofThose_nowOngoing": 0,
+			"ofThose_stillTemporary": 0
+		},
+		"en": {
+			"facts": 11,
+			"lasting": 11,
+			"ongoing": 0,
+			"temporary": 0,
+			"unlabelled": 0,
+			"labelledTemporaryByExtraction": 7,
+			"ofThose_nowLasting": 7,
+			"ofThose_nowOngoing": 0,
+			"ofThose_stillTemporary": 0
+		},
+		"hu": {
+			"facts": 11,
+			"lasting": 11,
+			"ongoing": 0,
+			"temporary": 0,
+			"unlabelled": 0,
+			"labelledTemporaryByExtraction": 6,
+			"ofThose_nowLasting": 6,
+			"ofThose_nowOngoing": 0,
+			"ofThose_stillTemporary": 0
+		}
+	},
+	"relabel-of-config-2-temporary-facts": {
+		"lasting": {
+			"facts": 0,
+			"nowLasting": 0,
+			"nowOngoing": 0,
+			"stillTemporary": 0,
+			"unlabelled": 0
+		},
+		"ongoing": {
+			"facts": 1,
+			"nowLasting": 0,
+			"nowOngoing": 0,
+			"stillTemporary": 1,
+			"unlabelled": 0
+		},
+		"temporary": {
+			"facts": 21,
+			"nowLasting": 0,
+			"nowOngoing": 0,
+			"stillTemporary": 21,
+			"unlabelled": 0
+		},
+		"project": {
+			"facts": 4,
+			"nowLasting": 0,
+			"nowOngoing": 0,
+			"stillTemporary": 4,
+			"unlabelled": 0
+		}
+	},
+	"change-v3": {
+		"pass": 16,
+		"of": 20,
+		"en": "10/10",
+		"hu": "6/10",
+		"errors": 0
+	},
+	"change-v3-new-current": {
+		"pass": 20,
+		"of": 20,
+		"en": "10/10",
+		"hu": "10/10",
+		"errors": 0
+	},
+	"correction-v3": {
+		"pass": 17,
+		"of": 20,
+		"en": "9/10",
+		"hu": "8/10",
+		"errors": 0
+	}
+}

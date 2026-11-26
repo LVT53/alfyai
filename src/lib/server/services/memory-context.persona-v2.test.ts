@@ -1,17 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RECALL_TIMES_NOTE } from "./memory-context/recall-format";
 
 const mockGetPersonaSummary = vi.fn();
 const mockGetActiveMemoryProfileContext = vi.fn();
 const mockShortlistSemanticMatchesBySubject = vi.fn();
 const mockGetConversationProjectId = vi.fn();
 const mockRecordMemoryReworkTelemetry = vi.fn();
+const mocks = vi.hoisted(() => ({
+	usesNativeMemory: vi.fn<(userId: string) => boolean>(),
+	recallMemory:
+		vi.fn<
+			(
+				...args: Parameters<
+					typeof import("./memory-context/native").recallMemory
+				>
+			) => ReturnType<typeof import("./memory-context/native").recallMemory>
+		>(),
+}));
 
 // The legacy retrieval fixture represents an owned, opted-in conversation.
 vi.mock("./memory-controls", () => ({
 	isMemoryActiveForConversation: vi.fn().mockResolvedValue(true),
 }));
 vi.mock("./memory-profile/chat-delivery", () => ({
-	usesNativeMemory: vi.fn().mockReturnValue(false),
+	usesNativeMemory: mocks.usesNativeMemory,
+}));
+vi.mock("./memory-context/native", () => ({
+	recallMemory: mocks.recallMemory,
 }));
 
 vi.mock("./memory-consolidation/summary", () => ({
@@ -65,6 +80,10 @@ describe("memory-context persona recall v2", () => {
 		mockGetConversationProjectId.mockReset();
 		mockRecordMemoryReworkTelemetry.mockReset();
 
+		mocks.usesNativeMemory.mockReset();
+		mocks.usesNativeMemory.mockReturnValue(false);
+		mocks.recallMemory.mockReset();
+		mocks.recallMemory.mockResolvedValue([]);
 		mockGetConversationProjectId.mockResolvedValue(null);
 		mockRecordMemoryReworkTelemetry.mockResolvedValue({ id: "telemetry-1" });
 		mockShortlistSemanticMatchesBySubject.mockResolvedValue(null);
@@ -303,5 +322,29 @@ describe("memory-context persona recall v2", () => {
 		});
 		if (res.mode !== "persona") throw new Error("expected persona");
 		expect(res.evidenceCandidates).toEqual([]);
+	});
+
+	it("the native tool says when each entry was last said", async () => {
+		mocks.usesNativeMemory.mockReturnValue(true);
+		mocks.recallMemory.mockResolvedValue([
+			{
+				ref: { scope: { kind: "personal" }, generation: "g", rowId: "row-1" },
+				text: "Prefers green tea",
+				sources: [],
+				lastMentionedAt: new Date(Date.now() - 36 * 3_600_000).toISOString(),
+			},
+		]);
+		const { getMemoryContext } = await import("./memory-context");
+		const res = await getMemoryContext({
+			userId: "u1",
+			conversationId: "c1",
+			mode: "persona",
+			query: "drinks",
+		});
+		if (res.mode !== "persona") throw new Error("expected persona");
+		expect(res.source).toBe("hindsight");
+		expect(res.content).toBe(
+			`${RECALL_TIMES_NOTE}\n- Prefers green tea (said 1 day ago)`,
+		);
 	});
 });

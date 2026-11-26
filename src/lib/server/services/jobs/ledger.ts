@@ -18,7 +18,17 @@
 // synchronous for the same reason, and one that returns a promise is refused.
 
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
+import {
+	and,
+	eq,
+	inArray,
+	isNotNull,
+	isNull,
+	lte,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import { db } from "$lib/server/db";
 import type { EngineDefinition } from "./define";
 import { internalsOf } from "./define";
@@ -136,6 +146,42 @@ export function readJobRow(kind: JobKind, jobId: string): ShapeRow | null {
 	const { jobs } = internalsOf(kind);
 	return (
 		db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1).get() ?? null
+	);
+}
+
+/**
+ * Whether someone other than `userId` has a job of the kind that is due now
+ * and became due (the later of its last change and its `run_after`) at or
+ * after `sinceMs`: what an operator's drain of one account gives way to
+ * (`drainUser`'s `giveWayForMs`). A job due for longer than that is one no
+ * worker is taking up, and holds nobody. A job the kind's own claim condition
+ * (`claimable`) refuses is not due either: no worker can claim it, so waiting
+ * for it would only hold the drain.
+ */
+export function otherUserJobDue(
+	kind: JobKind,
+	userId: string,
+	nowMs: number,
+	sinceMs: number,
+): boolean {
+	const { jobs, definition } = internalsOf(kind);
+	const now = Math.floor(nowMs / 1000);
+	const since = Math.floor(sinceMs / 1000);
+	return (
+		db
+			.select({ id: jobs.id })
+			.from(jobs)
+			.where(
+				and(
+					sql`${jobs.userId} <> ${userId}`,
+					eq(jobs.status, "queued"),
+					or(isNull(jobs.runAfter), sql`${jobs.runAfter} <= ${now}`),
+					sql`max(${jobs.updatedAt}, coalesce(${jobs.runAfter}, 0)) >= ${since}`,
+					definition.claimable?.(jobs),
+				),
+			)
+			.limit(1)
+			.get() !== undefined
 	);
 }
 
@@ -376,6 +422,15 @@ export interface ClaimOptions {
 	workerId: string;
 	/** Restricts the claim to this job. The inline path uses it. */
 	jobId?: string;
+	/** Restricts the claim to this user's jobs. An operator's drain uses it. */
+	userId?: string;
+	/**
+	 * true = only a job put back after an attempt: queued, started once, and
+	 * still carrying the error that put it back. A job a person or an operator
+	 * reopened has no error (`queuedAgain`), so it does not count. An operator's
+	 * drain resumes its own in-flight work with it, ahead of anything new.
+	 */
+	resumeOnly?: boolean;
 	/** true = past the global and per-user caps (an inline run). */
 	ignoreCaps?: boolean;
 	now?: Date;
@@ -420,6 +475,10 @@ export function claimNext(
 			or(isNull(jobs.runAfter), lte(jobs.runAfter, now)),
 			definition.claimable?.(jobs),
 			options.jobId ? eq(jobs.id, options.jobId) : undefined,
+			options.userId ? eq(jobs.userId, options.userId) : undefined,
+			options.resumeOnly
+				? and(isNotNull(jobs.startedAt), isNotNull(jobs.errorCode))
+				: undefined,
 		);
 
 		// One row PER USER, that user's first claimable job, and only then ordered

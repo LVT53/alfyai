@@ -40,6 +40,11 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 - `runtime_config` - Admin UI overrides for env vars
 - Account-level settings are columns on `users` (theme, language, time zone, the read-aloud voice choice and speed, the Pictures and videos switch `pictures_and_videos_enabled`, the Send with Enter switch `send_with_enter`); there is no `user_preferences` table
 
+**Full-text indexes (Workspace Search):**
+- `messages_fts` and `artifacts_fts` - trigram FTS5 indexes (`content=''`, `contentless_delete=1`, `remove_diacritics 1`) over message text and the text bodies of documents and files, keyed by the base row's rowid. Made by hand in migration `1777140000145`: `schema.ts` cannot describe a virtual table, and `drizzle.config.ts`'s `tablesFilter` keeps `push` and `pull` off them and their shadow tables (`push` would drop them). Six triggers keep them in step with every write, with one condition per table; `scripts/prepare-db.ts` counts them against their tables at every prepare and refills one out of step, and `npm run search:index` does the same by hand (`-- --rebuild` refills); the SQL of both is `services/workspace-search/search-index-sql.ts`. Never write a shadow table (`*_fts_data`, `_idx`, `_docsize`, `_config`) directly: empty an index through itself
+- Never `INSERT OR REPLACE` into `messages` or `artifacts`: REPLACE deletes the old row without firing its delete trigger, so the index would keep it. A migration that rebuilds either table (a new table renamed into its place) gives its rows new rowids and drops its triggers, so the same migration empties the index (`'delete-all'`), refills it and creates the triggers again. `workspace-search-index-migration.test.ts` fails on either
+- No `VACUUM`: it may renumber the rowids of a table without an `INTEGER PRIMARY KEY`, which the indexes are keyed by. Backups use SQLite's online backup API, which keeps them
+
 ## Conventions
 
 - **Primary keys**: `text('id')` with UUIDs

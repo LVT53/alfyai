@@ -31,7 +31,30 @@ export interface ChatGPTMappingNode {
 	id: string;
 	message: ChatGPTMessage | null;
 	parent: string | null;
-	children: string[];
+	/** Older exports only: a late-2026 export names each node's parent alone. */
+	children?: string[];
+}
+
+/**
+ * Each node's children, by node id. A late-2026 export gives a node only its
+ * parent, older ones its children too: the children a node lists come first,
+ * then every other node that names it as its parent, in the export's order.
+ */
+function childrenOf(
+	mapping: Record<string, ChatGPTMappingNode>,
+): Map<string, string[]> {
+	const children = new Map<string, string[]>();
+	for (const [id, node] of Object.entries(mapping)) {
+		if (Array.isArray(node?.children)) children.set(id, [...node.children]);
+	}
+	for (const [id, node] of Object.entries(mapping)) {
+		const parent = node?.parent;
+		if (typeof parent !== "string" || !(parent in mapping)) continue;
+		const siblings = children.get(parent) ?? [];
+		if (!siblings.includes(id)) siblings.push(id);
+		children.set(parent, siblings);
+	}
+	return children;
 }
 
 export interface ChatGPTMessage {
@@ -337,11 +360,12 @@ function findHighestWeightLeaf(
 ): string | null {
 	let bestId: string | null = null;
 	let bestWeight = -Infinity;
+	const children = childrenOf(mapping);
 
 	for (const [id, node] of Object.entries(mapping)) {
 		if (!node.message) continue;
 
-		if (node.children.length > 0) continue;
+		if ((children.get(id)?.length ?? 0) > 0) continue;
 
 		const weight = node.message.weight;
 		if (weight > bestWeight) {
@@ -463,6 +487,7 @@ export async function parseConversationsJson(
 function findHighestWeightLeafInSubtree(
 	mapping: Record<string, ChatGPTMappingNode>,
 	startNodeId: string,
+	children: Map<string, string[]>,
 ): string | null {
 	let bestId: string | null = null;
 	let bestWeight = -Infinity;
@@ -478,7 +503,8 @@ function findHighestWeightLeafInSubtree(
 		const node: ChatGPTMappingNode | undefined = mapping[currentId];
 		if (!node) continue;
 
-		if (node.children.length === 0) {
+		const below = children.get(currentId) ?? [];
+		if (below.length === 0) {
 			if (node.message) {
 				const weight = node.message.weight;
 				if (weight > bestWeight) {
@@ -487,7 +513,7 @@ function findHighestWeightLeafInSubtree(
 				}
 			}
 		} else {
-			stack.push(...node.children);
+			stack.push(...below);
 		}
 	}
 
@@ -515,11 +541,13 @@ export function detectBranches(
 		nodeId = node.parent;
 	}
 
+	const children = childrenOf(mapping);
 	for (const parentId of activePathOrdered) {
 		const parentNode = mapping[parentId];
-		if (!parentNode || parentNode.children.length <= 1) continue;
+		const below = children.get(parentId) ?? [];
+		if (!parentNode || below.length <= 1) continue;
 
-		for (const childId of parentNode.children) {
+		for (const childId of below) {
 			if (activePathIds.has(childId)) continue;
 
 			const childNode = mapping[childId];
@@ -528,7 +556,11 @@ export function detectBranches(
 			const childWeight = childNode.message?.weight ?? 0;
 			if (childWeight >= 1.0) continue;
 
-			const branchLeafId = findHighestWeightLeafInSubtree(mapping, childId);
+			const branchLeafId = findHighestWeightLeafInSubtree(
+				mapping,
+				childId,
+				children,
+			);
 			if (!branchLeafId) continue;
 
 			const branchMessages = reconstructThread(mapping, branchLeafId);

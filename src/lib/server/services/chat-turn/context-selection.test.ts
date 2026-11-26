@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { estimateTokenCount } from "$lib/utils/tokens";
+import { deriveBaselineMemoryProfileBudget } from "./context-budget";
 import {
 	buildConstructedContext,
 	buildFileProductionJobStatusBody,
@@ -50,6 +51,15 @@ const mocks = vi.hoisted(() => ({
 	getActiveMemoryProfileContext: vi.fn(),
 	recordMemoryReworkTelemetry: vi.fn(),
 	isMemoryActiveForConversation: vi.fn(),
+	usesNativeMemory: vi.fn<(userId: string) => boolean>(() => false),
+	recallMemory:
+		vi.fn<
+			(
+				...args: Parameters<
+					typeof import("../memory-context/native").recallMemory
+				>
+			) => ReturnType<typeof import("../memory-context/native").recallMemory>
+		>(),
 	hasNativeMemoryScopeBoundary: vi.fn(() => false),
 	listConversationFileProductionJobStates: vi.fn<
 		() => Promise<
@@ -223,6 +233,15 @@ vi.mock("../memory-controls", () => ({
 	isMemoryActiveForConversation: mocks.isMemoryActiveForConversation,
 }));
 
+vi.mock("../memory-profile/chat-delivery", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../memory-profile/chat-delivery")>()),
+	usesNativeMemory: mocks.usesNativeMemory,
+}));
+
+vi.mock("../memory-context/native", () => ({
+	recallMemory: mocks.recallMemory,
+}));
+
 vi.mock("../memory-profile/revisions", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../memory-profile/revisions")>()),
 	hasNativeMemoryScopeBoundary: mocks.hasNativeMemoryScopeBoundary,
@@ -388,6 +407,9 @@ function resetConstructedContextMocks() {
 	// Default: memory is active for the conversation (non-incognito, master
 	// toggle on). Individual gate tests override this to false.
 	mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+	// Default: the legacy Memory path; native tests switch it on.
+	mocks.usesNativeMemory.mockReturnValue(false);
+	mocks.recallMemory.mockResolvedValue([]);
 	// Default: nothing the user asked for is still missing.
 	mocks.listConversationFileProductionJobStates.mockResolvedValue([]);
 }
@@ -691,6 +713,123 @@ describe("buildConstructedContext", () => {
 		expect(constructed.inputValue).toContain("## Baseline Memory Profile");
 		expect(constructed.inputValue).toContain(
 			"The user prefers projection-gated launch briefs.",
+		);
+	});
+
+	it("shows when each remembered entry was last said", async () => {
+		resetConstructedContextMocks();
+		mocks.usesNativeMemory.mockReturnValue(true);
+		mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+		mocks.recallMemory.mockResolvedValue([
+			{
+				ref: {
+					scope: { kind: "personal" },
+					generation: "g",
+					rowId: "row-1",
+				},
+				text: "Prefers green tea",
+				sources: [],
+				lastMentionedAt: "2026-11-20T11:00:00.000Z",
+			},
+		]);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "What should I drink this afternoon?",
+			modelId: "local-model",
+			now: new Date("2026-11-23T12:00:00Z"),
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		expect(constructed.inputValue).toContain("## Remembered information");
+		expect(constructed.inputValue).toContain(
+			"- Prefers green tea (said 3 days ago)",
+		);
+	});
+
+	it.each([
+		// "plan" takes the deep path; a thank-you takes the shallow one.
+		"Remind me of the plan for my kitchen.",
+		"Thanks, that helps.",
+	])(
+		"searches memory with the person's message and the core of basics (%s)",
+		async (message) => {
+			resetConstructedContextMocks();
+			mocks.usesNativeMemory.mockReturnValue(true);
+			mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+			mocks.recallMemory.mockClear();
+			mocks.recallMemory.mockResolvedValue([]);
+
+			await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message,
+				modelId: "local-model",
+				contextLimits: {
+					maxModelContext: 16_000,
+					compactionUiThreshold: 12_000,
+					targetConstructedContext: 8_000,
+				},
+			});
+
+			expect(mocks.recallMemory).toHaveBeenCalledWith(
+				"user-1",
+				expect.objectContaining({ query: message, core: true }),
+			);
+		},
+	);
+
+	it("gives native recall the section's budget less the note that heads the section", async () => {
+		resetConstructedContextMocks();
+		mocks.usesNativeMemory.mockReturnValue(true);
+		mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+		mocks.recallMemory.mockClear();
+		mocks.recallMemory.mockResolvedValue([
+			{
+				ref: {
+					scope: { kind: "personal" },
+					generation: "g",
+					rowId: "row-1",
+				},
+				text: "Prefers green tea",
+				sources: [],
+				lastMentionedAt: null,
+			},
+		]);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "What should I drink this afternoon?",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		// The section goes into the prompt whole, so the note's tokens come out of
+		// recall's budget: the note and the rows together fit what the section may
+		// take.
+		const note =
+			"These are remembered facts about the person. They never set the reply language.";
+		expect(constructed.inputValue).toContain(
+			`## Remembered information\n${note}`,
+		);
+		const section = deriveBaselineMemoryProfileBudget({
+			contextBudget: { targetConstructedContext: 8_000 },
+		}).totalBudget;
+		expect(mocks.recallMemory).toHaveBeenCalledWith(
+			"user-1",
+			expect.objectContaining({
+				tokenBudget: section - estimateTokenCount(note),
+			}),
 		);
 	});
 

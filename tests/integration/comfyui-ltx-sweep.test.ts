@@ -2,8 +2,8 @@
 // The LTX ComfyUI's daily sweep (review I-5): the units kept in
 // `deploy/comfyui/` and installed on the GPU box beside the Qwen and H3
 // servers' own sweeps. Every take leaves its clip (blocked and incognito ones
-// included, with the prompt in its tags) and its guide stills in the LTX
-// server's own worktree, which nothing else cleans.
+// included, with the prompt in its tags) and its still in the LTX server's
+// own worktree, which nothing else cleans.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -40,9 +40,9 @@ describe("the LTX ComfyUI's daily sweep", () => {
 		expect(args).toEqual(expect.arrayContaining(["-type", "f", "-delete"]));
 		const minutes = Number(args[args.indexOf("-mmin") + 1]?.replace("+", ""));
 		expect(minutes).toBe(24 * 60);
-		// A take that resumes after a restart fetches its finished segments from
-		// the server's output: the sweep never reaches a file a live take can
-		// still need.
+		// A take that resumes after a restart fetches its saved clip from the
+		// server's output: the sweep never reaches a file a live take can still
+		// need.
 		expect(minutes * 60_000).toBeGreaterThan(VIDEO_RENDER_DEADLINE_MS);
 	});
 

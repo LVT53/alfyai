@@ -72,6 +72,9 @@ logout/                # Logout page
 | `api/knowledge/memory/+server.ts` | Memory profile data |
 | `api/knowledge/memory/actions/+server.ts` | Memory actions |
 | `api/knowledge/memory/overview/+server.ts` | Memory overview |
+| `api/knowledge/memory/subjects/+server.ts` | The Memory page's subject index (layout C) |
+| `api/knowledge/memory/subjects/[subject]/+server.ts` | A subject's current or Earlier entries (`all`: every Earlier entry), 100 a page |
+| `api/knowledge/memory/scope-overview/+server.ts` | The Overview of a scope: GET the kept one, POST to write it (one local-model call) |
 | `api/knowledge/documents/behavior/+server.ts` | Document behavior |
 | `api/admin/config/+server.ts` | Runtime config overrides |
 | `api/admin/users/+server.ts` | User management |

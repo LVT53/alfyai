@@ -1,5 +1,7 @@
+import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
-import { importChatGPTData } from "./chatgpt-import";
+import { readExportedConversations } from "$lib/shared/chatgpt-export";
+import { importChatGPTData, packChatGPTUpload } from "./chatgpt-import";
 
 function answeringWith(result: unknown) {
 	return vi.fn(
@@ -60,5 +62,38 @@ describe("importChatGPTData", () => {
 		);
 
 		expect(postedForm(fetchMock).has("projectId")).toBe(false);
+	});
+});
+
+describe("packChatGPTUpload", () => {
+	const entries = [
+		{ conversation_id: "conv-a", title: "A" },
+		{ title: "No id" },
+		{ id: "conv-b", title: "B", conversation_template_id: "g-p-1" },
+		{ id: "conv-c", title: "C" },
+	];
+
+	async function readBack(file: File) {
+		return readExportedConversations(await JSZip.loadAsync(file));
+	}
+
+	it("packs the ticked conversations alone, in the export's order, as an export the server reads", async () => {
+		const file = await packChatGPTUpload(entries, ["conv-c", "conv-a"]);
+
+		expect(file.name).toBe("chatgpt-export.zip");
+		expect(await readBack(file)).toEqual({
+			ok: true,
+			entries: [entries[0], entries[3]],
+		});
+	});
+
+	it("leaves out everything a real export carries besides its conversations", async () => {
+		const file = await packChatGPTUpload(entries, ["conv-b"]);
+		const zip = await JSZip.loadAsync(file);
+
+		expect(Object.keys(zip.files).sort()).toEqual([
+			"conversations-000.json",
+			"export_manifest.json",
+		]);
 	});
 });

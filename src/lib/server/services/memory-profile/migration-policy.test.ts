@@ -102,6 +102,22 @@ describe("historical memory permission", () => {
 			}),
 		).toBe(false);
 	});
+	it("saves an excluded account's choice and migrates none of its history", async () => {
+		const { eq } = await import("drizzle-orm");
+		const db = drizzle(sqlite, { schema });
+		db.update(schema.users)
+			.set({ memoryMigrationExcluded: true })
+			.where(eq(schema.users.id, "alice"))
+			.run();
+		const { recordHistoryImportChoice } = await import("./migration-policy");
+		const choice = await recordHistoryImportChoice("alice", {
+			choice: "include",
+			requestId: "excluded-include",
+		});
+		expect(choice.choice).toBe("include");
+		expect(db.select().from(schema.memoryMigrationManifests).all()).toEqual([]);
+		expect(db.select().from(schema.memorySourceRevisions).all()).toEqual([]);
+	});
 	it("reset overrides consent and repeat requests cannot advance the cutoff", async () => {
 		const { recordHistoryImportChoice } = await import("./migration-policy");
 		const { isHistoricalMemorySourceEligible } = await import(

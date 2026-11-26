@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { conversationForks, messages, projects } from "$lib/server/db/schema";
+import {
+	conversationForks,
+	conversations,
+	messages,
+	projects,
+} from "$lib/server/db/schema";
 import { createConversation } from "$lib/server/services/conversations";
 import { markMemoryDirty } from "$lib/server/services/memory-profile/dirty-ledger";
 import { nativeMemoryBlocksLegacyIntake } from "../memory-profile/chat-delivery";
@@ -16,6 +21,7 @@ import {
 import { startImportedSummaryDrain } from "./owed-summaries";
 import {
 	type BranchInfo,
+	type ParsedConversation,
 	type ParseResult,
 	parseConversationsJson,
 } from "./parser";
@@ -75,6 +81,27 @@ async function validateImportProjectId(
 	return normalizedProjectId;
 }
 
+/**
+ * When an imported chat last had activity in ChatGPT: the later of the
+ * export's own update time and its newest dated message, never after the
+ * import, or null when the export dates nothing in it. The sidebar orders
+ * chats by when they last changed, and a chat dated at the import sat on top
+ * of every chat as today's.
+ */
+function lastChatGptActivity(
+	conv: ParsedConversation,
+	importedAt: Date,
+): Date | null {
+	let latest = Number.NaN;
+	for (const at of [conv.updatedAt, ...conv.messages.map((m) => m.createdAt)]) {
+		const time = at?.getTime() ?? Number.NaN;
+		// The parser reads a missing time as 0.
+		if (Number.isFinite(time) && time > 0 && !(time <= latest)) latest = time;
+	}
+	if (!Number.isFinite(latest)) return null;
+	return new Date(Math.min(latest, importedAt.getTime()));
+}
+
 async function importConversationBranches(
 	userId: string,
 	primaryConversationId: string,
@@ -82,7 +109,8 @@ async function importConversationBranches(
 	primaryMessages: { role: string; content: string }[],
 	branches: BranchInfo[],
 	projectId: string | null,
-): Promise<void> {
+): Promise<string[]> {
+	const forkConversationIds: string[] = [];
 	for (let branchIndex = 0; branchIndex < branches.length; branchIndex++) {
 		const branch = branches[branchIndex];
 
@@ -103,6 +131,7 @@ async function importConversationBranches(
 		const forkConversation = await createConversation(userId, forkTitle, {
 			projectId,
 		});
+		forkConversationIds.push(forkConversation.id);
 
 		const forkMessageRows = branch.messages.map((msg, seq) => ({
 			id: randomUUID(),
@@ -139,6 +168,7 @@ async function importConversationBranches(
 			createdAt: now,
 		});
 	}
+	return forkConversationIds;
 }
 
 /**
@@ -275,15 +305,36 @@ async function importIntoRow(
 				await db.insert(messages).values(messageRows);
 
 				const branches: BranchInfo[] | undefined = conv.branches;
-				if (branches && branches.length > 0) {
-					await importConversationBranches(
-						userId,
-						conversation.id,
-						conv.title,
-						conv.messages,
-						branches,
-						projectId,
-					);
+				const forkConversationIds =
+					branches && branches.length > 0
+						? await importConversationBranches(
+								userId,
+								conversation.id,
+								conv.title,
+								conv.messages,
+								branches,
+								projectId,
+							)
+						: [];
+
+				// Only when it last changed: its creation stays the import's own
+				// time, which is how Memory tells a dated imported message from one
+				// the export gave no time (imported-history.ts, migration-progress.ts).
+				const lastActivity = lastChatGptActivity(
+					conv,
+					// The service gives it in seconds.
+					new Date(conversation.createdAt * 1000),
+				);
+				if (lastActivity) {
+					await db
+						.update(conversations)
+						.set({ updatedAt: lastActivity })
+						.where(
+							inArray(conversations.id, [
+								conversation.id,
+								...forkConversationIds,
+							]),
+						);
 				}
 
 				await queueImportedConversationForMemoryJudge(userId, conversation.id);

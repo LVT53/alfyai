@@ -335,7 +335,8 @@ test.describe("Knowledge page", () => {
 
 	test("the memory filter keeps what you type", async ({ page }) => {
 		await openMemoryProfile(page);
-		const filter = page.getByRole("searchbox", { name: "Search memories" });
+		// The subject index's search (an account whose labels are verified).
+		const filter = page.getByRole("searchbox", { name: "Search Memory" });
 		await filter.fill("nextcloud");
 		await expect(filter).toHaveValue("nextcloud");
 	});

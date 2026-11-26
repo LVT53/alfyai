@@ -55,6 +55,16 @@ export const users = sqliteTable("users", {
 	memoryEnabled: integer("memory_enabled", { mode: "boolean" })
 		.notNull()
 		.default(true),
+	// The permanent tester rule: true keeps every migration of existing Memory
+	// data (the label migration, the operator tools) away from this account.
+	// Set once for the tester's address by migration 141 and read by id through
+	// memoryMigrationGuard (memory-profile/migration-guard.ts) only. Ordinary
+	// operation (delivery, curation, recall) never reads it.
+	memoryMigrationExcluded: integer("memory_migration_excluded", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(false),
 	// "Pictures and videos" (Settings > Profile), the person's own switch. When
 	// false, that person's turns are not offered make_image or make_video, and
 	// the turn guidance tells the model it is switched off and where to switch
@@ -3330,6 +3340,19 @@ export const memoryAccounts = sqliteTable("memory_accounts", {
 	historyDecidedAt: integer("history_decided_at", { mode: "timestamp" }),
 	historyPolicyVersion: text("history_policy_version").notNull().default("1"),
 	historyStatus: text("history_status").notNull().default("not_requested"),
+	/**
+	 * The epoch whose banks may hold facts from before bank config 2 (Memory
+	 * part 3): until the label migration clears it, the account keeps today's
+	 * Memory page. Read through `memory-profile/labels-verified.ts` only.
+	 */
+	labelsUnverifiedEpoch: integer("labels_unverified_epoch"),
+	/**
+	 * The epoch the label migration last verified. A verified epoch sticks: the
+	 * in-place upgrade of a config-1 bank does not mark it again, because every
+	 * fact in such a bank predates the upgrade. A bank the previous release
+	 * created, or a restore to config 1, forgets it (labels-verified.ts).
+	 */
+	labelsVerifiedEpoch: integer("labels_verified_epoch"),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
 		.default(sql`(unixepoch())`),
@@ -3429,6 +3452,87 @@ export const memoryPublishedRows = sqliteTable(
 			t.generation,
 		),
 	}),
+);
+/**
+ * The Memory page's Overview (Memory part 3): one paragraph per bank, written
+ * by the local model when the person opens it, from the entries the page shows
+ * as current. One row per bank, no history. Triggers (migration 144) delete it
+ * whenever the bank's entries can change; only `memory-profile/overview.ts`
+ * reads it, so it never reaches a chat.
+ */
+export const memoryOverviews = sqliteTable(
+	"memory_overviews",
+	{
+		bankId: text("bank_id")
+			.primaryKey()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		language: text("language").notNull(),
+		text: text("text").notNull(),
+		entriesHash: text("entries_hash").notNull(),
+		writtenFrom: integer("written_from").notNull(),
+		currentCount: integer("current_count").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(t) => ({ user: index("memory_overviews_user_idx").on(t.userId) }),
+);
+/**
+ * A native fact's kind and subject, and the date of its event (Memory part 2).
+ * Keyed by bank and Hindsight fact id, so it goes with its bank. Publication
+ * copies the labels Hindsight's extraction wrote into a fact's tags; the
+ * classifier (the label migration, the fallback) writes the rest. Recall and
+ * the Memory page read labels here and nowhere else.
+ */
+export const memoryFactLabels = sqliteTable(
+	"memory_fact_labels",
+	{
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		nativeFactId: text("native_fact_id").notNull(),
+		kind: text("kind"),
+		subject: text("subject"),
+		origin: text("origin", { enum: ["extraction", "classifier"] }).notNull(),
+		eventAt: integer("event_at", { mode: "timestamp_ms" }),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [primaryKey({ columns: [table.bankId, table.nativeFactId] })],
+);
+/**
+ * What the label relabel looked at and changed (Memory config 3): one row per
+ * fact whose temporary label it re-classified, with the label the fact held
+ * before, so it is not asked again and a rollback restores exactly what the
+ * relabel changed. Keyed by bank and Hindsight fact id like the labels, so it
+ * goes with its bank. Only `label-relabel.ts` reads or writes it.
+ */
+export const memoryLabelRelabels = sqliteTable(
+	"memory_label_relabels",
+	{
+		bankId: text("bank_id")
+			.notNull()
+			.references(() => memoryBanks.id, { onDelete: "cascade" }),
+		nativeFactId: text("native_fact_id").notNull(),
+		previousKind: text("previous_kind"),
+		previousSubject: text("previous_subject"),
+		previousOrigin: text("previous_origin", {
+			enum: ["extraction", "classifier"],
+		}).notNull(),
+		/** The label the relabel wrote (when `changed`), or the one it left. */
+		kind: text("kind"),
+		subject: text("subject"),
+		/** Whether the relabel wrote a new label: false when the fact stayed temporary. */
+		changed: integer("changed", { mode: "boolean" }).notNull(),
+		relabelledAt: integer("relabelled_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [primaryKey({ columns: [table.bankId, table.nativeFactId] })],
 );
 export const memoryRevocations = sqliteTable(
 	"memory_revocations",

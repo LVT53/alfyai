@@ -65,6 +65,10 @@ const DRAWN_IN_THE_BROWSER: Array<{ file: string; tag?: string; why: string }> =
 			file: "src/lib/components/campaigns/CampaignModal.svelte",
 			why: "the shell chooses a campaign only in the browser",
 		},
+		{
+			file: "src/lib/components/search/SearchModal.svelte",
+			why: "a search result's thumbnail, drawn once the browser has fetched the results",
+		},
 	];
 
 function svelteFiles(dir: string): string[] {

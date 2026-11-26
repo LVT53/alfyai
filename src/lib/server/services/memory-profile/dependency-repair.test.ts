@@ -51,6 +51,9 @@ async function fixture() {
 
 import { eq as awaitEq } from "drizzle-orm";
 
+/** What each fake bank was last configured with. */
+const fakeBankConfigs = new Map<string, unknown>();
+
 it.each([false, true])(
 	"recovers an independent reply after late context withdrawal (sibling cleanup: %s)",
 	async (siblingCleanup) => {
@@ -64,6 +67,22 @@ it.each([false, true])(
 			[root.id, context.id],
 			"I keep a community seed library.",
 		);
+		// The reply's own retain was resubmitted once and its end recorded: that
+		// bookkeeping belongs to its operation, never to a replacement (N4).
+		f.db
+			.update(f.s.memorySourceRevisions)
+			.set({
+				context: JSON.stringify({
+					...JSON.parse(reply.context),
+					nativeRetainResubmittedFrom: "failed-operation",
+					nativeRetainEnded: {
+						operationId: "failed-operation",
+						reason: "cancelled",
+					},
+				}),
+			})
+			.where(awaitEq(f.s.memorySourceRevisions.id, reply.id))
+			.run();
 		const survivor = f.source([], "My sister plays the bassoon.");
 		for (const source of [root, context, reply, survivor]) f.seed(source);
 		const { publishNativeSnapshot, readPublishedMemory } = await import(
@@ -118,6 +137,16 @@ it.each([false, true])(
 			vi.useRealTimers();
 		}
 		expect(JSON.stringify(forwarded)).not.toContain("RUSTFINCH");
+		const replacementRows = f.db
+			.select()
+			.from(f.s.memorySourceRevisions)
+			.all()
+			.filter(
+				(row) => row.lineageId === reply.lineageId && row.id !== reply.id,
+			);
+		if (!siblingCleanup) expect(replacementRows.length).toBeGreaterThan(0);
+		for (const row of replacementRows)
+			expect(row.context).not.toContain("nativeRetain");
 		const replacements = f.retained.slice(1);
 		expect(replacements.length).toBeGreaterThan(0);
 		expect(JSON.stringify(replacements)).not.toContain("RUSTFINCH");
@@ -600,12 +629,20 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		| undefined;
 	let resetObservation: ((id: string) => { deleted_count: number }) | undefined;
 	let loseAck = false;
+	let operationStatus: ((id: string) => string) | undefined;
 	const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
 		const path = String(url);
 		let data: unknown = {};
-		if (path.endsWith("/config"))
-			data = { config: contracts.NATIVE_BANK_CONFIG };
-		else if (path.includes("/documents/") && init?.method === "DELETE") {
+		if (path.endsWith("/config")) {
+			// A bank answers with the config it was last sent (config 2 is per bank kind).
+			const bank = new URL(path).pathname.split("/")[4];
+			if (init?.method === "PATCH")
+				fakeBankConfigs.set(bank, JSON.parse(String(init.body)).updates);
+			data = {
+				config:
+					fakeBankConfigs.get(bank) ?? contracts.nativeBankConfig("personal"),
+			};
+		} else if (path.includes("/documents/") && init?.method === "DELETE") {
 			const id = decodeURIComponent(path.split("/documents/")[1]);
 			deleted.push(id);
 			for (const [key, fact] of facts)
@@ -646,8 +683,16 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		} else if (path.endsWith("/consolidate"))
 			data = { operation_id: "consolidation" };
 		else if (path.includes("/operations?")) data = { operations: [] };
-		else if (path.includes("/operations/")) data = { status: "completed" };
-		else if (path.includes("/memories/list")) {
+		else if (path.includes("/operations/")) {
+			const status =
+				operationStatus?.(decodeURIComponent(path.split("/operations/")[1])) ??
+				"completed";
+			if (status === "forgotten")
+				return new Response(JSON.stringify({ detail: "Not found" }), {
+					status: 404,
+				});
+			data = { status };
+		} else if (path.includes("/memories/list")) {
 			const raw = [...facts.values()];
 			const items = [
 				...raw,
@@ -752,6 +797,13 @@ async function nativeFixture(retainContents = (content: string) => [content]) {
 		},
 		loseAck: () => {
 			loseAck = true;
+		},
+		/**
+		 * What Hindsight answers when asked about an operation; "completed" by
+		 * default, and "forgotten" answers 404, as for an operation it no longer knows.
+		 */
+		setOperationStatus: (fn: (id: string) => string) => {
+			operationStatus = fn;
 		},
 	};
 }
@@ -1699,6 +1751,93 @@ it("lost acknowledgement retries reuse exact replacement document and native ope
 	expect(f.retained[1].operation_id).toBe(first.operation_id);
 	expect(f.retained[1].items[0].document_id).toBe(first.items[0].document_id);
 });
+it("a replacement retain Hindsight keeps working on waits as a retain, for the retain's wait", async () => {
+	const f = await nativeFixture();
+	const root = f.source([], "removed detail");
+	const child = f.source([root.id], "I enjoy hiking");
+	f.seed(root);
+	f.seed(child);
+	// Hindsight never finishes the replacement's retain, and every read of it
+	// moves the clock on six minutes, so each attempt's slice ends after one look.
+	vi.useFakeTimers({ toFake: ["Date"] });
+	const retains = () => new Set(f.retained.map((body) => body.operation_id));
+	f.setOperationStatus((id) => {
+		if (!retains().has(id)) return "completed";
+		vi.setSystemTime(Date.now() + 6 * 60_000);
+		return "processing";
+	});
+	const { getMemoryNativeWaits } = await import("$lib/server/config-store");
+	const waits = getMemoryNativeWaits();
+	const started = Date.now();
+	const job = await f.remove(root);
+	const codes: Array<string | null> = [];
+	let waited = 0;
+	try {
+		for (let round = 0; round < 40; round++) {
+			await h.engine.drain(f.jobs.memoryDeliveryJob);
+			const row = f.db
+				.select()
+				.from(f.s.memoryDeliveryJobs)
+				.where(awaitEq(f.s.memoryDeliveryJobs.id, job.row.id))
+				.get();
+			codes.push(row?.errorCode ?? null);
+			if (row?.status !== "queued") break;
+			vi.setSystemTime(Date.now() + 61_000);
+		}
+		waited = Date.now() - started;
+	} finally {
+		vi.useRealTimers();
+	}
+	expect(retains().size).toBe(1);
+	expect(codes.slice(0, -1).length).toBeGreaterThan(0);
+	expect(codes.slice(0, -1)).toEqual(
+		codes.slice(0, -1).map(() => "native_retain_waiting"),
+	);
+	expect(codes.at(-1)).toBe("native_operation_timeout");
+	// Ended by the retain's own wait, not the consolidation's longer one.
+	expect(waited).toBeGreaterThanOrEqual(waits.retainMs);
+	expect(waited).toBeLessThan(waits.consolidationMs);
+}, 60_000);
+it("never asks Hindsight about a dependent chat's retain whose end is recorded", async () => {
+	const f = await nativeFixture();
+	const root = f.source([], "removed detail");
+	const child = f.source([root.id], "I enjoy hiking");
+	f.seed(root);
+	// The later chat's own delivery ended for good: its retain was cancelled,
+	// the end recorded on its revision, and Hindsight has since forgotten it.
+	const ended = child.nativeOperationId as string;
+	f.db
+		.update(f.s.memorySourceRevisions)
+		.set({
+			state: "pending",
+			nativeAcknowledged: false,
+			context: JSON.stringify({
+				...JSON.parse(child.context),
+				nativeRetainEnded: { operationId: ended, reason: "cancelled" },
+			}),
+		})
+		.where(awaitEq(f.s.memorySourceRevisions.id, child.id))
+		.run();
+	const asked: string[] = [];
+	f.setOperationStatus((id) => {
+		if (id !== ended) return "completed";
+		asked.push(id);
+		return "forgotten";
+	});
+	const job = await f.remove(root);
+	await h.engine.drain(f.jobs.memoryDeliveryJob);
+	const row = f.db
+		.select()
+		.from(f.s.memoryDeliveryJobs)
+		.where(awaitEq(f.s.memoryDeliveryJobs.id, job.row.id))
+		.get();
+	expect({ status: row?.status, code: row?.errorCode }).toEqual({
+		status: "succeeded",
+		code: null,
+	});
+	expect(asked).toEqual([]);
+	expect(f.deleted).toContain(child.id);
+});
 it("a real late native write after reset cannot publish or resume", async () => {
 	const f = await nativeFixture();
 	const root = f.source();
@@ -2596,7 +2735,11 @@ it.each([
 					.get(),
 			).toMatchObject({
 				status: "queued",
-				errorCode: "memory_dependency_restore_pending",
+				// A rollback that already retained a replacement is live work in
+				// flight: the cleanup waits for it before it captures anything.
+				errorCode: descendant
+					? "native_bank_busy_waiting"
+					: "memory_dependency_restore_pending",
 			});
 			expect(f.retained).toHaveLength(scheduledRetains);
 			f.db

@@ -87,7 +87,7 @@ describe("takeCardState, one rule for a picture's take and a clip's", () => {
 	);
 
 	it.each(KINDS)(
-		"%s: a take with an estimate is on its way, not waiting (posted again, or a clip's second segment)",
+		"%s: a take with an estimate is on its way, not waiting (posted again)",
 		(kind) => {
 			expect(
 				takeCardState(

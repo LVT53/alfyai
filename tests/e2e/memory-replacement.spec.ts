@@ -20,6 +20,18 @@ import {
 	waitForHydration,
 	waitForMotionToSettle,
 } from "./helpers";
+import { keepAdminOnTodaysMemoryPage } from "./memory-helpers";
+
+// Today's list: an account whose labels are not verified keeps it (Memory
+// part 3); memory-subjects.spec.ts covers the subject index.
+let restoreMemoryPage: (() => void) | undefined;
+test.beforeEach(() => {
+	restoreMemoryPage = keepAdminOnTodaysMemoryPage();
+});
+test.afterEach(() => {
+	restoreMemoryPage?.();
+	restoreMemoryPage = undefined;
+});
 
 // Browser contract fixtures: native integration acceptance runs separately against
 // the real delivery/curation boundary. These exercise the UI's asynchronous states.

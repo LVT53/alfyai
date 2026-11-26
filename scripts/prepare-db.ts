@@ -22,6 +22,13 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import {
+	isOutOfStep,
+	SEARCH_INDEX_TABLES,
+	type SearchIndexCount,
+	searchIndexCountSql,
+	searchIndexRefillSql,
+} from "../src/lib/server/services/workspace-search/search-index-sql";
+import {
 	assertSessionSecret,
 	resolveSessionSecret,
 } from "../src/lib/server/session-secret";
@@ -35,6 +42,9 @@ const requiredExistingTables = [
 	"memory_banks",
 	"memory_source_revisions",
 	"memory_published_rows",
+	"memory_fact_labels",
+	"memory_label_relabels",
+	"memory_overviews",
 	"memory_revocations",
 	"memory_actions",
 	"memory_control_intervals",
@@ -49,6 +59,9 @@ const requiredExistingTables = [
 	"browser_push_subscriptions",
 	"conversations",
 	"messages",
+	// The Workspace Search full-text indexes (virtual tables, migration 145).
+	"messages_fts",
+	"artifacts_fts",
 	"normal_chat_turns",
 	"normal_chat_attempts",
 	"normal_chat_run_log",
@@ -133,6 +146,8 @@ const requiredExistingTables = [
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
+	["memory_accounts", "labels_unverified_epoch"],
+	["memory_accounts", "labels_verified_epoch"],
 	["artifact_versions", "started_at"],
 	["artifact_versions", "label"],
 	["conversations", "project_id"],
@@ -154,6 +169,7 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["users", "avatar_id"],
 	["users", "profile_picture"],
 	["users", "honcho_peer_version"],
+	["users", "memory_migration_excluded"],
 	["conversation_drafts", "selected_linked_sources_json"],
 	["conversation_drafts", "pending_skill_json"],
 	["user_skill_definitions", "published"],
@@ -817,6 +833,31 @@ function seedDefaultProvidersIfNeeded(): void {
 	console.log("[prepare-db] Seeded default providers from env configuration.");
 }
 
+/**
+ * Workspace Search's full-text indexes are kept by triggers, but a table
+ * restored through `.dump` (new row ids), a raw REPLACE or a hand edit can leave
+ * one out of step, and nothing else would notice. Each prepare (every deploy,
+ * every `npm start`) counts them against their tables by row id (tens of
+ * milliseconds on production's size) and refills a table that is out of step,
+ * in one transaction, saying so. Counts only: no text is read out or printed.
+ */
+function repairSearchIndexIfOutOfStep(): void {
+	for (const table of SEARCH_INDEX_TABLES) {
+		const count = sqlite
+			.prepare(searchIndexCountSql(table))
+			.get() as SearchIndexCount;
+		if (!isOutOfStep(count)) continue;
+		console.warn(
+			`[prepare-db] The Workspace Search index was out of step for ${table} (${count.missing} missing, ${count.extra} extra of ${count.expected}); refilling it.`,
+		);
+		sqlite.transaction(() => {
+			for (const statement of searchIndexRefillSql(table)) {
+				sqlite.exec(statement);
+			}
+		})();
+	}
+}
+
 export function prepareDatabase(
 	path = process.env.DATABASE_PATH || "./data/chat.db",
 ): void {
@@ -854,6 +895,7 @@ export function prepareDatabase(
 					`Database ${databasePath} is missing required schema pieces after migrations: ${schemaProblems.join(", ")}`,
 				);
 			}
+			repairSearchIndexIfOutOfStep();
 			console.log(`Database migrations are up to date for ${databasePath}.`);
 			return;
 		}

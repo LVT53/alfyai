@@ -1,0 +1,98 @@
+{
+	"label": "config3-after1-english-entries",
+	"bridgeModel": "qwen3-6-27b",
+	"prompts": [
+		"Write the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. Copy no word from another language out of an entry, however common it has become (it is spelt the way that other language spells it): write this language's own everyday word for the same thing, and keep the borrowed word only when there is none.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the person by their name, in the third person, when a name is given; otherwise address them as you.\nCover every subject the entries are filed under, with at least one short, plain sentence for each, and leave no entry out: when a subject has several small entries, name each in a few words within one sentence rather than dropping any. Use as many sentences as that takes, never more than ten, each one simple, with no fact twice; no headings, lists, quotation marks or emphasis. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}.",
+		"Write the short overview a person reads at the top of a project's Memory page: what is remembered about the project, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. Copy no word from another language out of an entry, however common it has become (it is spelt the way that other language spells it): write this language's own everyday word for the same thing, and keep the borrowed word only when there is none.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the project by its name when one is given.\nCover every subject the entries are filed under, with at least one short, plain sentence for each, and leave no entry out: when a subject has several small entries, name each in a few words within one sentence rather than dropping any. Use as many sentences as that takes, never more than ten, each one simple, with no fact twice; no headings, lists, quotation marks or emphasis. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}."
+	],
+	"sampleRequest": {
+		"model": "qwen3-6-27b",
+		"max_tokens": 8192,
+		"temperature": 0.6,
+		"top_p": 0.95,
+		"response_format": {
+			"type": "json_schema",
+			"json_schema": {
+				"schema": {
+					"type": "object",
+					"properties": {
+						"overview": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"overview"
+					],
+					"additionalProperties": false
+				},
+				"strict": true,
+				"name": "memory_edit"
+			}
+		},
+		"enable_thinking": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "[MODEL: Memory curation]\n\nWrite the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.\nWrite the paragraph in English.\nUse that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. Copy no word from another language out of an entry, however common it has become (it is spelt the way that other language spells it): write this language's own everyday word for the same thing, and keep the borrowed word only when there is none.\nUse only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.\nAn entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.\nRefer to the person by their name, in the third person, when a name is given; otherwise address them as you.\nCover every subject the entries are filed under, with at least one short, plain sentence for each, and leave no entry out: when a subject has several small entries, name each in a few words within one sentence rather than dropping any. Use as many sentences as that takes, never more than ten, each one simple, with no fact twice; no headings, lists, quotation marks or emphasis. Never mention memory, entries, lists or this task.\nReturn JSON: {\"overview\": \"<the paragraph>\"}."
+			},
+			{
+				"role": "user",
+				"content": "{\"about\":\"a person\",\"name\":\"Kata\",\"entries\":[{\"subject\":\"Work and study\",\"kind\":\"temporary\",\"text\":\"The user has to hand in a logo design to a client by Friday.\"},{\"subject\":\"Health\",\"kind\":\"temporary\",\"text\":\"The user's knee is injured and the user is currently going to physiotherapy.\"},{\"subject\":\"Other\",\"kind\":\"temporary\",\"text\":\"The user is not drinking alcohol this week.\"},{\"subject\":\"Home and family\",\"kind\":\"temporary\",\"text\":\"The user's mother-in-law will stay with them for two days next week.\"},{\"subject\":\"Projects\",\"kind\":\"temporary\",\"text\":\"The user is travelling to Lisbon with their partner in March.\"},{\"subject\":\"Work and study\",\"kind\":\"ongoing\",\"text\":\"The user is currently working on the brand identity of a bookshop.\"},{\"subject\":\"Projects\",\"kind\":\"ongoing\",\"text\":\"The user is building a garden shed in their grandparents' garden.\"},{\"subject\":\"Projects\",\"kind\":\"ongoing\",\"text\":\"The user is learning to play the ukulele.\"},{\"subject\":\"Home and family\",\"kind\":\"ongoing\",\"text\":\"The user is looking for a new flat in Győr because the current one is too small.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"The user is learning Japanese and takes one lesson a week.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"The user bakes sourdough bread at weekends.\"},{\"subject\":\"Interests\",\"kind\":\"ongoing\",\"text\":\"The user goes bouldering twice a week at a gym in Győr.\"},{\"subject\":\"Work and study\",\"kind\":\"ongoing\",\"text\":\"The user is studying part-time for a master's degree and expects to graduate next June.\"},{\"subject\":\"About the person\",\"text\":\"The user is 35 years old.\"},{\"subject\":\"About the person\",\"text\":\"The user's native language is Hungarian and the user speaks English fluently.\"},{\"subject\":\"About the person\",\"text\":\"The user is a vegetarian.\"},{\"subject\":\"Home and family\",\"text\":\"The user lives in a two-room flat in Győr.\"},{\"subject\":\"Home and family\",\"text\":\"The user's partner is Márk, who is a teacher.\"},{\"subject\":\"Home and family\",\"text\":\"The user has a four-year-old daughter, Lili.\"},{\"subject\":\"Home and family\",\"text\":\"The user has a cat called Mák.\"},{\"subject\":\"Home and family\",\"text\":\"The user's younger brother, Bence, lives in Szeged.\"},{\"subject\":\"Work and study\",\"text\":\"The user works as a freelance graphic designer.\"},{\"subject\":\"Health\",\"text\":\"The user is lactose intolerant.\"},{\"subject\":\"Health\",\"text\":\"The user is short-sighted and wears glasses.\"},{\"subject\":\"Interests\",\"text\":\"The user likes sci-fi novels, and their favourite author is Ursula K. Le Guin.\"},{\"subject\":\"Interests\",\"text\":\"The user enjoys hiking in the Bakony at weekends.\"},{\"subject\":\"Interests\",\"text\":\"The user drinks black coffee without sugar.\"},{\"subject\":\"Other\",\"text\":\"The user prefers short, to-the-point answers.\"},{\"subject\":\"Other\",\"text\":\"The user does not like phone calls and prefers to write a message.\"},{\"subject\":\"Other\",\"text\":\"The user used to live in Szeged and has since moved to Győr.\"}]}"
+			}
+		],
+		"chat_template_kwargs": {
+			"enable_thinking": false
+		},
+		"top_k": 20
+	},
+	"results": [
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 1,
+			"ms": 3086,
+			"text": "Kata is a thirty-five-year-old vegetarian freelance graphic designer whose native language is Hungarian and who speaks English fluently. She is currently working on a bookshop's brand identity, must hand in a logo design to a client by Friday, and is studying part-time for a master's degree expected to be completed next June. Kata lives in a two-room flat in Győr, having moved from Szeged where her younger brother Bence still lives, and is looking for a new flat because the current one is too small. She shares her home with her partner Márk, who is a teacher, their four-year-old daughter Lili, and a cat named Mák. Her mother-in-law will stay with them for two days next week. In her free time, Kata bakes sourdough bread, hikes in the Bakony, and goes bouldering twice a week at a local gym. She is learning Japanese with weekly lessons, learning to play the ukulele, and building a garden shed in her grandparents' garden. She enjoys reading science fiction novels by Ursula K. Le Guin and drinks black coffee without sugar. Kata is lactose intolerant, wears glasses for short-sightedness, and is currently attending physiotherapy for an injured knee. She is not drinking alcohol this week, plans a trip to Lisbon with Márk in March, and prefers written messages over phone calls for short, direct communication.",
+			"extras": {}
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 1,
+			"ms": 1398,
+			"text": "The Garden hut project aims to build a wooden structure for storing tools and garden furniture in the north corner of the garden. Kata and her father work on it together, while Kata's uncle, Péter, poured the concrete foundation. The floor area is 12 square metres, and timber was ordered from a local sawmill for 180 thousand forints. The foundation is finished and the wall frame is being built, with roofing sheets arriving next week. The roof will have a single pitch with a gentle slope, and the door will be a double door that opens outwards. The paint colour is not decided yet and will be chosen later.",
+			"extras": {}
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 2,
+			"ms": 2718,
+			"text": "Kata is a thirty-five-year-old freelance graphic designer and vegetarian who speaks Hungarian as her native language and English fluently. She lives in a two-room flat in Győr with her partner Márk, a teacher, their four-year-old daughter Lili, and their cat Mák. Her younger brother Bence lives in Szeged, where Kata used to live before moving. She is lactose intolerant, short-sighted and wears glasses, and currently has an injured knee requiring physiotherapy. Kata is studying part-time for a master's degree with graduation expected next June, while working on a bookshop brand identity and needing to hand in a logo design by Friday. She is looking for a new flat in Győr because her current home is too small. Her ongoing projects include building a garden shed in her grandparents' garden and learning to play the ukulele. Kata is learning Japanese with one lesson a week, bakes sourdough bread at weekends, and goes bouldering twice a week at a gym in Győr. She enjoys hiking in the Bakony, reading science fiction novels by Ursula K. Le Guin, and drinking black coffee without sugar. This week she is not drinking alcohol, her mother-in-law will stay for two days next week, and she plans to travel to Lisbon with Márk in March. Kata prefers short, direct written messages over phone calls.",
+			"extras": {}
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 2,
+			"ms": 1382,
+			"text": "The goal of the Garden hut project is to build a wooden structure for storing tools and garden furniture, with Kata and her father working on it together. The hut will have a floor area of 12 square metres and will stand in the north corner of the garden. The timber was ordered from a local sawmill for 180 thousand forints. The roof will be a single-pitch roof with a gentle slope, and the door will be a double door that opens outwards. The concrete foundation was poured by Kata's uncle, Péter, and is finished. The wall frame is being built, and the roofing sheets will arrive next week. The paint colour is not decided yet and will be chosen later.",
+			"extras": {}
+		},
+		{
+			"scope": "personal",
+			"language": "en",
+			"run": 3,
+			"ms": 2627,
+			"text": "Kata is a thirty-five-year-old freelance graphic designer who is vegetarian and lactose intolerant. She has short sight and wears glasses. Her native language is Hungarian and she speaks English fluently. She lives in a two-room flat in Győr with her partner Márk, a teacher, their four-year-old daughter Lili, and a cat called Mák. Her younger brother Bence lives in Szeged, where Kata used to live before moving. She is currently working on the brand identity of a bookshop and studying part-time for a master's degree with graduation expected next June. She must hand in a logo design to a client by Friday. Her knee is injured and she is going to physiotherapy. She is not drinking alcohol this week. Her mother-in-law will stay with them for two days next week. She is travelling to Lisbon with her partner in March. She is building a garden shed in her grandparents' garden and learning to play the ukulele. She is looking for a new flat in Győr because the current one is too small. She is learning Japanese with one lesson a week. She bakes sourdough bread at weekends and goes bouldering twice a week at a gym in Győr. She likes sci-fi novels, with Ursula K. Le Guin as her favourite author, and enjoys hiking in the Bakony at weekends. She drinks black coffee without sugar. She prefers short, to-the-point answers and dislikes phone calls, preferring to write a message.",
+			"extras": {}
+		},
+		{
+			"scope": "project",
+			"language": "en",
+			"run": 3,
+			"ms": 1319,
+			"text": "The goal of the Garden hut project is to build a wooden structure for storing tools and garden furniture, chosen because wood is easier to work with. Kata and her father work on the project together, while the concrete foundation was poured by Kata's uncle, Péter. The foundation is finished and the wall frame is being built. The roofing sheets will arrive next week. The hut's floor area is 12 square metres and it will stand in the north corner of the garden. The timber was ordered from a local sawmill for 180 thousand forints. The roof will be a single-pitch roof with a gentle slope. The hut's door will be a double door that opens outwards. The paint colour is not decided yet and will be chosen later.",
+			"extras": {}
+		}
+	]
+}

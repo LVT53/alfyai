@@ -1,0 +1,282 @@
+// Review 2 slice S reproducers through the real engine. A failure is a finding.
+import { tool } from "ai";
+import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import { getConfig } from "$lib/server/config-store";
+import type { NormalChatOutputEvent } from "$lib/shared/normal-chat-output";
+
+vi.mock("$lib/server/services/providers", () => ({
+	getProviderByName: async () => null,
+	getProviderWithSecrets: async () => null,
+	decryptApiKey: () => "synthetic",
+}));
+vi.mock("$lib/server/services/provider-models", () => ({
+	listEnabledProviderModels: async () => [],
+	getProviderModel: async () => null,
+}));
+
+import {
+	runPlainNormalChatModelRun,
+	runStreamingNormalChatModelRun,
+} from "$lib/server/services/normal-chat-model";
+
+const provider = {
+	id: "p",
+	name: "openai",
+	displayName: "Test",
+	baseUrl: "https://completion.invalid/v1",
+	modelName: "test",
+	apiKey: "synthetic",
+	requestTimeoutMs: 300000,
+	maxOutputTokens: 1000,
+	maxModelContext: 32000,
+};
+const chunk = (delta: Record<string, unknown>, finish: string | null = null) =>
+	`data: ${JSON.stringify({ id: "r", object: "chat.completion.chunk", created: 1, model: "actual-test", choices: [{ index: 0, delta, finish_reason: finish }], ...(finish ? { usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 } } : {}) })}\n\n`;
+function streamed(parts: Array<Record<string, unknown>>, finish = "stop") {
+	return new Response(
+		[...parts.map((p) => chunk(p)), chunk({}, finish), "data: [DONE]\n\n"].join(
+			"",
+		),
+		{ headers: { "content-type": "text/event-stream" } },
+	);
+}
+function reply(content: string, finish = "stop", calls?: unknown[]) {
+	return new Response(
+		JSON.stringify({
+			id: "r",
+			object: "chat.completion",
+			created: 1,
+			model: "actual-test",
+			choices: [
+				{
+					index: 0,
+					message: {
+						role: "assistant",
+						content,
+						...(calls ? { tool_calls: calls } : {}),
+					},
+					finish_reason: finish,
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+		}),
+		{ headers: { "content-type": "application/json" } },
+	);
+}
+function fallbackConfig() {
+	const config = getConfig();
+	return {
+		...config,
+		modelTimeoutFailoverEnabled: true,
+		modelTimeoutFailoverTargetModel: "model2" as const,
+		modelTimeoutFailoverTimeoutMs: 1000,
+		model2Enabled: true,
+		model2: {
+			...config.model2,
+			baseUrl: "https://fallback.invalid/v1",
+			modelName: "fallback-test",
+			apiKey: "synthetic",
+			maxTokens: 1000,
+		},
+	};
+}
+
+describe("review 2 S: post-tool failover context", () => {
+	it("post-tool failover must not send the failed attempt's partial text/reasoning to the fallback provider", async () => {
+		const output: NormalChatOutputEvent[] = [];
+		const bodies: string[] = [];
+		let wire!: ReadableStreamDefaultController<Uint8Array>;
+		let requests = 0;
+		const execute = vi.fn(async () => ({ fact: "SETTLED-EVIDENCE" }));
+		for await (const _event of runStreamingNormalChatModelRun({
+			provider,
+			messages: [{ role: "user" as const, content: "Find it" }],
+			modelId: "model1",
+			runtimeConfig: fallbackConfig(),
+			tools: { lookup: tool({ inputSchema: z.object({}), execute }) },
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 300000,
+				totalTimeoutMs: 300000,
+				onOutputEvent: (e: NormalChatOutputEvent) => {
+					output.push(e);
+					if (
+						requests === 2 &&
+						e.type === "block_delta" &&
+						e.text.includes("PARTIAL-B")
+					)
+						setTimeout(() =>
+							wire.error(
+								Object.assign(new Error("request timed out"), {
+									name: "TimeoutError",
+								}),
+							),
+						);
+				},
+				forAttempt: () => ({
+					classifyExecution: () => "succeeded" as const,
+					projectContext: ({ system, messages }) => ({ system, messages }),
+				}),
+			},
+			fetch: async (_url, init) => {
+				bodies.push(String(init?.body));
+				requests++;
+				if (requests === 1)
+					return streamed(
+						[
+							{
+								tool_calls: [
+									{
+										index: 0,
+										id: "lookup-1",
+										type: "function",
+										function: { name: "lookup", arguments: "{}" },
+									},
+								],
+							},
+						],
+						"tool_calls",
+					);
+				if (requests === 2)
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								wire = controller;
+								controller.enqueue(
+									new TextEncoder().encode(
+										chunk({
+											reasoning_content: "REASONING-OF-PROVIDER-A",
+											content: "PARTIAL-B",
+										}),
+									),
+								);
+							},
+						}),
+						{ headers: { "content-type": "text/event-stream" } },
+					);
+				return streamed([{ content: "fallback closing answer" }]);
+			},
+		})) {
+		}
+		console.info(
+			"[zz-review2-S] requests",
+			requests,
+			"third request to fallback",
+			bodies[2]?.includes("fallback-test"),
+			"carries settled evidence",
+			bodies[2]?.includes("SETTLED-EVIDENCE"),
+			"carries PARTIAL-B",
+			bodies[2]?.includes("PARTIAL-B"),
+			"carries reasoning",
+			bodies[2]?.includes("REASONING-OF-PROVIDER-A"),
+		);
+		expect(execute).toHaveBeenCalledTimes(1);
+		expect(requests).toBe(3);
+		expect(bodies[2]).toContain("fallback-test");
+		expect(bodies[2]).toContain("SETTLED-EVIDENCE");
+		expect(bodies[2]).not.toContain("PARTIAL-B");
+		expect(bodies[2]).not.toContain("REASONING-OF-PROVIDER-A");
+	});
+});
+
+describe("review 2 S: tool markup after a visible sentence in closing", () => {
+	it("variation: Qwen/Hermes-style <tool_call> markup after a visible preface is not an answer", async () => {
+		const markup =
+			'Let me look that up.\n<tool_call>\n{"name": "research_web", "arguments": {"query": "height"}}\n</tool_call>';
+		const result = await runPlainNormalChatModelRun({
+			provider,
+			messages: [{ role: "user" as const, content: "Find it" }],
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 300000,
+				totalTimeoutMs: 300000,
+				forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
+			},
+			tools: {
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => "evidence",
+				}),
+			},
+			fetch: async () => reply(markup),
+		});
+		console.info(
+			"[zz-review2-S] hermes markup outcome",
+			result.completion?.outcome,
+			JSON.stringify(result.text),
+		);
+		expect(result.text).not.toContain("<tool_call>");
+		expect(result.completion?.outcome).not.toBe("answered");
+	});
+});
+
+describe("review 2 S: delivered file then another settled tool", () => {
+	it("variation: a delivered file followed by a read-only lookup and a failed caption/closing is not reported failed", async () => {
+		let requests = 0;
+		const result = await runPlainNormalChatModelRun({
+			provider,
+			messages: [{ role: "user" as const, content: "Make the file" }],
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 300000,
+				totalTimeoutMs: 300000,
+				forAttempt: () => ({
+					classifyExecution: () => "succeeded" as const,
+					isDelivery: (e) => e.toolName === "make_file",
+				}),
+			},
+			tools: {
+				make_file: tool({
+					inputSchema: z.object({}),
+					execute: async () => ({ ok: true, jobStatus: "succeeded" }),
+				}),
+				lookup: tool({
+					inputSchema: z.object({}),
+					execute: async () => ({ fact: "read only" }),
+				}),
+			},
+			fetch: async () => {
+				requests++;
+				if (requests === 1)
+					return reply("", "tool_calls", [
+						{
+							id: "f1",
+							type: "function",
+							function: { name: "make_file", arguments: "{}" },
+						},
+					]);
+				if (requests === 2)
+					return reply("", "tool_calls", [
+						{
+							id: "l1",
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+						},
+					]);
+				return new Response("upstream unavailable", { status: 503 });
+			},
+		});
+		console.info(
+			"[zz-review2-S] delivered-then-lookup",
+			JSON.stringify({
+				requests,
+				states: result.continuation?.executions.map((e) => [
+					e.toolName,
+					e.state,
+					e.delivered,
+				]),
+				completion: result.completion,
+			}),
+		);
+		expect(result.continuation?.executions[0]).toMatchObject({
+			toolName: "make_file",
+			state: "succeeded",
+			delivered: true,
+		});
+		expect(result.completion?.outcome).not.toBe("failed");
+	});
+});

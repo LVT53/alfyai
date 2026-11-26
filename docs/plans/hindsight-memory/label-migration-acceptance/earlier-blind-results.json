@@ -1,0 +1,662 @@
+{
+	"bank": {
+		"source": "part-2-acceptance/results/extraction-raw.json (config 2, personal)",
+		"facts": 120,
+		"earlierEntries": 43
+	},
+	"about": {
+		"messages": 86,
+		"brought": 45,
+		"rate": 0.523,
+		"en": {
+			"messages": 43,
+			"brought": 26
+		},
+		"hu": {
+			"messages": 43,
+			"brought": 19
+		},
+		"missed": [
+			{
+				"message": 0,
+				"entry": "v2:ongoing:o-en-01:0#0"
+			},
+			{
+				"message": 1,
+				"entry": "v2:ongoing:o-en-01:0#0"
+			},
+			{
+				"message": 3,
+				"entry": "v2:ongoing:o-en-02:0#0"
+			},
+			{
+				"message": 7,
+				"entry": "v2:ongoing:o-en-06:0#0"
+			},
+			{
+				"message": 9,
+				"entry": "v2:ongoing:o-en-05:0#0"
+			},
+			{
+				"message": 11,
+				"entry": "v2:ongoing:o-en-05:0#1"
+			},
+			{
+				"message": 12,
+				"entry": "v2:ongoing:o-en-07:0#0"
+			},
+			{
+				"message": 14,
+				"entry": "v2:ongoing:o-en-08:0#0"
+			},
+			{
+				"message": 15,
+				"entry": "v2:ongoing:o-en-08:0#0"
+			},
+			{
+				"message": 17,
+				"entry": "v2:ongoing:o-en-09:0#0"
+			},
+			{
+				"message": 19,
+				"entry": "v2:ongoing:o-en-10:0#0"
+			},
+			{
+				"message": 21,
+				"entry": "v2:ongoing:o-en-03:0#0"
+			},
+			{
+				"message": 23,
+				"entry": "v2:ongoing:o-en-03:0#1"
+			},
+			{
+				"message": 26,
+				"entry": "v2:ongoing:o-hu-02:0#0"
+			},
+			{
+				"message": 28,
+				"entry": "v2:ongoing:o-hu-03:0#0"
+			},
+			{
+				"message": 30,
+				"entry": "v2:ongoing:o-hu-06:0#0"
+			},
+			{
+				"message": 31,
+				"entry": "v2:ongoing:o-hu-06:0#0"
+			},
+			{
+				"message": 34,
+				"entry": "v2:ongoing:o-hu-05:0#0"
+			},
+			{
+				"message": 36,
+				"entry": "v2:ongoing:o-hu-08:0#0"
+			},
+			{
+				"message": 38,
+				"entry": "v2:ongoing:o-hu-07:0#0"
+			},
+			{
+				"message": 42,
+				"entry": "v2:ongoing:o-hu-10:0#0"
+			},
+			{
+				"message": 45,
+				"entry": "v2:temporary:t-en-02:0#0"
+			},
+			{
+				"message": 47,
+				"entry": "v2:temporary:t-en-01:0#0"
+			},
+			{
+				"message": 49,
+				"entry": "v2:temporary:t-en-05:0#0"
+			},
+			{
+				"message": 51,
+				"entry": "v2:temporary:t-en-04:0#0"
+			},
+			{
+				"message": 53,
+				"entry": "v2:temporary:t-en-03:0#0"
+			},
+			{
+				"message": 55,
+				"entry": "v2:temporary:t-en-03:0#1"
+			},
+			{
+				"message": 57,
+				"entry": "v2:temporary:t-en-06:0#0"
+			},
+			{
+				"message": 59,
+				"entry": "v2:temporary:t-en-08:0#0"
+			},
+			{
+				"message": 61,
+				"entry": "v2:temporary:t-en-10:0#0"
+			},
+			{
+				"message": 63,
+				"entry": "v2:temporary:t-en-07:0#0"
+			},
+			{
+				"message": 65,
+				"entry": "v2:temporary:t-en-09:0#0"
+			},
+			{
+				"message": 66,
+				"entry": "v2:temporary:t-hu-02:0#0"
+			},
+			{
+				"message": 67,
+				"entry": "v2:temporary:t-hu-02:0#0"
+			},
+			{
+				"message": 68,
+				"entry": "v2:temporary:t-hu-01:0#0"
+			},
+			{
+				"message": 74,
+				"entry": "v2:temporary:t-hu-07:0#0"
+			},
+			{
+				"message": 76,
+				"entry": "v2:temporary:t-hu-06:0#0"
+			},
+			{
+				"message": 78,
+				"entry": "v2:temporary:t-hu-03:0#0"
+			},
+			{
+				"message": 81,
+				"entry": "v2:temporary:t-hu-10:0#0"
+			},
+			{
+				"message": 82,
+				"entry": "v2:temporary:t-hu-08:0#0"
+			},
+			{
+				"message": 84,
+				"entry": "v2:temporary:t-hu-09:0#0"
+			}
+		],
+		"alsoBrought": [
+			{
+				"message": 1,
+				"entries": [
+					"v2:ongoing:o-hu-01:0#0",
+					"v2:ongoing:o-hu-10:0#0"
+				]
+			},
+			{
+				"message": 3,
+				"entries": [
+					"v2:ongoing:o-hu-08:0#0"
+				]
+			},
+			{
+				"message": 8,
+				"entries": [
+					"v2:ongoing:o-en-05:0#1"
+				]
+			},
+			{
+				"message": 9,
+				"entries": [
+					"v2:ongoing:o-hu-08:0#0"
+				]
+			},
+			{
+				"message": 10,
+				"entries": [
+					"v2:ongoing:o-en-10:0#0"
+				]
+			},
+			{
+				"message": 12,
+				"entries": [
+					"v2:ongoing:o-en-02:0#0"
+				]
+			},
+			{
+				"message": 15,
+				"entries": [
+					"v2:ongoing:o-hu-08:0#0"
+				]
+			},
+			{
+				"message": 19,
+				"entries": [
+					"v2:ongoing:o-hu-01:0#0",
+					"v2:ongoing:o-hu-10:0#0"
+				]
+			},
+			{
+				"message": 20,
+				"entries": [
+					"v2:ongoing:o-en-03:0#1"
+				]
+			},
+			{
+				"message": 21,
+				"entries": [
+					"v2:ongoing:o-hu-01:0#0",
+					"v2:ongoing:o-hu-03:0#0",
+					"v2:ongoing:o-hu-07:0#0",
+					"v2:ongoing:o-hu-09:0#0",
+					"v2:ongoing:o-hu-10:0#0",
+					"v2:temporary:t-hu-03:0#0"
+				]
+			},
+			{
+				"message": 22,
+				"entries": [
+					"v2:ongoing:o-en-03:0#0",
+					"v2:temporary:t-en-09:0#0"
+				]
+			},
+			{
+				"message": 23,
+				"entries": [
+					"v2:ongoing:o-hu-02:0#0"
+				]
+			},
+			{
+				"message": 24,
+				"entries": [
+					"v2:ongoing:o-en-01:0#0"
+				]
+			},
+			{
+				"message": 26,
+				"entries": [
+					"v2:ongoing:o-en-02:0#0",
+					"v2:ongoing:o-en-03:0#1"
+				]
+			},
+			{
+				"message": 28,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0",
+					"v2:ongoing:o-en-03:0#0",
+					"v2:temporary:t-en-01:0#0"
+				]
+			},
+			{
+				"message": 29,
+				"entries": [
+					"v2:ongoing:o-hu-07:0#0",
+					"v2:ongoing:o-hu-09:0#0",
+					"v2:temporary:t-hu-03:0#0"
+				]
+			},
+			{
+				"message": 30,
+				"entries": [
+					"v2:ongoing:o-en-09:0#0",
+					"v2:ongoing:o-en-10:0#0",
+					"v2:ongoing:o-en-03:0#0",
+					"v2:temporary:t-en-09:0#0"
+				]
+			},
+			{
+				"message": 34,
+				"entries": [
+					"v2:ongoing:o-en-01:0#0",
+					"v2:ongoing:o-en-09:0#0",
+					"v2:ongoing:o-en-03:0#0",
+					"v2:temporary:t-en-09:0#0"
+				]
+			},
+			{
+				"message": 36,
+				"entries": [
+					"v2:ongoing:o-en-02:0#0"
+				]
+			},
+			{
+				"message": 38,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0",
+					"v2:ongoing:o-en-08:0#0"
+				]
+			},
+			{
+				"message": 39,
+				"entries": [
+					"v2:ongoing:o-hu-03:0#0",
+					"v2:temporary:t-hu-02:0#0",
+					"v2:temporary:t-hu-04:0#0"
+				]
+			},
+			{
+				"message": 40,
+				"entries": [
+					"v2:ongoing:o-en-08:0#0",
+					"v2:ongoing:o-en-03:0#1",
+					"v2:temporary:t-en-10:0#0"
+				]
+			},
+			{
+				"message": 41,
+				"entries": [
+					"v2:ongoing:o-hu-03:0#0",
+					"v2:ongoing:o-hu-07:0#0",
+					"v2:temporary:t-hu-03:0#0"
+				]
+			},
+			{
+				"message": 42,
+				"entries": [
+					"v2:ongoing:o-en-03:0#0",
+					"v2:temporary:t-en-09:0#0"
+				]
+			},
+			{
+				"message": 43,
+				"entries": [
+					"v2:temporary:t-hu-09:0#0"
+				]
+			},
+			{
+				"message": 47,
+				"entries": [
+					"v2:ongoing:o-hu-05:0#0"
+				]
+			},
+			{
+				"message": 48,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0"
+				]
+			},
+			{
+				"message": 49,
+				"entries": [
+					"v2:temporary:t-hu-05:0#0"
+				]
+			},
+			{
+				"message": 50,
+				"entries": [
+					"v2:temporary:t-en-03:0#0",
+					"v2:temporary:t-en-03:0#1"
+				]
+			},
+			{
+				"message": 52,
+				"entries": [
+					"v2:temporary:t-en-04:0#0",
+					"v2:temporary:t-en-03:0#1",
+					"v2:temporary:t-en-08:0#0"
+				]
+			},
+			{
+				"message": 54,
+				"entries": [
+					"v2:temporary:t-en-04:0#0",
+					"v2:temporary:t-en-03:0#0"
+				]
+			},
+			{
+				"message": 61,
+				"entries": [
+					"v2:ongoing:o-hu-04:0#0"
+				]
+			},
+			{
+				"message": 62,
+				"entries": [
+					"v2:ongoing:o-en-03:0#0",
+					"v2:temporary:t-en-09:0#0"
+				]
+			},
+			{
+				"message": 65,
+				"entries": [
+					"v2:temporary:t-hu-09:0#0"
+				]
+			},
+			{
+				"message": 66,
+				"entries": [
+					"v2:temporary:t-en-02:0#0",
+					"v2:temporary:t-en-01:0#0"
+				]
+			},
+			{
+				"message": 68,
+				"entries": [
+					"v2:ongoing:o-en-03:0#1"
+				]
+			},
+			{
+				"message": 70,
+				"entries": [
+					"v2:temporary:t-en-05:0#0"
+				]
+			},
+			{
+				"message": 74,
+				"entries": [
+					"v2:temporary:t-en-07:0#0"
+				]
+			},
+			{
+				"message": 77,
+				"entries": [
+					"v2:temporary:t-hu-02:0#0",
+					"v2:temporary:t-hu-04:0#0"
+				]
+			},
+			{
+				"message": 78,
+				"entries": [
+					"v2:temporary:t-en-03:0#0",
+					"v2:temporary:t-en-03:0#1"
+				]
+			},
+			{
+				"message": 79,
+				"entries": [
+					"v2:ongoing:o-hu-03:0#0",
+					"v2:ongoing:o-hu-07:0#0",
+					"v2:ongoing:o-hu-09:0#0"
+				]
+			},
+			{
+				"message": 80,
+				"entries": [
+					"v2:temporary:t-en-10:0#0"
+				]
+			},
+			{
+				"message": 82,
+				"entries": [
+					"v2:temporary:t-en-08:0#0"
+				]
+			},
+			{
+				"message": 84,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0",
+					"v2:temporary:t-en-01:0#0"
+				]
+			},
+			{
+				"message": 85,
+				"entries": [
+					"v2:ongoing:o-hu-02:0#0",
+					"v2:temporary:t-hu-03:0#0"
+				]
+			}
+		]
+	},
+	"unrelated": {
+		"messages": 40,
+		"bringing": 10,
+		"rate": 0.25,
+		"en": {
+			"messages": 20,
+			"bringing": 9
+		},
+		"hu": {
+			"messages": 20,
+			"bringing": 1
+		},
+		"falseMatches": [
+			{
+				"message": 1,
+				"entries": [
+					"v2:ongoing:o-en-10:0#0"
+				]
+			},
+			{
+				"message": 2,
+				"entries": [
+					"v2:ongoing:o-en-10:0#0",
+					"v2:temporary:t-en-07:0#0"
+				]
+			},
+			{
+				"message": 3,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0"
+				]
+			},
+			{
+				"message": 4,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0"
+				]
+			},
+			{
+				"message": 5,
+				"entries": [
+					"v2:ongoing:o-en-01:0#0",
+					"v2:ongoing:o-en-09:0#0"
+				]
+			},
+			{
+				"message": 8,
+				"entries": [
+					"v2:temporary:t-en-01:0#0"
+				]
+			},
+			{
+				"message": 9,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0"
+				]
+			},
+			{
+				"message": 10,
+				"entries": [
+					"v2:ongoing:o-en-02:0#0"
+				]
+			},
+			{
+				"message": 14,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0"
+				]
+			},
+			{
+				"message": 29,
+				"entries": [
+					"v2:ongoing:o-hu-07:0#0"
+				]
+			}
+		]
+	},
+	"crossLanguage": {
+		"messages": 10,
+		"brought": 0,
+		"rate": 0,
+		"en": {
+			"messages": 0,
+			"brought": 0
+		},
+		"hu": {
+			"messages": 10,
+			"brought": 0
+		},
+		"missed": [
+			{
+				"message": 0,
+				"entry": "v2:temporary:t-en-02:0#0"
+			},
+			{
+				"message": 1,
+				"entry": "v2:temporary:t-en-01:0#0"
+			},
+			{
+				"message": 2,
+				"entry": "v2:temporary:t-en-05:0#0"
+			},
+			{
+				"message": 3,
+				"entry": "v2:temporary:t-en-04:0#0"
+			},
+			{
+				"message": 4,
+				"entry": "v2:temporary:t-en-03:0#0"
+			},
+			{
+				"message": 5,
+				"entry": "v2:temporary:t-en-06:0#0"
+			},
+			{
+				"message": 6,
+				"entry": "v2:temporary:t-en-08:0#0"
+			},
+			{
+				"message": 7,
+				"entry": "v2:temporary:t-en-10:0#0"
+			},
+			{
+				"message": 8,
+				"entry": "v2:temporary:t-en-09:0#0"
+			},
+			{
+				"message": 9,
+				"entry": "v2:ongoing:o-en-03:0#0"
+			}
+		],
+		"alsoBrought": [
+			{
+				"message": 0,
+				"entries": [
+					"v2:temporary:t-hu-02:0#0"
+				]
+			},
+			{
+				"message": 1,
+				"entries": [
+					"v2:ongoing:o-hu-01:0#0",
+					"v2:ongoing:o-hu-10:0#0"
+				]
+			},
+			{
+				"message": 2,
+				"entries": [
+					"v2:temporary:t-hu-05:0#0"
+				]
+			},
+			{
+				"message": 3,
+				"entries": [
+					"v2:ongoing:o-en-07:0#0"
+				]
+			},
+			{
+				"message": 6,
+				"entries": [
+					"v2:temporary:t-hu-08:0#0"
+				]
+			}
+		]
+	}
+}

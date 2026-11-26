@@ -1,0 +1,430 @@
+import { createHash } from "node:crypto";
+import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { tool } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import {
+	createCanonicalOutputRelay,
+	createOutputEventWriter,
+} from "$lib/server/services/chat-turn/output-event-writer";
+import { streamNormalChatOutputEvent } from "$lib/server/services/chat-turn/stream";
+import { StreamReplayJournal } from "$lib/server/services/chat-turn/stream-replay-journal";
+import { runNormalChatCompletion } from "$lib/server/services/normal-chat-model/completion";
+import {
+	consumeAiSdkUiStreamFrames,
+	createNormalChatWireDecoder,
+} from "$lib/services/ai-sdk-ui-stream-contract";
+import {
+	compactNormalChatOutputEvents,
+	createNormalChatOutputAccumulator,
+	type NormalChatOutputEvent,
+	projectNormalChatOutput,
+} from "$lib/shared/normal-chat-output";
+import { accountingReadFixture } from "./accounting-read-fixture";
+
+// Review 2 (T) measurement and equivalence probes. Not a product test.
+
+const usage = {
+	inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+	outputTokens: { total: 1, text: 1, reasoning: 0 },
+};
+const provider = {
+	id: "native",
+	name: "native",
+	displayName: "Native",
+	baseUrl: "https://native.invalid",
+	modelName: "native",
+	apiKey: "synthetic",
+	maxOutputTokens: 1000,
+	maxModelContext: 32000,
+};
+const finish = (reason: "stop" | "tool-calls" | "length" = "stop") =>
+	({
+		type: "finish",
+		usage,
+		finishReason: { unified: reason, raw: reason },
+	}) as LanguageModelV3StreamPart;
+function stream(parts: LanguageModelV3StreamPart[]) {
+	return new ReadableStream<LanguageModelV3StreamPart>({
+		start(controller) {
+			for (const part of parts) controller.enqueue(part);
+			controller.close();
+		},
+	});
+}
+const sid = (request: string) =>
+	createHash("sha256")
+		.update(JSON.stringify(["user", "conversation", request]))
+		.digest("hex");
+
+async function drive(
+	calls: LanguageModelV3StreamPart[][],
+	request = "stream",
+	extra: Record<string, unknown> = {},
+) {
+	const segmentId = sid(request);
+	let n = 0;
+	const model = new MockLanguageModelV3({
+		doStream: async () => ({ stream: stream(calls[Math.min(n++, calls.length - 1)]) }),
+	});
+	const wire: NormalChatOutputEvent[] = [];
+	const gen = runNormalChatCompletion(
+		{
+			provider,
+			messages: [{ role: "user" as const, content: "synthetic request" }],
+			completionPolicy: {
+				turnId: segmentId,
+				segmentId,
+				deadlineAt: Date.now() + 300000,
+				totalTimeoutMs: 300000,
+				forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
+				onOutputEvent: (event: NormalChatOutputEvent) =>
+					wire.push(JSON.parse(JSON.stringify(event))),
+			},
+			...extra,
+		} as never,
+		{
+			model,
+			maxModelContext: 32000,
+			providerOptions: undefined,
+			stopWhen: undefined,
+			metadata: (responseModelName: string) => ({
+				modelId: "native",
+				providerId: "native",
+				providerName: "native",
+				displayName: "Native",
+				requestedModelName: "native",
+				responseModelName,
+			}),
+			mapUsage: () => ({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+		},
+		true,
+	);
+	let result: Awaited<ReturnType<typeof gen.next>>["value"];
+	for (;;) {
+		const next = await gen.next();
+		if (next.done) {
+			result = next.value;
+			break;
+		}
+	}
+	const snapshot = (result as { continuation?: { events: NormalChatOutputEvent[]; segmentId: string } }).continuation;
+	if (!snapshot) throw new Error("no continuation");
+	const seg = (e: NormalChatOutputEvent) => e.segmentId === snapshot.segmentId;
+	return {
+		calls: n,
+		wire,
+		full: wire.filter(seg),
+		// finalize.ts:592-598 exactly
+		stored: compactNormalChatOutputEvents(snapshot.events.filter(seg)),
+		result,
+	};
+}
+
+function answerParts(reasoning: number, answer: number, token = " word") {
+	const parts: LanguageModelV3StreamPart[] = [];
+	if (reasoning) {
+		parts.push({ type: "reasoning-start", id: "r" });
+		for (let i = 0; i < reasoning; i++)
+			parts.push({ type: "reasoning-delta", id: "r", delta: token });
+		parts.push({ type: "reasoning-end", id: "r" });
+	}
+	parts.push({ type: "text-start", id: "t" });
+	for (let i = 0; i < answer; i++)
+		parts.push({ type: "text-delta", id: "t", delta: token });
+	parts.push({ type: "text-end", id: "t" }, finish());
+	return parts;
+}
+
+function view(events: readonly NormalChatOutputEvent[]) {
+	const p = projectNormalChatOutput(events);
+	return {
+		answer: p.answer,
+		activity: p.activity.map((b) => [b.stepId, b.role, b.text]),
+		blocks: p.blocks.map((b) => [b.stepId, b.kind, b.role, b.text, b.ended]),
+		completion: p.completion,
+	};
+}
+
+let fixture: Awaited<ReturnType<typeof accountingReadFixture>> | undefined;
+afterEach(() => {
+	fixture?.close();
+	fixture = undefined;
+	vi.useRealTimers();
+});
+
+describe("A: stored metadata", () => {
+	it("bytes per reply now (stored compact) vs old full list", async () => {
+		const rows = [];
+		for (const [r, a] of [
+			[0, 300],
+			[1200, 1957],
+			[2000, 4000],
+		] as const) {
+			const run = await drive([answerParts(r, a)]);
+			rows.push({
+				reasoning: r,
+				answer: a,
+				answerBytes: a * 5,
+				storedEvents: run.stored.length,
+				storedBytes: Buffer.byteLength(
+					JSON.stringify({ normalChatOutput: { version: 1, events: run.stored } }),
+				),
+				oldFullEvents: run.full.length,
+				oldFullBytes: Buffer.byteLength(
+					JSON.stringify({ normalChatOutput: { version: 1, events: run.full } }),
+				),
+			});
+			expect(view(run.stored)).toEqual(view(run.full));
+		}
+		process.stdout.write(`A-bytes ${JSON.stringify(rows)}\n`);
+	}, 120000);
+
+	it("compact projects exactly like the full list for every shape", async () => {
+		const lookup = {
+			tools: {
+				lookup: tool({ inputSchema: z.object({}), execute: async () => "ok" }),
+			},
+		};
+		const shapes: Record<string, [LanguageModelV3StreamPart[][], Record<string, unknown>]> = {
+			severalBlocks: [
+				[
+					[
+						{ type: "text-start", id: "a" },
+						{ type: "text-delta", id: "a", delta: "One " },
+						{ type: "text-delta", id: "a", delta: "two." },
+						{ type: "text-end", id: "a" },
+						{ type: "reasoning-start", id: "r" },
+						{ type: "reasoning-delta", id: "r", delta: "hm" },
+						{ type: "reasoning-end", id: "r" },
+						{ type: "text-start", id: "a" },
+						{ type: "text-delta", id: "a", delta: " Three" },
+						{ type: "text-delta", id: "a", delta: " four." },
+						{ type: "text-end", id: "a" },
+						finish(),
+					],
+				],
+				{},
+			],
+			toolThenAnswer: [
+				[
+					[
+						{ type: "reasoning-start", id: "r" },
+						{ type: "reasoning-delta", id: "r", delta: "plan" },
+						{ type: "reasoning-end", id: "r" },
+						{ type: "text-start", id: "t" },
+						{ type: "text-delta", id: "t", delta: "Let me " },
+						{ type: "text-delta", id: "t", delta: "check." },
+						{ type: "text-end", id: "t" },
+						{ type: "tool-call", toolCallId: "c1", toolName: "lookup", input: "{}" },
+						finish("tool-calls"),
+					],
+					[
+						{ type: "text-start", id: "t" },
+						{ type: "text-delta", id: "t", delta: "## Res" },
+						{ type: "text-delta", id: "t", delta: "ult" },
+						{ type: "text-end", id: "t" },
+						finish(),
+					],
+				],
+				lookup,
+			],
+			closingAfterLength: [
+				[
+					[
+						{ type: "text-start", id: "t" },
+						{ type: "text-delta", id: "t", delta: "Working " },
+						{ type: "text-delta", id: "t", delta: "draft" },
+						{ type: "text-end", id: "t" },
+						finish("length"),
+					],
+					[
+						{ type: "text-start", id: "t" },
+						{ type: "text-delta", id: "t", delta: "Clos" },
+						{ type: "text-delta", id: "t", delta: "ing." },
+						{ type: "text-end", id: "t" },
+						finish(),
+					],
+				],
+				{},
+			],
+			emptyBlock: [
+				[
+					[
+						{ type: "text-start", id: "e" },
+						{ type: "text-end", id: "e" },
+						{ type: "text-start", id: "t" },
+						{ type: "text-delta", id: "t", delta: "" },
+						{ type: "text-delta", id: "t", delta: "x" },
+						{ type: "text-end", id: "t" },
+						finish(),
+					],
+				],
+				{},
+			],
+		};
+		const out: Record<string, unknown> = {};
+		for (const [name, [calls, extra]] of Object.entries(shapes)) {
+			const run = await drive(calls, name, extra);
+			out[name] = {
+				calls: run.calls,
+				full: run.full.length,
+				stored: run.stored.length,
+				answer: view(run.stored).answer,
+				outcome: view(run.stored).completion?.outcome,
+			};
+			expect(view(run.stored), name).toEqual(view(run.full));
+			// A second compaction (reader over a compact row) is idempotent.
+			expect(view(compactNormalChatOutputEvents(run.stored)), name).toEqual(
+				view(run.full),
+			);
+		}
+		process.stdout.write(`A-shapes ${JSON.stringify(out)}\n`);
+	}, 120000);
+
+	it("per 100-message window: compact rows and legacy full rows", async () => {
+		const run = await drive([answerParts(1200, 1957)]);
+		const rows: Record<string, unknown>[] = [];
+		for (const [label, events] of [
+			["compact-now", run.stored],
+			["legacy-full", run.full],
+		] as const) {
+			fixture = await accountingReadFixture();
+			for (let i = 0; i < 50; i++) {
+				fixture.message(`u${i}`, "user");
+				fixture.message(`a${i}`, "assistant", {
+					normalChatOutput: { version: 1, events },
+				});
+			}
+			const stored = Number(
+				(
+					fixture.sqlite
+						.prepare(
+							"select sum(length(metadata_json)) as bytes from messages where conversation_id = 'c'",
+						)
+						.get() as { bytes: number }
+				).bytes,
+			);
+			let started = performance.now();
+			const window = await fixture.readers.listMessageWindow("c", {});
+			const windowMs = performance.now() - started;
+			started = performance.now();
+			await fixture.readers.listMessages("c");
+			const allMs = performance.now() - started;
+			rows.push({
+				label,
+				messages: window.messages.length,
+				storedMetadataBytes: stored,
+				payloadBytes: Buffer.byteLength(JSON.stringify(window.messages)),
+				listMessageWindowMs: Math.round(windowMs),
+				listMessagesMs: Math.round(allMs),
+			});
+			fixture.close();
+			fixture = undefined;
+		}
+		process.stdout.write(`A-window ${JSON.stringify(rows)}\n`);
+	}, 300000);
+});
+
+describe("B: wire bytes per token", () => {
+	it("compact vs canonical at realistic cadence, decoded equality", async () => {
+		const run = await drive([answerParts(1200, 1957)]);
+		const deltas = run.wire.filter((e) => e.type === "block_delta").length;
+		const rows = [];
+		for (const gapMs of [5, 20, 50, 100]) {
+			for (const compact of [true, false]) {
+				vi.useFakeTimers();
+				const frames: string[] = [];
+				const writer = createOutputEventWriter(
+					(frame) => {
+						frames.push(frame);
+						return true;
+					},
+					{ compact },
+				);
+				for (const event of run.wire) {
+					if (event.type === "block_delta") vi.advanceTimersByTime(gapMs);
+					writer.write(event);
+				}
+				writer.flush();
+				vi.useRealTimers();
+				const bytes = frames.reduce((n, f) => n + Buffer.byteLength(f), 0);
+				// decode as the browser does
+				const decoder = createNormalChatWireDecoder();
+				const acc = createNormalChatOutputAccumulator();
+				const { frames: parsed } = consumeAiSdkUiStreamFrames(frames.join(""));
+				for (const f of parsed)
+					if (f.kind !== "done") {
+						const e = decoder.consume(f.part);
+						if (e) acc.apply(e);
+					}
+				const decoded = acc.getProjection();
+				expect(decoded.answer).toBe(projectNormalChatOutput(run.full).answer);
+				// relay for reconnect listeners
+				const relay = createCanonicalOutputRelay();
+				const relayed = frames.map((f) => relay(f)).join("");
+				rows.push({
+					gapMs,
+					compact,
+					frames: frames.length,
+					bytes,
+					bytesPerToken: +(bytes / deltas).toFixed(1),
+					relayBytes: Buffer.byteLength(relayed),
+				});
+			}
+		}
+		const naive = run.wire.reduce(
+			(n, e) => n + Buffer.byteLength(streamNormalChatOutputEvent(e)),
+			0,
+		);
+		process.stdout.write(
+			`B-wire ${JSON.stringify({ deltas, naivePerTokenBytes: +(naive / deltas).toFixed(1), rows })}\n`,
+		);
+	}, 120000);
+});
+
+describe("C: replay bound", () => {
+	async function overflow(reasoning: number, answer: number, token: string, gapMs = 20) {
+		const run = await drive([answerParts(reasoning, answer, token)], `c-${token.length}-${answer}`);
+		vi.useFakeTimers();
+		const journal = new StreamReplayJournal();
+		const relay = createCanonicalOutputRelay();
+		let tokens = 0;
+		let at: number | null = null;
+		const writer = createOutputEventWriter(
+			(frame) => {
+				journal.append(relay(frame));
+				if (at === null && !journal.read().complete) at = tokens;
+				return true;
+			},
+			{ compact: true },
+		);
+		for (const event of run.wire) {
+			if (event.type === "block_delta") {
+				tokens++;
+				vi.advanceTimersByTime(gapMs);
+			}
+			writer.write(event);
+		}
+		writer.flush();
+		vi.useRealTimers();
+		const read = journal.read();
+		return {
+			reasoning,
+			answer,
+			tokenBytes: Buffer.byteLength(JSON.stringify(token)) - 2,
+			overflowAtToken: at,
+			completeAtEnd: read.complete,
+			retainedBytes: read.complete ? Buffer.byteLength(read.chunks.join("")) : 0,
+		};
+	}
+	it("finds the token count where replay stops", async () => {
+		const rows = [];
+		rows.push(await overflow(0, 45000, " word"));
+		rows.push(await overflow(20000, 25000, " word"));
+		rows.push(await overflow(0, 30000, " szó,"));
+		rows.push(await overflow(0, 30000, '\t"x\\'));
+		process.stdout.write(`C-replay ${JSON.stringify(rows)}\n`);
+	}, 300000);
+});

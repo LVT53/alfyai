@@ -372,6 +372,7 @@ export async function listKnowledgeMemoryTimeline(
 	};
 }
 
+export { logMemoryReadFailure } from "./memory-profile/memory-request";
 // Native accepted Memory UI read contract. Legacy exports remain transition-only.
 export {
 	getMemoryDetail,
@@ -380,3 +381,11 @@ export {
 	MemoryRequestError,
 	parseMemoryScope,
 } from "./memory-profile/native-read";
+export {
+	readMemoryOverview,
+	writeMemoryOverview,
+} from "./memory-profile/overview";
+export {
+	listMemorySubject,
+	readMemorySubjectIndex,
+} from "./memory-profile/subject-read";

@@ -23,6 +23,34 @@ export function exportedConversationId(entry: unknown): string | null {
 	return null;
 }
 
+const PROJECT_ID_PREFIX = "g-p-";
+
+/**
+ * The ChatGPT project (a folder in ChatGPT's sidebar) a conversation of the
+ * export is in, or null when it is in none. A late-2026 export records only the
+ * project's id, "g-p-" and 32 hex digits, in `conversation_template_id`; older
+ * exports also put it in `gizmo_id`. A custom GPT's id ("g-" without the "p-")
+ * is not a folder. No export names its projects, so the import window numbers
+ * them.
+ */
+export function exportedConversationProjectId(entry: unknown): string | null {
+	if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+		return null;
+	}
+	const { conversation_template_id: templateId, gizmo_id: gizmoId } =
+		entry as Record<string, unknown>;
+	for (const candidate of [templateId, gizmoId]) {
+		if (
+			typeof candidate === "string" &&
+			candidate.length > PROJECT_ID_PREFIX.length &&
+			candidate.startsWith(PROJECT_ID_PREFIX)
+		) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
 /** The part of a JSZip archive the reader below needs. */
 export interface ExportArchive {
 	file(path: string): { async(type: "text"): Promise<string> } | null;
@@ -116,4 +144,47 @@ export async function readExportedConversations(
 		}
 	}
 	return { ok: true, entries };
+}
+
+/** The part of a JSZip archive the writer below needs. */
+export interface ExportArchiveWriter {
+	file(path: string, data: string): unknown;
+}
+
+/** How many conversations one written file holds, as in ChatGPT's own exports. */
+export const CONVERSATIONS_PER_FILE = 100;
+
+/**
+ * Write conversation entries as a ChatGPT export in the newer layout, which
+ * `readExportedConversations` reads back in the same order: a manifest listing
+ * the conversation files, each holding at most `CONVERSATIONS_PER_FILE`
+ * entries, so no one file's text grows past what a browser can hold in one
+ * string. The browser uploads this instead of the export it was given: a real
+ * export also carries every attachment and its viewer page, which the import
+ * never reads (one of 342 MB held 8 MB of chats).
+ */
+export function writeExportedConversations(
+	entries: readonly unknown[],
+	zip: ExportArchiveWriter,
+): void {
+	const files: string[] = [];
+	let start = 0;
+	do {
+		const name = `conversations-${String(files.length).padStart(3, "0")}.json`;
+		zip.file(
+			name,
+			JSON.stringify(entries.slice(start, start + CONVERSATIONS_PER_FILE)),
+		);
+		files.push(name);
+		start += CONVERSATIONS_PER_FILE;
+	} while (start < entries.length);
+	zip.file(
+		"export_manifest.json",
+		JSON.stringify({
+			version: 1,
+			logical_files: {
+				[CONVERSATIONS]: { files, sharded: true, shard_count: files.length },
+			},
+		}),
+	);
 }

@@ -131,7 +131,7 @@ describe("the video kind", () => {
 		});
 	});
 
-	it("keeps a 10 s request asking for two segments", async () => {
+	it("keeps a 10 s request's length", async () => {
 		const takeId = await queue({ durationSeconds: 10 });
 		expect(JSON.parse((await readTake(takeId)).requestJson)).toMatchObject({
 			durationSeconds: 10,

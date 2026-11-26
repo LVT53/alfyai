@@ -9,10 +9,15 @@ export async function postToTei<T>(params: {
 	path: string;
 	apiKey?: string;
 	body: Record<string, unknown>;
+	/** A caller that cannot wait as long as TEI_TIMEOUT_MS gives its own, shorter deadline. */
+	timeoutMs?: number;
 }): Promise<T> {
 	const { teiTimeoutMs } = getConfig();
 	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), teiTimeoutMs);
+	const timeoutId = setTimeout(
+		() => controller.abort(),
+		Math.min(teiTimeoutMs, params.timeoutMs ?? teiTimeoutMs),
+	);
 
 	try {
 		const headers: Record<string, string> = {

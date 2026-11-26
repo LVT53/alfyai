@@ -37,7 +37,7 @@ test.describe("Expired session", () => {
 		// A real action, in the page the user is already looking at: opening
 		// workspace search runs a search against the API.
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 
 		const notice = page.getByTestId("session-expired-notice");
@@ -96,7 +96,7 @@ test.describe("Expired session", () => {
 		await killSessionServerSide(page);
 
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 		await expect(page.getByTestId("session-expired-notice")).toBeVisible({
 			timeout: 15000,
@@ -174,7 +174,7 @@ test("an authenticated response held across expiry cannot re-arm its announcemen
 		await held;
 		await killSessionServerSide(page);
 		await page
-			.getByRole("button", { name: "Search conversations and documents" })
+			.getByRole("button", { name: "Search chats, memory, documents and more" })
 			.click();
 		const notice = page.getByTestId("session-expired-notice");
 		await expect(notice).toBeVisible();
@@ -200,7 +200,7 @@ test("an authenticated response held across expiry cannot re-arm its announcemen
 		);
 		await page
 			.getByRole("textbox", {
-				name: "Search conversations and documents",
+				name: "Search chats, memory, documents and more",
 				exact: true,
 			})
 			.fill("still signed out");

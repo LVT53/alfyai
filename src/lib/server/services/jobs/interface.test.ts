@@ -19,6 +19,9 @@ describe("index.ts", () => {
 				"startJobs",
 				"stopJobs",
 				"drain",
+				// One account's jobs only, for an operator's drain (Memory part 4's
+				// plan, Task 5: docs/superpowers/plans/2026-11-24-memory-part-4-waiting.md).
+				"drainUser",
 				"enqueue",
 				"enqueueAtomic",
 				"cancel",

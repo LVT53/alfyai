@@ -5,36 +5,27 @@
 // its own, so a change to the filter — 12 fps, a 480 long edge that never
 // enlarges, lanczos, the palettegen/paletteuse pair, `-loop 0`, no audio —
 // fails here even on a machine with no ffmpeg. The conversion itself runs the
-// real ffmpeg the take's chain already uses, and skips cleanly without it.
+// real ffmpeg the take already uses, and skips cleanly without it.
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { FAKE_VIDEO_BYTES } from "../comfyui/testing/fake-comfyui";
 import {
-	concatClips,
 	convertToGif,
 	decodeCheckFrames,
 	extractFrameAt,
-	extractLastFrame,
 	stripClipMetadata,
 	VIDEO_GIF_FPS,
 	VIDEO_GIF_LONG_EDGE,
 	VideoMediaError,
+	VideoMediaTimeoutError,
 	videoGifArgs,
 } from "./media";
-import {
-	frameLevel,
-	makeNumberedClip,
-	pngLevel,
-	probeClip,
-	probeTags,
-	remuxWithMetadata,
-} from "./testing/video-clip";
+import { probeTags, remuxWithMetadata } from "./testing/video-clip";
 
 const run = promisify(execFile);
 
@@ -211,6 +202,7 @@ describe("the media calls' deadline", () => {
 				(thrown: unknown) => thrown,
 			);
 			expect(error).toBeInstanceOf(VideoMediaError);
+			expect(error).toBeInstanceOf(VideoMediaTimeoutError);
 			expect(error).toMatchObject({ code: "failed" });
 			expect(Date.now() - started).toBeLessThan(5_000);
 		} finally {
@@ -243,142 +235,6 @@ describe("the media calls' deadline", () => {
 	});
 });
 
-describe("joining two clips", () => {
-	/**
-	 * A PATH where `ffmpeg` records the arguments it was given and then hangs:
-	 * the join that times out or is stopped, and anything that must never follow.
-	 */
-	async function recordingHangingFfmpeg(): Promise<{
-		calls: () => Promise<string[]>;
-		restore: () => Promise<void>;
-	}> {
-		const dir = await mkdtemp(join(tmpdir(), "alfyai-recording-ffmpeg-"));
-		const log = join(dir, "calls.log");
-		const script = join(dir, "ffmpeg");
-		await writeFile(
-			script,
-			`#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec sleep 60\n`,
-		);
-		await chmod(script, 0o755);
-		const before = process.env.PATH ?? "";
-		process.env.PATH = `${dir}:${before}`;
-		return {
-			calls: async () =>
-				existsSync(log)
-					? (await readFile(log, "utf8"))
-							.split("\n")
-							.map((line) => line.trim())
-							.filter(Boolean)
-					: [],
-			restore: async () => {
-				process.env.PATH = before;
-				await rm(dir, { recursive: true, force: true });
-			},
-		};
-	}
-
-	it("fails a timed-out join as a media failure and starts nothing after it", async () => {
-		if (!FFMPEG) return;
-		const shim = await recordingHangingFfmpeg();
-		try {
-			const error = await concatClips([FAKE_VIDEO_BYTES, FAKE_VIDEO_BYTES], {
-				timeoutMs: 250,
-			}).then(
-				() => null,
-				(thrown: unknown) => thrown,
-			);
-			expect(error).toBeInstanceOf(VideoMediaError);
-			expect(error).toMatchObject({ code: "failed" });
-
-			const calls = await shim.calls();
-			// One child: the join's one encode. Nothing retries it after a timeout.
-			expect(calls).toHaveLength(1);
-			expect(calls[0]).toContain("-filter_complex");
-			expect(calls[0]).not.toContain("-f concat");
-		} finally {
-			await shim.restore();
-		}
-	});
-
-	it("lets the take's stop flow out of the join as itself", async () => {
-		if (!FFMPEG) return;
-		const shim = await recordingHangingFfmpeg();
-		const controller = new AbortController();
-		try {
-			const running = concatClips([FAKE_VIDEO_BYTES, FAKE_VIDEO_BYTES], {
-				signal: controller.signal,
-				timeoutMs: 60_000,
-			}).then(
-				() => null,
-				(thrown: unknown) => thrown,
-			);
-			// Abort once the join is really running, so this is a stop mid-child
-			// and not a pre-aborted call that never spawns.
-			await vi.waitFor(async () => expect(await shim.calls()).toHaveLength(1));
-			controller.abort(new Error("cancelled"));
-			const error = await running;
-			// The abort flows out as itself, never as a media failure a fallback
-			// could act on.
-			expect(error).not.toBeInstanceOf(VideoMediaError);
-			expect(await shim.calls()).toHaveLength(1);
-		} finally {
-			await shim.restore();
-		}
-	});
-});
-
-describe.skipIf(!FFMPEG)(
-	"the chain's seam (a 10 s take's two segments)",
-	() => {
-		// Segment 1's frame n is grey 2n (0..240), so a frame can be told from the
-		// one before it. Segment 2's frame 0 is LTX's copy of its guide (pass 2 pins
-		// the first latent frame to it), drawn here as grey 250; its frames after
-		// that are grey 100.
-		const segmentOne = (audio = false) =>
-			makeNumberedClip({ level: (index) => 2 * index, audio });
-		const segmentTwo = (audio = false) =>
-			makeNumberedClip({
-				level: (index) => (index === 0 ? 250 : 100),
-				audio,
-			});
-
-		it("guides segment 2 with segment 1's very last frame, never the one before it", async () => {
-			const last = await extractLastFrame(await segmentOne());
-			// Frame 120 is grey 240; frame 119, the one -sseof -0.1 used to give, is 238.
-			expect(await pngLevel(last)).toBe(240);
-		});
-
-		it("drops segment 2's copy of its guide, so the join neither holds nor steps back a frame", async () => {
-			const joined = await concatClips([
-				await segmentOne(),
-				await segmentTwo(),
-			]);
-			const probe = await probeClip(joined);
-			// 121 + 120 frames: one continuous 8n+1 clip.
-			expect(probe.frames).toBe(241);
-			expect(await frameLevel(joined, 120)).toBeCloseTo(240, -0.5);
-			expect(await frameLevel(joined, 121)).toBeCloseTo(100, -0.5);
-			expect(probe.audioSeconds).toBeNull();
-		});
-
-		it("keeps the two soundtracks in step with the picture across the join", async () => {
-			const joined = await concatClips([
-				await segmentOne(true),
-				await segmentTwo(true),
-			]);
-			const probe = await probeClip(joined);
-			expect(probe.frames).toBe(241);
-			expect(probe.audioSeconds).not.toBeNull();
-			// No priming or extra frame of sound left in the middle: the sound ends
-			// with the picture, within one AAC frame.
-			expect(
-				Math.abs((probe.audioSeconds ?? 0) - probe.videoSeconds),
-			).toBeLessThan(0.025);
-			expect(probe.videoSeconds).toBeCloseTo(241 / 24, 1);
-		});
-	},
-);
-
 describe("the whole clip's check stream", () => {
 	it("decodes every frame raw at the model's size, with the full-size poster, in one pass", async () => {
 		if (!FFMPEG) return;
@@ -405,8 +261,5 @@ describe("the container's metadata", () => {
 
 		const stripped = await stripClipMetadata(tagged);
 		expect(JSON.stringify(await probeTags(stripped))).not.toContain("harbour");
-
-		const joined = await concatClips([tagged, tagged]);
-		expect(JSON.stringify(await probeTags(joined))).not.toContain("harbour");
 	});
 });

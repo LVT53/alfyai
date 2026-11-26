@@ -1,0 +1,762 @@
+{
+	"facts": [
+		{
+			"id": "lasting:l-en-01:0",
+			"text": "User's younger brother Callum lives in Leeds. | Where: Leeds | Involving: user, Callum (user's younger brother)",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-01:1",
+			"text": "User talks with their younger brother Callum every Sunday. | When: every Sunday | Involving: user, Callum (user's younger brother)",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-02:0",
+			"text": "The user is allergic to shellfish. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-03:0",
+			"text": "The user grew up speaking Portuguese at home. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-04:0",
+			"text": "The user lives in Bristol, in a flat near the harbour. | Where: Bristol, near the harbour | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-05:0",
+			"text": "The user has a black cat named Pickle who rules the house. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-06:0",
+			"text": "The user works as a bookkeeper at Brightwood Furniture. | Where: Brightwood Furniture | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-07:0",
+			"text": "The user really loves old black-and-white detective films. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-08:0",
+			"text": "The user has had type 1 diabetes since they were nine years old. | When: since age nine | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-09:0",
+			"text": "The user is studying marine biology at the University of Plymouth. | Where: University of Plymouth | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-en-10:0",
+			"text": "The user drives an old green Volvo estate. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-01:0",
+			"text": "A felhasználó nővére, Réka Kecskeméten él. | Where: Kecskemét | Involving: user, Réka (a felhasználó nővére)",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-02:0",
+			"text": "A felhasználó allergiás a mogyoróra. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-03:0",
+			"text": "A felhasználó folyékonyan beszél spanyolul. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-04:0",
+			"text": "A felhasználó Szegeden lakik, egy kis panellakásban a Tisza közelében. | Where: Szeged, Tisza közelében | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-05:0",
+			"text": "A felhasználónak van egy kétéves beagle kutyája, Bodza. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-06:0",
+			"text": "A felhasználó fogtechnikusként dolgozik egy debreceni fogászaton. | Where: Debrecen | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-07:0",
+			"text": "A felhasználó kiskorom óta nagyon szereti a sakkot. | When: kiskorom óta | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-08:0",
+			"text": "A felhasználó párjának Gergő a neve, és Egerből származik. | Where: Eger | Involving: user, Gergő (a felhasználó párja)",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-09:0",
+			"text": "A felhasználónak van egy régi, zöld Suzuki Swiftje, és azzal jár mindenhová. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "lasting:l-hu-10:0",
+			"text": "A felhasználó építőmérnöknek tanul a Műegyetemen. | Where: Műegyetem | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-01:0",
+			"text": "The user is writing a master's thesis on urban beekeeping and is about halfway through. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-02:0",
+			"text": "The user has been building a budgeting app for their sister's catering business for the past two months. | When: For the past two months (approximately September 20, 2026 to November 20, 2026) | Involving: user, user's sister | The app is for the sister's catering business.",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-03:0",
+			"text": "User started learning the cello in September 2026. | When: September 2026 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-03:1",
+			"text": "User practises the cello most evenings. | When: most evenings | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-04:0",
+			"text": "User is training for the Lakeside half marathon in April 2027, running four times a week. | When: April 2027 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-05:0",
+			"text": "User is renovating their bathroom bit by bit. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-05:1",
+			"text": "Tiles are scheduled to be installed in the user's bathroom in November 2026. | When: November 2026 | Involving: user | Part of the bathroom renovation.",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-06:0",
+			"text": "User is doing a physiotherapy programme for their left shoulder, three sessions a week, for the month leading up to November 20, 2026 (approximately October 20, 2026 to November 20, 2026). | When: for the month leading up to November 20, 2026 (approximately October 20, 2026 to November 20, 2026) | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-07:0",
+			"text": "User has been teaching themselves Japanese since around November 2025, mostly using flashcards and podcasts. | When: since around November 2025 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-08:0",
+			"text": "The user is slowly restoring their grandfather's old motorcycle in the garage on weekends. | When: weekends | Where: garage | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-09:0",
+			"text": "The user is retraining as an electrician through evening classes at the technical college. | Where: technical college | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-en-10:0",
+			"text": "The user is writing a children's picture book about a lighthouse keeper's goat. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-01:0",
+			"text": "A felhasználó a Bakonyban lévő vízmosásokról szóló szakdolgozatát írja, és nagyjából a felénél tart. | Where: Bakony | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-02:0",
+			"text": "A felhasználó egy időjárás-alkalmazást fejleszt a barátaival, és esténként dolgoznak rajta. | Involving: user, barátok",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-03:0",
+			"text": "A felhasználó 2025. őszétől tanul zongorázni, és hetente kétszer gyakorol. | When: 2025. őszétől | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-04:0",
+			"text": "A felhasználó a 2027 tavaszán esedékes Balaton-félmaratonra készül, és heti négyszer fut. | When: 2027 tavaszán | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-05:0",
+			"text": "A felhasználó és társai felújítják a konyhát, 2026. november 20-án a csempézésnél tartanak. | When: 2026-11-20 | Where: konyha | Involving: user és társai",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-06:0",
+			"text": "A felhasználó térdműtét után heti háromszor jár rehabilitációs tornára. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-07:0",
+			"text": "A felhasználó 2025 novembere óta tanul svédül az interneten, főleg podcastokkal. | When: 2025 novembere óta | Where: az interneten | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-08:0",
+			"text": "A felhasználó egy kis kerti faházat épít a nagyapja telkén, és hétvégenként halad vele. | Where: nagyapám telke | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-09:0",
+			"text": "A felhasználó munka mellett levelezőn tanul pszichológiát a szegedi egyetemen. | Where: szegedi egyetem | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "ongoing:o-hu-10:0",
+			"text": "A felhasználó gyerekeknek szóló mesekönyvet ír egy zöld sünről, és már a harmadik fejezetnél tart. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-01:0",
+			"text": "The user has had a nasty cold since Monday, November 16, 2026, and is staying in bed on Friday, November 20, 2026. | When: Since Monday, November 16, 2026; today Friday, November 20, 2026 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-02:0",
+			"text": "The user has a dentist appointment for a filling. | When: on Monday, November 23, 2026 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-03:0",
+			"text": "User has a driving theory exam in 12 days, on December 2, 2026. | When: December 2, 2026 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-03:1",
+			"text": "User is panicking a bit about their driving theory exam. | When: November 20, 2026 | Involving: user | The exam is in 12 days.",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-04:0",
+			"text": "User is driving up to see their grandparents over the weekend of November 21-22, 2026. | When: weekend of November 21-22, 2026 | Involving: user, user's grandparents",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-05:0",
+			"text": "User is flying to Lisbon on Tuesday, November 24, 2026 for a work conference. | When: Tuesday, November 24, 2026 | Where: Lisbon | Involving: user | work conference",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-06:0",
+			"text": "User has a sprained ankle and will not play football for a few weeks. | When: November 20, 2026 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-07:0",
+			"text": "User's project report is due at noon on November 21, 2026, and the user is nowhere near done as of November 20, 2026. | When: November 20, 2026 | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-08:0",
+			"text": "The user will be at home all morning on Sunday, November 22, 2026 because the boiler engineer is coming. | When: Sunday, November 22, 2026, morning | Where: home | Involving: user, boiler engineer | The boiler engineer is coming in two days from Friday, November 20, 2026.",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-09:0",
+			"text": "User is house-sitting for their neighbours for ten days starting November 20, 2026. | When: November 20, 2026 to November 30, 2026 | Involving: user, neighbours",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-en-10:0",
+			"text": "The user has a job interview at a design studio on November 25, 2026. | When: November 25, 2026 | Where: design studio | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-01:0",
+			"text": "A felhasználónak 2026. november 16. óta torokfájása van, és kicsit lázas is. | When: 2026. november 16. óta | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-02:0",
+			"text": "A felhasználó 2026. november 22-én fogorvoshoz megy tömésre. | When: 2026. november 22. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-03:0",
+			"text": "A felhasználó záróvizsgája 2026. november 29-én lesz, és 2026. november 20-án még alig tanult. | When: 2026. november 29. | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-04:0",
+			"text": "A felhasználó a 2026. november 21–22-i hétvégén a szüleihez megy Pécsre. | When: 2026. november 21–22. | Where: Pécs | Involving: user, a felhasználó szülei",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-05:0",
+			"text": "A felhasználó 2026. november 21-én reggel Barcelonába repül egy konferenciára. | When: 2026. november 21., reggel | Where: Barcelona | Involving: user | Konferenciára utazik",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-06:0",
+			"text": "A felhasználó eltörte a lábát, és 2026. november 20-tól még három hétig, 2026. december 11-ig gipszben lesz. | When: 2026. november 20. és 2026. december 11. között | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-07:0",
+			"text": "A felhasználónak 2026. november 21-én délig le kell adnia a negyedéves beszámolót. | When: 2026. november 21. 12:00-ig | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-08:0",
+			"text": "A csöpögő csapot 2026. november 23-án megnézi a vízszerelő. | When: 2026. november 23. | Involving: vízszerelő | A csöpögő csap ellenőrzése.",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-09:0",
+			"text": "A felhasználó két hétig, 2026. november 20. és 2026. december 4. között a barátnője macskájára vigyáz, amíg a barátnője Olaszországban van. | When: 2026. november 20. és 2026. december 4. között | Involving: user, a felhasználó barátnője | A barátnője Olaszországban van.",
+			"scope": "personal"
+		},
+		{
+			"id": "temporary:t-hu-10:0",
+			"text": "A felhasználónak 2026. november 26-án állásinterjúja lesz egy budapesti webáruháznál. | When: 2026. november 26. | Where: Budapest | Involving: user",
+			"scope": "personal"
+		},
+		{
+			"id": "project:p-en-01:0",
+			"text": "The user and others decided to move customer data to Postgres because the old vendor's licence ends in March 2027. | When: 2026-11-20 | Involving: user and others | The old vendor's licence ends in March 2027.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-02:0",
+			"text": "Priya Nair owns the data-mapping work, and Tom Weller signs off on the cutover. | Involving: Priya Nair, Tom Weller",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-03:0",
+			"text": "The old system holds about 48,000 contact records, and roughly 9,000 of them are duplicates.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-04:0",
+			"text": "The project is currently building the invite flow, with the billing screens planned to come after it. | When: as of 2026-11-20 | Involving: user/team",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-05:0",
+			"text": "The stakeholder demo is on Friday, November 27, 2026, and the login bug must be fixed before then. | When: Friday, November 27, 2026 | The demo deadline requires the login bug to be fixed before it.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-06:0",
+			"text": "The user's project goal is to reduce picking errors to below 1% by the end of 2026. | When: by the end of 2026 | Involving: user (project team)",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-07:0",
+			"text": "Marta from finance wants the cost report in euros, not pounds. | Involving: Marta (finance) | for the cost report",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-08:0",
+			"text": "The API rate limit is 600 requests per minute per token, so sync calls must be batched. | To stay within the API rate limit.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-09:0",
+			"text": "The user will migrate the push notification service to Firebase over the next few weeks from November 20, 2026. | When: over the next few weeks from November 20, 2026 | Involving: user",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-en-10:0",
+			"text": "The user has a design review with the Oslo team on Saturday, November 21, 2026 at 10:00. | When: Saturday, November 21, 2026 at 10:00 | Involving: user, Oslo team",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-01:0",
+			"text": "A felhasználó és a döntésben részt vevők úgy döntöttek, hogy Shopify helyett WooCommerce-t használnak, mert olcsóbb a havi díj. | When: 2026. november 20. | Involving: user és a döntésben részt vevők | A WooCommerce havi díja olcsóbb a Shopifyénál.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-02:0",
+			"text": "A termékfotókat Bence készíti, a leírásokat pedig Orsi írja. | Involving: Bence, Orsi",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-03:0",
+			"text": "A csomagküldés átlagosan 1490 forintba kerül, és a rendelések 60 százaléka Pest megyéből jön. | Where: Pest megye",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-04:0",
+			"text": "A raktári szoftver átállítása folyamatban van, jelenleg az adatok tisztítása tart. | Involving: user (team)",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-05:0",
+			"text": "A tesztelést 2026. november 27-ig be kell fejezniük. | When: 2026. november 27. | Involving: user és a beszélő csoportja",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-06:0",
+			"text": "A cél, hogy az átállás alatt ne legyen három óránál hosszabb leállás.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-07:0",
+			"text": "Kata felel a grafikákért, a hangokat pedig egy külsős, Balázs készíti. | Involving: Kata, Balázs (külsős)",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-08:0",
+			"text": "A pálya mérete 64 × 64 csempe, a karakter sebessége pedig 3,5 csempe másodpercenként.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-09:0",
+			"text": "2026. november 21-én 10:00-kor megbeszélés lesz a kiadóval a megjelenésről. | When: 2026. november 21., 10:00 | Involving: user | A megjelenés megbeszélése.",
+			"scope": "project"
+		},
+		{
+			"id": "project:p-hu-10:0",
+			"text": "A tulajdonos jóváhagyta, hogy a falakat világosszürkére festjük. | Involving: tulajdonos",
+			"scope": "project"
+		}
+	],
+	"labels": {
+		"lasting:l-en-01:0": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-en-01:1": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-en-02:0": {
+			"kind": "lasting",
+			"subject": "health"
+		},
+		"lasting:l-en-03:0": {
+			"kind": "lasting",
+			"subject": "about_you"
+		},
+		"lasting:l-en-04:0": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-en-05:0": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-en-06:0": {
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		"lasting:l-en-07:0": {
+			"kind": "lasting",
+			"subject": "interests"
+		},
+		"lasting:l-en-08:0": {
+			"kind": "lasting",
+			"subject": "health"
+		},
+		"lasting:l-en-09:0": {
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		"lasting:l-en-10:0": {
+			"kind": "lasting",
+			"subject": "other"
+		},
+		"lasting:l-hu-01:0": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-hu-02:0": {
+			"kind": "lasting",
+			"subject": "health"
+		},
+		"lasting:l-hu-03:0": {
+			"kind": "lasting",
+			"subject": "about_you"
+		},
+		"lasting:l-hu-04:0": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-hu-05:0": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-hu-06:0": {
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		"lasting:l-hu-07:0": {
+			"kind": "lasting",
+			"subject": "interests"
+		},
+		"lasting:l-hu-08:0": {
+			"kind": "lasting",
+			"subject": "home_family"
+		},
+		"lasting:l-hu-09:0": {
+			"kind": "lasting",
+			"subject": "other"
+		},
+		"lasting:l-hu-10:0": {
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		"ongoing:o-en-01:0": {
+			"kind": "ongoing",
+			"subject": "work_study"
+		},
+		"ongoing:o-en-02:0": {
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		"ongoing:o-en-03:0": {
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		"ongoing:o-en-03:1": {
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		"ongoing:o-en-04:0": {
+			"kind": "ongoing",
+			"subject": "health"
+		},
+		"ongoing:o-en-05:0": {
+			"kind": "ongoing",
+			"subject": "home_family"
+		},
+		"ongoing:o-en-05:1": {
+			"kind": "temporary",
+			"subject": "home_family"
+		},
+		"ongoing:o-en-06:0": {
+			"kind": "ongoing",
+			"subject": "health"
+		},
+		"ongoing:o-en-07:0": {
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		"ongoing:o-en-08:0": {
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		"ongoing:o-en-09:0": {
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		"ongoing:o-en-10:0": {
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		"ongoing:o-hu-01:0": {
+			"kind": "ongoing",
+			"subject": "work_study"
+		},
+		"ongoing:o-hu-02:0": {
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		"ongoing:o-hu-03:0": {
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		"ongoing:o-hu-04:0": {
+			"kind": "ongoing",
+			"subject": "health"
+		},
+		"ongoing:o-hu-05:0": {
+			"kind": "ongoing",
+			"subject": "home_family"
+		},
+		"ongoing:o-hu-06:0": {
+			"kind": "ongoing",
+			"subject": "health"
+		},
+		"ongoing:o-hu-07:0": {
+			"kind": "ongoing",
+			"subject": "interests"
+		},
+		"ongoing:o-hu-08:0": {
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		"ongoing:o-hu-09:0": {
+			"kind": "lasting",
+			"subject": "work_study"
+		},
+		"ongoing:o-hu-10:0": {
+			"kind": "ongoing",
+			"subject": "projects"
+		},
+		"temporary:t-en-01:0": {
+			"kind": "temporary",
+			"subject": "health"
+		},
+		"temporary:t-en-02:0": {
+			"kind": "temporary",
+			"subject": "health"
+		},
+		"temporary:t-en-03:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"temporary:t-en-03:1": {
+			"kind": "temporary",
+			"subject": "about_you"
+		},
+		"temporary:t-en-04:0": {
+			"kind": "temporary",
+			"subject": "home_family"
+		},
+		"temporary:t-en-05:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"temporary:t-en-06:0": {
+			"kind": "temporary",
+			"subject": "health"
+		},
+		"temporary:t-en-07:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"temporary:t-en-08:0": {
+			"kind": "temporary",
+			"subject": "home_family"
+		},
+		"temporary:t-en-09:0": {
+			"kind": "temporary",
+			"subject": "home_family"
+		},
+		"temporary:t-en-10:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"temporary:t-hu-01:0": {
+			"kind": "temporary",
+			"subject": "health"
+		},
+		"temporary:t-hu-02:0": {
+			"kind": "temporary",
+			"subject": "health"
+		},
+		"temporary:t-hu-03:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"temporary:t-hu-04:0": {
+			"kind": "temporary",
+			"subject": "home_family"
+		},
+		"temporary:t-hu-05:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"temporary:t-hu-06:0": {
+			"kind": "temporary",
+			"subject": "health"
+		},
+		"temporary:t-hu-07:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"temporary:t-hu-08:0": {
+			"kind": "temporary",
+			"subject": "home_family"
+		},
+		"temporary:t-hu-09:0": {
+			"kind": "temporary",
+			"subject": "home_family"
+		},
+		"temporary:t-hu-10:0": {
+			"kind": "temporary",
+			"subject": "work_study"
+		},
+		"project:p-en-01:0": {
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		"project:p-en-02:0": {
+			"kind": "lasting",
+			"subject": "people"
+		},
+		"project:p-en-03:0": {
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		"project:p-en-04:0": {
+			"kind": "ongoing",
+			"subject": "plans_status"
+		},
+		"project:p-en-05:0": {
+			"kind": "temporary",
+			"subject": "plans_status"
+		},
+		"project:p-en-06:0": {
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		"project:p-en-07:0": {
+			"kind": "lasting",
+			"subject": "people"
+		},
+		"project:p-en-08:0": {
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		"project:p-en-09:0": {
+			"kind": "ongoing",
+			"subject": "plans_status"
+		},
+		"project:p-en-10:0": {
+			"kind": "temporary",
+			"subject": "plans_status"
+		},
+		"project:p-hu-01:0": {
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		"project:p-hu-02:0": {
+			"kind": "lasting",
+			"subject": "people"
+		},
+		"project:p-hu-03:0": {
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		"project:p-hu-04:0": {
+			"kind": "ongoing",
+			"subject": "plans_status"
+		},
+		"project:p-hu-05:0": {
+			"kind": "temporary",
+			"subject": "plans_status"
+		},
+		"project:p-hu-06:0": {
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		},
+		"project:p-hu-07:0": {
+			"kind": "lasting",
+			"subject": "people"
+		},
+		"project:p-hu-08:0": {
+			"kind": "lasting",
+			"subject": "facts_figures"
+		},
+		"project:p-hu-09:0": {
+			"kind": "temporary",
+			"subject": "plans_status"
+		},
+		"project:p-hu-10:0": {
+			"kind": "lasting",
+			"subject": "goals_decisions"
+		}
+	}
+}

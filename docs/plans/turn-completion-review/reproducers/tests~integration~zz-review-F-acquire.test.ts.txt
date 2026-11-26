@@ -1,0 +1,35 @@
+// Reviewer-added probe (review F): the old arbiter's start-intent decisions, run against the new registry.
+import { afterEach, expect, it } from "vitest";
+import * as registry from "$lib/server/services/chat-turn/active-streams";
+
+const base = { userId: "u-rf", conversationId: "c-rf", userMessage: "m" };
+const ids = ["rf-a", "rf-b", "rf-c"];
+afterEach(() => {
+	for (const id of ids) {
+		registry.unregisterActiveChatStream(id);
+		registry.clearStreamBuffer(id);
+	}
+});
+
+it("start intent while ANOTHER stream of the same conversation runs observes it instead of generating", () => {
+	const a = registry.acquireChatStream({ ...base, streamId: "rf-a", controller: new AbortController(), intent: "start" });
+	expect(a.action).toBe("owned");
+	const b = registry.acquireChatStream({ ...base, streamId: "rf-b", controller: new AbortController(), intent: "start" });
+	expect(b).toEqual({ action: "observe", streamId: "rf-a" });
+});
+
+it("start intent with the SAME stream id after completion observes the retained buffer", () => {
+	const a = registry.acquireChatStream({ ...base, streamId: "rf-a", controller: new AbortController(), intent: "start" });
+	if (a.action !== "owned") throw new Error("x");
+	a.release();
+	const again = registry.acquireChatStream({ ...base, streamId: "rf-a", controller: new AbortController(), intent: "start" });
+	expect(again).toEqual({ action: "observe", streamId: "rf-a" });
+});
+
+it("start intent on a stale orphan buffer of ANOTHER id (stream gone, buffer retained) starts normally", () => {
+	const a = registry.acquireChatStream({ ...base, streamId: "rf-a", controller: new AbortController(), intent: "start" });
+	if (a.action !== "owned") throw new Error("x");
+	a.release(); // buffer kept for replay, registry entry gone
+	const b = registry.acquireChatStream({ ...base, streamId: "rf-b", controller: new AbortController(), intent: "start" });
+	expect(b.action).toBe("owned");
+});

@@ -82,8 +82,8 @@ export function takeCardState(
 			return { kind: "waiting", ahead: null };
 		case "running": {
 			// Submitted and never started: it waits its turn. A take that already
-			// has an estimate is past that (a prompt posted again, a 10 s clip's
-			// second segment), still on its way.
+			// has an estimate is past that (a prompt posted again), still on its
+			// way.
 			if (take.phase === "submitted" && take.etaSeconds === null) {
 				return { kind: "waiting", ahead: take.queueAhead || null };
 			}

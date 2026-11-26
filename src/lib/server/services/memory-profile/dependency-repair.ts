@@ -14,6 +14,7 @@ import type { JobRunContext, Tx } from "../jobs/types";
 import type { NativeMemory } from "./contracts";
 import type { ReplayCheck } from "./curation-intent";
 import { memoryResendTransitions } from "./curation-lineage";
+import type { NativeWaitKind } from "./delivery-policy";
 import {
 	createDependencyRepairPlan,
 	orderDependencySources,
@@ -33,6 +34,8 @@ import {
 	carriedMemorySources,
 	isEditResendWithdrawal,
 	memoryTextHash,
+	retainEndRecorded,
+	withoutRetainBookkeeping,
 } from "./revisions";
 
 type Source = typeof memorySourceRevisions.$inferSelect;
@@ -43,11 +46,17 @@ export interface NativeSettlement {
 		client: HindsightClient,
 		signal: AbortSignal,
 	) => Promise<NativeMemory[]>;
+	/**
+	 * Waits until the operations end. `kind` is the wait they get from the job's
+	 * failure policy (`delivery-policy.ts`): "retain" for a retain's operation,
+	 * "consolidation", the default, for everything else.
+	 */
 	settle: (
 		client: HindsightClient,
 		ids: string[],
 		signal: AbortSignal,
 		cleanup?: boolean,
+		kind?: NativeWaitKind,
 	) => Promise<void>;
 }
 
@@ -440,7 +449,8 @@ export async function runDependencyRepair(
 	);
 	const physicalId = (id: string) => physicalSources.get(id) ?? id;
 	const stepContext = (context: string, mapId: (id: string) => string) => {
-		const envelope = parseJsonRecord(context);
+		// The original's retain bookkeeping belongs to its operations, not to the replacement.
+		const envelope = withoutRetainBookkeeping(parseJsonRecord(context));
 		const messages = Array.isArray(envelope.messages) ? envelope.messages : [];
 		return {
 			...envelope,
@@ -641,9 +651,18 @@ export async function runDependencyRepair(
 		if (
 			source.nativeSubmitted &&
 			!source.nativeAcknowledged &&
-			source.nativeOperationId
+			source.nativeOperationId &&
+			// A dependent chat whose own delivery recorded its retain's end: that
+			// retain never runs again, and Hindsight may have forgotten it.
+			!retainEndRecorded(source)
 		)
-			await native.settle(client, [source.nativeOperationId], ctx.signal, true);
+			await native.settle(
+				client,
+				[source.nativeOperationId],
+				ctx.signal,
+				true,
+				"retain",
+			);
 		await native.capture(client, ctx.signal);
 		await client.deleteDocument(source.id);
 		memories = await native.capture(client, ctx.signal);
@@ -763,6 +782,7 @@ export async function runDependencyRepair(
 						[discarded.nativeOperationId],
 						ctx.signal,
 						true,
+						"retain",
 					);
 				db.transaction((tx) => fence(tx, true));
 				await client.deleteDocument(discarded.id);
@@ -853,6 +873,7 @@ export async function runDependencyRepair(
 					[replacement.nativeOperationId],
 					ctx.signal,
 					true,
+					"retain",
 				);
 			await client.deleteDocument(replacement.id);
 			const remaining = await native.capture(client, ctx.signal);
@@ -1016,6 +1037,8 @@ export async function runDependencyRepair(
 						step.operationId,
 					),
 					ctx.signal,
+					false,
+					"retain",
 				);
 				await write(ctx, (tx) => {
 					fence(tx, true);

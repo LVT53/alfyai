@@ -12,7 +12,7 @@ const total = (plan: EtaPlan) =>
 	plan.reduce((sum, stage) => sum + stage.seconds, 0);
 
 describe("videoPlan", () => {
-	it("is one load, two passes and a finish per segment", () => {
+	it("is one load, two passes and a finish", () => {
 		expect(videoPlan(5, false).map((stage) => stage.kind)).toEqual([
 			"load",
 			"sample",
@@ -35,7 +35,7 @@ describe("videoPlan", () => {
 		expect(total(videoPlan(5, true))).toBeLessThanOrEqual(64);
 	});
 
-	it("scales a 10 s clip with its measured render, not with a segment count", () => {
+	it("scales a 10 s clip with its measured render", () => {
 		const five = videoPlan(5, false);
 		const ten = videoPlan(10, false);
 		// The load is paid once and does not scale. The render does: measured
@@ -51,13 +51,13 @@ describe("videoPlan", () => {
 		const eta = createTakeEta(videoPlan(10, false));
 		const at = (seconds: number) => T0 + seconds * 1000;
 		const published = [eta.start(at(0))];
-		// Segment one: a slow staging, both passes, then the decode.
+		// The render: a slow staging, both passes, then the decode.
 		published.push(eta.progress({ value: 1, max: 8 }, at(30)));
 		published.push(eta.progress({ value: 8, max: 8 }, at(36)));
 		published.push(eta.progress({ value: 1, max: 3 }, at(37)));
 		published.push(eta.progress({ value: 3, max: 3 }, at(39)));
 		published.push(eta.enter("finish", at(39)));
-		// Segment two's prompt starts after the decode and the chain.
+		// A prompt that starts again after the finish must not raise it.
 		published.push(eta.start(at(45)));
 		published.push(eta.progress({ value: 1, max: 8 }, at(51)));
 		published.push(eta.progress({ value: 3, max: 3 }, at(60)));

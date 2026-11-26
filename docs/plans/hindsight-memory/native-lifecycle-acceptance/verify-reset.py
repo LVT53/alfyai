@@ -16,7 +16,8 @@ schema = "alfyai_t_" + tenant.replace("-", "_")
 banks = [str(UUID(item["id"])) for item in reset["physical"]]
 assert len(banks) == 3 and set(banks) == {bank["bank"]["id"] for bank in scope["banks"]}
 root = Path("/tmp/alfyai-hindsight-eval")
-meta = json.loads((root / "pg0/instances/alfyai-native-lifecycle-acceptance-20261118/instance.json").read_text())
+instance = os.environ.get("ALFYAI_PG0_INSTANCE", "alfyai-native-lifecycle-acceptance-20261118")
+meta = json.loads((root / f"pg0/instances/{instance}/instance.json").read_text())
 exe = root / f"pg-install/{meta['version']}/bin/psql"
 
 def query(text):

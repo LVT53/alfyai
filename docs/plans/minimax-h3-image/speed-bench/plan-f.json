@@ -1,0 +1,22 @@
+[
+ {
+  "name": "e2-fresh-seed",
+  "kind": "edit",
+  "base_from": "fisher-s6",
+  "canvas": "landscape",
+  "seed": 771001,
+  "steps": 6,
+  "edit_prompt": "Change his navy knit cap to a bright red knit cap. Keep everything else in the picture exactly the same.",
+  "base_seed": 424242
+ },
+ {
+  "name": "e1-fresh-seed",
+  "kind": "edit",
+  "base_from": "street-s6",
+  "canvas": "landscape",
+  "seed": 771002,
+  "steps": 6,
+  "edit_prompt": "Change her mustard wool coat to a navy blue wool coat. Keep everything else in the picture exactly the same.",
+  "base_seed": 424242
+ }
+]

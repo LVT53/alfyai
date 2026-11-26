@@ -1,4 +1,5 @@
 <script lang="ts">
+import { untrack } from "svelte";
 import { goto, invalidateAll } from "$app/navigation";
 import { ApiError } from "$lib/client/api/http";
 import { browser } from "$app/environment";
@@ -51,6 +52,7 @@ import {
 	parseKnowledgeKindFilter,
 } from "./_components/documents-table";
 import type { Snapshot } from "@sveltejs/kit";
+import { readMemoryLink } from "./_components/memory-link";
 import type { MemoryVisit } from "./_components/memory-visit";
 import type { PageProps } from "./$types";
 
@@ -69,6 +71,12 @@ const initialDocuments: KnowledgeDocumentItem[] =
 
 let memoryVisited = $state(false);
 let memoryView: KnowledgeMemoryView | undefined = $state();
+// A link from Workspace Search (`?tab=memory&memoryScope=…&memoryEntry=…`): the
+// view reads it once when it mounts, so the first link is passed as its props;
+// one that arrives later goes to the view that is showing, through `openLink`.
+const arrivalLink = readMemoryLink(kitPage.url);
+let memoryLink = $state(arrivalLink);
+let appliedMemoryLink = arrivalLink;
 let pendingMemoryRestore: MemoryVisit | null = null;
 export const snapshot: Snapshot<MemoryVisit | null> = {
 	capture: () => memoryView?.capture() ?? pendingMemoryRestore,
@@ -808,6 +816,32 @@ async function executeRemoveArtifact(id: string) {
 }
 
 $effect(() => {
+	const link =
+		getKnowledgeTabFromUrl(kitPage.url) === "memory"
+			? readMemoryLink(kitPage.url)
+			: null;
+	if (!link) {
+		appliedMemoryLink = null;
+		return;
+	}
+	untrack(() => {
+		if (appliedMemoryLink === null) {
+			if (memoryView) void memoryView.openLink(link);
+			else memoryLink = link;
+		}
+		appliedMemoryLink = link;
+	});
+	// The link has done its work: a reload or Back shows the plain tab.
+	if (browser) {
+		void goto("?tab=memory", {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true,
+		});
+	}
+});
+
+$effect(() => {
 	const urlTab = getKnowledgeTabFromUrl(kitPage.url);
 	activeTab = urlTab;
 	if (urlTab === "memory") memoryVisited = true;
@@ -876,7 +910,7 @@ $effect(() => {
 
 			{#if activeTab === "memory" || memoryVisited}
 				<div hidden={activeTab!=="memory"} id="memory-profile-panel" role="tabpanel" aria-labelledby="memory-profile-tab">
-					<KnowledgeMemoryView bind:this={memoryView} memoryEnabled={data.memoryEnabled ?? null} />
+					<KnowledgeMemoryView bind:this={memoryView} memoryEnabled={data.memoryEnabled ?? null} layout={data.memoryLayout ?? "list"} initialScope={memoryLink?.scope} initialEntryId={memoryLink?.entryId ?? undefined} initialQuery={memoryLink?.query} />
 				</div>
 			{/if}
 			{#if activeTab === "documents"}

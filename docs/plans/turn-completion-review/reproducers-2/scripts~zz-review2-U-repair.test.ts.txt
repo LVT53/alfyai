@@ -1,0 +1,270 @@
+// @vitest-environment node
+// Reviewer-owned probes. Only throwaway SQLite files under the OS temp directory.
+import { spawnSync } from "node:child_process";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import {
+	assertRepairDatabasePath,
+	repairNormalChatMetadata,
+} from "./compact-normal-chat-metadata";
+
+const root = mkdtempSync(join(tmpdir(), "zz-review2-U-repair-"));
+const dbPath = join(root, "chat.db");
+const scope = (id: string, conversationId = "c", userId = "u") => ({
+	userId,
+	conversationId,
+	messageId: id,
+});
+const base = {
+	version: 1,
+	turnId: "t",
+	segmentId: "s",
+	attemptId: "a",
+	stepId: "step",
+	phase: "working",
+};
+function events(n: number, blockId = "b") {
+	return [
+		{
+			...base,
+			sequence: 1,
+			type: "block_start",
+			blockId,
+			nativeId: "n",
+			kind: "text",
+			role: "answer",
+		},
+		...Array.from({ length: n }, (_, i) => ({
+			...base,
+			sequence: i + 2,
+			type: "block_delta",
+			blockId,
+			text: "word ",
+		})),
+		{ ...base, sequence: n + 2, type: "block_end", blockId },
+	];
+}
+const meta = (extra: Record<string, unknown> = {}, n = 600) =>
+	JSON.stringify({ keep: { a: 1 }, normalChatOutput: { version: 1, events: events(n) }, ...extra });
+
+let sqlite: Database.Database;
+function put(id: string, metadata: string | null, role = "assistant", conv = "c") {
+	sqlite
+		.prepare(
+			"INSERT OR REPLACE INTO messages(id, conversation_id, role, content, metadata_json) VALUES (?,?,?,?,?)",
+		)
+		.run(id, conv, role, `content-${id}`, metadata);
+}
+const get = (id: string) =>
+	sqlite.prepare("SELECT metadata_json FROM messages WHERE id=?").pluck().get(id) as string | null;
+
+beforeEach(() => {
+	rmSync(dbPath, { force: true });
+	rmSync(`${dbPath}-wal`, { force: true });
+	rmSync(`${dbPath}-shm`, { force: true });
+	const c = new Database(dbPath);
+	migrate(drizzle(c), { migrationsFolder: "./drizzle" });
+	c.close();
+	sqlite = new Database(dbPath);
+	sqlite.exec(
+		"INSERT INTO users(id,email,password_hash) VALUES ('u','u@test.invalid','x'),('other','o@test.invalid','x');" +
+			"INSERT INTO conversations(id,user_id,title) VALUES ('c','u','t'),('c2','u','t2'),('foreign','other','f');",
+	);
+});
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+describe("repair tool probes", () => {
+	it("P1 apply is not bound to the dry run: rows that drift in between are compacted as found", () => {
+		put("m1", meta());
+		const dry = repairNormalChatMetadata(sqlite, [scope("m1")], false);
+		put("m1", meta({}, 2500)); // the app (or anyone) rewrote the row after the dry run
+		const applied = repairNormalChatMetadata(sqlite, [scope("m1")], true);
+		console.log("P1", JSON.stringify({ dry, applied }));
+		expect(applied.beforeBytes).not.toBe(dry.beforeBytes);
+	});
+
+	it("P2 same message id listed under two conversations is refused as a duplicate", () => {
+		put("m1", meta());
+		expect(() =>
+			repairNormalChatMetadata(sqlite, [scope("m1"), scope("m1", "c2")], true),
+		).toThrow(/Duplicate/);
+	});
+
+	it("P3 foreign owner, foreign conversation and every non-assistant role are refused, nothing written", () => {
+		put("m1", meta());
+		put("mu", meta(), "user");
+		put("ms", meta(), "system");
+		put("mt", meta(), "tool");
+		put("mA", meta(), "Assistant");
+		put("mf", meta(), "assistant", "foreign");
+		for (const bad of ["mu", "ms", "mt", "mA"])
+			expect(() => repairNormalChatMetadata(sqlite, [scope("m1"), scope(bad)], true)).toThrow();
+		expect(() => repairNormalChatMetadata(sqlite, [scope("m1"), scope("mf", "foreign")], true)).toThrow();
+		expect(() => repairNormalChatMetadata(sqlite, [scope("m1"), scope("mf", "foreign", "other")], true)).not.toThrow(); // other user's own row is legitimately scoped
+		// m1 was compacted by the last call only; the refusals before it wrote nothing
+		expect(get("mu")).toBe(meta());
+	});
+
+	it("P4 events that do not project refuse the whole batch and leave earlier rows untouched", () => {
+		const bads: Array<[string, string]> = [
+			["unknown top version", JSON.stringify({ normalChatOutput: { version: 2, events: events(50) } })],
+			["events not array", JSON.stringify({ normalChatOutput: { version: 1, events: "x" } })],
+			["null output", JSON.stringify({ normalChatOutput: null })],
+			["array metadata", "[]"],
+			["empty string metadata", ""],
+			["missing turnId", JSON.stringify({ normalChatOutput: { version: 1, events: [{ ...events(3)[1], turnId: undefined }] } })],
+			["negative sequence", JSON.stringify({ normalChatOutput: { version: 1, events: [{ ...events(3)[1], sequence: -1 }] } })],
+			["unknown event version", JSON.stringify({ normalChatOutput: { version: 1, events: [{ ...events(3)[1], version: 2 }] } })],
+		];
+		put("m1", meta());
+		for (const [name, bad] of bads) {
+			put("bad", bad);
+			let threw = false;
+			try {
+				repairNormalChatMetadata(sqlite, [scope("m1"), scope("bad")], true);
+			} catch (e) {
+				threw = true;
+				console.log("P4", name, "->", (e as Error).message);
+			}
+			expect(threw, name).toBe(true);
+			expect(get("m1"), name).toBe(meta());
+		}
+	});
+
+	it("P5 similarly named keys are never touched; only the exact top-level key is compacted", () => {
+		const big = { version: 1, events: events(800) };
+		const m = JSON.stringify({
+			normalChatOutputLegacy: big,
+			NormalChatOutput: big,
+			nested: { normalChatOutput: big },
+			normalChatOutput: { version: 1, events: events(800) },
+		});
+		put("m1", m);
+		const r = repairNormalChatMetadata(sqlite, [scope("m1")], true);
+		const after = JSON.parse(get("m1") as string);
+		expect(r.changed).toBe(1);
+		expect(after.normalChatOutputLegacy.events).toHaveLength(802);
+		expect(after.NormalChatOutput.events).toHaveLength(802);
+		expect(after.nested.normalChatOutput.events).toHaveLength(802);
+		expect(after.normalChatOutput.events.length).toBeLessThan(10);
+		expect(Object.keys(after)).toEqual(Object.keys(JSON.parse(m)));
+		// only-lookalike row: nothing to do
+		put("m2", JSON.stringify({ normalChatOutputLegacy: big }));
+		expect(repairNormalChatMetadata(sqlite, [scope("m2")], true).changed).toBe(0);
+	});
+
+	it("P6 a late failure (forced compare-and-swap miss through a trigger) rolls the whole batch back on a disk file", () => {
+		put("m1", meta());
+		put("m2", meta());
+		// An UPDATE that silently does nothing (RAISE(IGNORE)) is the only way a single
+		// IMMEDIATE transaction can reach the compare-and-swap miss.
+		sqlite.exec(
+			"CREATE TRIGGER zz_skip BEFORE UPDATE ON messages WHEN OLD.id='m2' BEGIN SELECT RAISE(IGNORE); END;",
+		);
+		expect(() => repairNormalChatMetadata(sqlite, [scope("m1"), scope("m2")], true)).toThrow(/Concurrent/);
+		expect(get("m1")).toBe(meta());
+	});
+
+	it("P7 repeat apply changes nothing, byte for byte", () => {
+		put("m1", meta());
+		put("m2", meta({ z: [1, 2, 3] }, 300));
+		const first = repairNormalChatMetadata(sqlite, [scope("m1"), scope("m2")], true);
+		const snapshot = [get("m1"), get("m2")];
+		const second = repairNormalChatMetadata(sqlite, [scope("m1"), scope("m2")], true);
+		expect(first.changed).toBe(2);
+		expect(second.changed).toBe(0);
+		expect([get("m1"), get("m2")]).toEqual(snapshot);
+	});
+
+	it("P8 unrelated metadata is re-serialised through JSON.parse/stringify (numbers outside double precision change)", () => {
+		const raw =
+			'{"keep":{"big":12345678901234567890,"f":1.0,"e":1e3},"normalChatOutput":' +
+			JSON.stringify({ version: 1, events: events(600) }) +
+			"}";
+		put("m1", raw);
+		repairNormalChatMetadata(sqlite, [scope("m1")], true);
+		const after = get("m1") as string;
+		console.log("P8", after.slice(0, 60));
+		expect(after.startsWith('{"keep":{"big":12345678901234567890')).toBe(false);
+	});
+
+	it("P9 NULL and empty-output rows are skipped, bytes accounted consistently", () => {
+		put("m1", null);
+		put("m2", JSON.stringify({ normalChatOutput: { version: 1, events: [] } }));
+		const r = repairNormalChatMetadata(sqlite, [scope("m1"), scope("m2")], true);
+		expect(r.changed).toBe(0);
+		expect(r.beforeBytes).toBe(r.afterBytes);
+	});
+});
+
+describe("repair CLI path probes (throwaway files only)", () => {
+	const cli = (args: string[]) =>
+		spawnSync(process.execPath, ["--import", "tsx", "scripts/compact-normal-chat-metadata.ts", ...args], {
+			encoding: "utf8",
+			env: { PATH: process.env.PATH },
+		});
+	function manifestFor(dir: string) {
+		const p = join(dir, "manifest.json");
+		require("node:fs").writeFileSync(p, JSON.stringify([scope("m1")]));
+		return p;
+	}
+	it("C1 apply is refused for a symlink, a '..' path, a lookalike copy; dry-run is allowed on a production-looking path", () => {
+		put("m1", meta());
+		sqlite.pragma("wal_checkpoint(TRUNCATE)");
+		sqlite.close();
+		const manifest = manifestFor(root);
+		const link = join(root, "link.db");
+		symlinkSync(dbPath, link);
+		const lookalike = join(root, "home/alfydesign/apps/langflow-chat-dev/shared/data");
+		mkdirSync(lookalike, { recursive: true });
+		copyFileSync(dbPath, join(lookalike, "chat.db"));
+		const prod = join(root, "home/alfydesign/apps/langflow-chat/shared/data");
+		mkdirSync(prod, { recursive: true });
+		copyFileSync(dbPath, join(prod, "chat.db"));
+		const tries = {
+			symlinkApply: cli(["--database", link, "--manifest", manifest, "--apply"]),
+			dotdotApply: cli(["--database", `${root}/x/../chat.db`.replace("/x/", "/"), "--manifest", manifest, "--apply"]),
+			lookalikeApply: cli(["--database", join(lookalike, "chat.db"), "--manifest", manifest, "--apply"]),
+			prodLookingDryRun: cli(["--database", join(prod, "chat.db"), "--manifest", manifest]),
+			symlinkDryRun: cli(["--database", link, "--manifest", manifest]),
+		};
+		const codes = Object.fromEntries(Object.entries(tries).map(([k, v]) => [k, v.status]));
+		console.log("C1", JSON.stringify(codes));
+		expect(codes.symlinkApply).toBe(1);
+		expect(codes.dotdotApply).toBe(1);
+		expect(codes.lookalikeApply).toBe(1);
+		expect(codes.prodLookingDryRun).toBe(0);
+		expect(codes.symlinkDryRun).toBe(0);
+		const check = new Database(dbPath, { readonly: true });
+		expect(check.prepare("SELECT metadata_json FROM messages WHERE id='m1'").pluck().get()).toBe(meta());
+		check.close();
+		// the only string the guard accepts is the exact staging path; pure string check, no host or DB identity
+		expect(() => assertRepairDatabasePath("/home/alfydesign/apps/langflow-chat-dev/shared/data/chat.db", true)).not.toThrow();
+	});
+
+	it("C2 a dry run that fails inside the transaction leaves a misleading {status:'started'} report behind", () => {
+		put("m1", JSON.stringify({ normalChatOutput: { version: 2, events: [] } }));
+		sqlite.pragma("wal_checkpoint(TRUNCATE)");
+		sqlite.close();
+		const manifest = manifestFor(root);
+		const report = join(root, "report-c2.json");
+		rmSync(report, { force: true });
+		const r = cli(["--database", dbPath, "--manifest", manifest, "--report", report]);
+		console.log("C2", r.status, JSON.stringify(r.stderr), existsSync(report) ? readFileSync(report, "utf8").trim() : "no report");
+		expect(r.status).toBe(1);
+		expect(readFileSync(report, "utf8")).toContain('"started"');
+	});
+});

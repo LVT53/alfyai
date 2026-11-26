@@ -1,0 +1,170 @@
+{
+	"entries": [
+		{ "lang": "en", "text": "The user had a nasty cold and stayed in bed." },
+		{
+			"lang": "en",
+			"text": "The user had a dentist appointment for a filling."
+		},
+		{
+			"lang": "en",
+			"text": "The user's driving theory exam was coming up and they were panicking a bit."
+		},
+		{
+			"lang": "en",
+			"text": "The user drove up to see their grandparents for the weekend."
+		},
+		{ "lang": "en", "text": "The user flew to Lisbon for a work conference." },
+		{
+			"lang": "en",
+			"text": "The user had a sprained ankle and could not play football for a few weeks."
+		},
+		{
+			"lang": "en",
+			"text": "The user's project report was due at noon and far from done."
+		},
+		{
+			"lang": "en",
+			"text": "A boiler engineer was coming to the user's home in the morning."
+		},
+		{
+			"lang": "en",
+			"text": "The user was house-sitting for their neighbours for ten days."
+		},
+		{
+			"lang": "en",
+			"text": "The user had a job interview at a design studio."
+		},
+		{
+			"lang": "hu",
+			"text": "A felhasználónak torokfájása volt, és kicsit lázas is volt."
+		},
+		{ "lang": "hu", "text": "A felhasználó fogorvoshoz ment tömésre." },
+		{
+			"lang": "hu",
+			"text": "A felhasználónak záróvizsgája volt, és alig tanult rá."
+		},
+		{
+			"lang": "hu",
+			"text": "A felhasználó a hétvégén a szüleihez ment Pécsre."
+		},
+		{
+			"lang": "hu",
+			"text": "A felhasználó Barcelonába repült egy konferenciára."
+		},
+		{
+			"lang": "hu",
+			"text": "A felhasználó eltörte a lábát, és három hétig gipszben volt."
+		},
+		{
+			"lang": "hu",
+			"text": "A felhasználónak délig le kellett adnia a negyedéves beszámolót."
+		},
+		{
+			"lang": "hu",
+			"text": "A vízszerelő jött megnézni a csöpögő csapot a felhasználónál."
+		},
+		{
+			"lang": "hu",
+			"text": "A felhasználó a barátnője macskájára vigyázott, amíg az Olaszországban volt."
+		},
+		{
+			"lang": "hu",
+			"text": "A felhasználónak állásinterjúja volt egy budapesti webáruháznál."
+		}
+	],
+	"unrelated": [
+		"Thanks, that helps a lot!",
+		"Can you help me write a polite email to my landlord?",
+		"What is the difference between a list and a tuple in Python?",
+		"Give me three ideas for a quick weeknight dinner.",
+		"How do I convert Fahrenheit to Celsius?",
+		"Can you summarise this article for me?",
+		"What's a good name for a black cat?",
+		"Explain how compound interest works.",
+		"Translate 'good morning' into Spanish.",
+		"Write a short poem about autumn leaves.",
+		"Köszönöm szépen, ez sokat segített!",
+		"Segítesz megírni egy udvarias e-mailt a főbérlőmnek?",
+		"Mi a különbség a lista és a tuple között Pythonban?",
+		"Adj három ötletet egy gyors hétköznapi vacsorára.",
+		"Hogyan váltom át a Fahrenheitet Celsiusra?",
+		"Összefoglalnád nekem ezt a cikket?",
+		"Mi lenne jó név egy fekete macskának?",
+		"Magyarázd el, hogyan működik a kamatos kamat.",
+		"Fordítsd le spanyolra: jó reggelt.",
+		"Írj egy rövid verset az őszi levelekről."
+	],
+	"about": [
+		{ "entry": 0, "message": "My cold is back, should I see a doctor?" },
+		{ "entry": 1, "message": "The dentist says I need another filling." },
+		{ "entry": 2, "message": "I passed my theory exam!" },
+		{ "entry": 3, "message": "My grandparents want us to visit again soon." },
+		{ "entry": 4, "message": "Any tips for my next trip to Lisbon?" },
+		{ "entry": 5, "message": "My ankle still hurts when I run." },
+		{ "entry": 6, "message": "My boss liked the report in the end." },
+		{ "entry": 7, "message": "The boiler is making that noise again." },
+		{ "entry": 8, "message": "The neighbours asked me to house-sit again." },
+		{ "entry": 9, "message": "I got the job at the design studio!" },
+		{ "entry": 10, "message": "Már megint torokfájással ébredtem." },
+		{ "entry": 11, "message": "A fogorvos szerint újabb tömés kell." },
+		{ "entry": 12, "message": "Sikerült a záróvizsgám!" },
+		{
+			"entry": 13,
+			"message": "Jövő hónapban megint megyünk Pécsre a szüleimhez."
+		},
+		{
+			"entry": 14,
+			"message": "Milyen volt Barcelona? Elmesélem a konferenciát."
+		},
+		{ "entry": 15, "message": "Végre levették a gipszet." },
+		{
+			"entry": 16,
+			"message": "Leadtam a negyedéves beszámolót, megnyugodtam."
+		},
+		{ "entry": 17, "message": "A vízszerelő végül megjavította a csapot." },
+		{ "entry": 18, "message": "Hazajött a barátnőm Olaszországból." },
+		{ "entry": 19, "message": "Felvettek a budapesti webáruházhoz!" }
+	],
+	"crossLanguage": [
+		{
+			"entry": "The user had a nasty cold and stayed in bed.",
+			"message": "Megint megfáztam, ágyban maradok."
+		},
+		{
+			"entry": "The user had a dentist appointment for a filling.",
+			"message": "Mit mondott a fogorvos a tömésről?"
+		},
+		{
+			"entry": "The user's driving theory exam was coming up and they were panicking a bit.",
+			"message": "Átmentem a KRESZ-vizsgán!"
+		},
+		{
+			"entry": "The user drove up to see their grandparents for the weekend.",
+			"message": "A nagyszüleim megint hívnak hétvégére."
+		},
+		{
+			"entry": "The user flew to Lisbon for a work conference.",
+			"message": "Milyen volt Lisszabon?"
+		},
+		{
+			"entry": "The user had a sprained ankle and could not play football for a few weeks.",
+			"message": "Még mindig fáj a bokám, focizhatok?"
+		},
+		{
+			"entry": "The user's project report was due at noon and far from done.",
+			"message": "Leadtam a projektjelentést."
+		},
+		{
+			"entry": "A boiler engineer was coming to the user's home in the morning.",
+			"message": "Megint zörög a kazán."
+		},
+		{
+			"entry": "The user was house-sitting for their neighbours for ten days.",
+			"message": "A szomszédok megint megkértek, hogy vigyázzak a házra."
+		},
+		{
+			"entry": "The user had a job interview at a design studio.",
+			"message": "Felvettek a design stúdióhoz!"
+		}
+	]
+}

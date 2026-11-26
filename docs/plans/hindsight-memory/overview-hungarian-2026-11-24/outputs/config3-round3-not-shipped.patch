@@ -1,0 +1,181 @@
+diff --git a/src/lib/server/services/memory-profile/overview.test.ts b/src/lib/server/services/memory-profile/overview.test.ts
+index 9ef51c0c3..64d74a917 100644
+--- a/src/lib/server/services/memory-profile/overview.test.ts
++++ b/src/lib/server/services/memory-profile/overview.test.ts
+@@ -37,23 +37,26 @@ interface Call {
+ 	input: {
+ 		entries: Array<{ text: string; subject?: string }>;
+ 	} & Record<string, unknown>;
++	schema: Record<string, unknown>;
+ 	call?: CurationCallOptions;
+ }
+ function recordingModel(
+ 	answer: (calls: Call[]) => string | Promise<string> = () =>
+ 		"A short synthetic overview.",
++	// What the model answers besides the paragraph (the schema asks for a list).
++	besides: Record<string, unknown> = { borrowed_words: [] },
+ ) {
+ 	const calls: Call[] = [];
+ 	const model: CurationModel = async (
+ 		prompt,
+ 		input,
+-		_schema,
++		schema,
+ 		_thinking,
+ 		_assertCurrent,
+ 		call,
+ 	) => {
+-		calls.push({ prompt, input: input as Call["input"], call });
+-		return { overview: await answer(calls) };
++		calls.push({ prompt, input: input as Call["input"], schema, call });
++		return { ...besides, overview: await answer(calls) };
+ 	};
+ 	return { calls, model };
+ }
+@@ -360,28 +363,80 @@ describe("writing the Overview", () => {
+ 		}
+ 	});
+ 
+-	// The probe's "freelance" stayed in 14 of 15 Hungarian paragraphs under a
+-	// line that named it as an example, so the rule is general: no word of any
+-	// language is named, only what makes a word borrowed (it is spelt the way
+-	// another language spells it) and that common use does not excuse it.
+-	it("asks for the language's own word in place of a borrowed one, however common, and names no example word", async () => {
++	// The probe's "freelance" stayed in 14 of 15 Hungarian paragraphs under a line
++	// that named it as an example, and in 4 of 5 under a general line that only
++	// asked (Config 3 round 1). Asking for the list of borrowed words first made
++	// them go (round 2) but the model coined the own words ("hawaii gitar" for the
++	// ukulele, "sziklazik"), so the rule is general, names no word of any
++	// language, and lets an own word through only if it already exists: a null is
++	// correct and a coined word is the worse fault (round 3).
++	it("has the model list the borrowed words first, gives each an own word only if one already exists, and names no example word", async () => {
+ 		for (const { prompt } of await overviewPrompts()) {
+ 			const rule = prompt
+ 				.split("\n")
+ 				.find((line) => /another language/.test(line));
+ 			expect(rule).toBeDefined();
+-			expect(rule).toContain("however common it has become");
+-			expect(rule).toContain("spelt the way");
+ 			expect(rule).toContain(
+-				"this language's own everyday word for the same thing",
++				"First list in borrowed_words every word of an entry that this language took from another language (it is spelt the way that other language spells it, however common it has become; a name is never one).",
++			);
++			expect(rule).toContain(
++				"Give a borrowed word an own_word only when this language already has an everyday word for exactly the same thing, one people use today; never coin, describe, translate literally or compound one.",
++			);
++			expect(rule).toContain(
++				"When you are not sure such a word exists, give null: a null is correct and a coined word is the worse fault.",
++			);
++			expect(rule).toContain(
++				"Write the paragraph with the own word where there is one, and with the entry's word as written where it is null.",
+ 			);
+-			expect(rule).toContain("only when there is none");
+ 			expect(rule).not.toMatch(/such as|for example|e\.g\./i);
+ 			expect(prompt).not.toMatch(/freelance|deadline|boulder|sci-fi/i);
+-			expect(prompt).not.toContain("gets the paragraph's own word");
++			expect(prompt).not.toContain("Copy no word from another language");
++			expect(prompt).toContain(
++				'Return JSON: {"borrowed_words": [{"word": "<borrowed word>", "own_word": "<its everyday word, or null>"}], "overview": "<the paragraph>"}. The list is empty when no entry holds such a word.',
++			);
+ 		}
+ 	});
+ 
++	it("asks for the list first and the paragraph second, lets an own word be null, and returns only the paragraph", async () => {
++		const { overview } = await modules();
++		const { calls, model } = recordingModel(() => "Freelance grafikus.", {
++			borrowed_words: [
++				{ word: "freelance", own_word: "szabaduszo" },
++				{ word: "boulderezik", own_word: null },
++			],
++		});
++		const text = await overview.composeMemoryOverview(
++			{ scopeKind: "personal", name: "Kata", language: "hu", entries: [] },
++			model,
++		);
++		expect(text).toBe("Freelance grafikus.");
++		const { schema } = calls[0];
++		expect(Object.keys(schema.properties as object)).toEqual([
++			"borrowed_words",
++			"overview",
++		]);
++		expect(schema).toMatchObject({
++			type: "object",
++			required: ["borrowed_words", "overview"],
++			additionalProperties: false,
++			properties: {
++				borrowed_words: {
++					type: "array",
++					items: {
++						type: "object",
++						properties: {
++							word: { type: "string" },
++							own_word: { type: ["string", "null"] },
++						},
++						required: ["word", "own_word"],
++						additionalProperties: false,
++					},
++				},
++				overview: { type: "string" },
++			},
++		});
++	});
++
+ 	// The first Overview left entries out on purpose ("the least important
+ 	// ones"); the owner wants none dropped (Config 3 round of the probe note).
+ 	it("asks to cover every subject and leave no entry out, in as many sentences as that takes up to ten", async () => {
+diff --git a/src/lib/server/services/memory-profile/overview.ts b/src/lib/server/services/memory-profile/overview.ts
+index 64b122745..5b49e9923 100644
+--- a/src/lib/server/services/memory-profile/overview.ts
++++ b/src/lib/server/services/memory-profile/overview.ts
+@@ -61,10 +61,32 @@ const SUBJECT_NAMES: Record<MemorySubject, string> = {
+ const LANGUAGE_NAMES = { en: "English", hu: "Hungarian" } as const;
+ type OverviewLanguage = keyof typeof LANGUAGE_NAMES;
+ 
++/**
++ * The model lists the borrowed words of the entries BEFORE it writes the
++ * paragraph (Config 3 round 3 of the probe note): asked only in the prompt, it
++ * copied "freelance" out of the entries in 4 of 5 Hungarian paragraphs, and a
++ * word it has just written is a word it uses. An own word is null unless one
++ * already exists in everyday use (round 2 let it coin one and it did). The list
++ * is thrown away: only `overview` is read, stored and shown.
++ */
+ const OVERVIEW_SCHEMA = {
+ 	type: "object",
+-	properties: { overview: { type: "string" } },
+-	required: ["overview"],
++	properties: {
++		borrowed_words: {
++			type: "array",
++			items: {
++				type: "object",
++				properties: {
++					word: { type: "string" },
++					own_word: { type: ["string", "null"] },
++				},
++				required: ["word", "own_word"],
++				additionalProperties: false,
++			},
++		},
++		overview: { type: "string" },
++	},
++	required: ["borrowed_words", "overview"],
+ 	additionalProperties: false,
+ };
+ 
+@@ -83,14 +105,14 @@ function overviewPrompt(
+ 			? "Write the short overview a person reads at the top of a project's Memory page: what is remembered about the project, as one paragraph."
+ 			: "Write the short overview a person reads at the top of their Memory page: what is remembered about them, as one paragraph.",
+ 		`Write the paragraph in ${LANGUAGE_NAMES[language]}.`,
+-		"Use that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. Copy no word from another language out of an entry, however common it has become (it is spelt the way that other language spells it): write this language's own everyday word for the same thing, and keep the borrowed word only when there is none.",
++		"Use that language's own everyday words: translate any term in the entries into it, but keep every name exactly as written, accents included. First list in borrowed_words every word of an entry that this language took from another language (it is spelt the way that other language spells it, however common it has become; a name is never one). Give a borrowed word an own_word only when this language already has an everyday word for exactly the same thing, one people use today; never coin, describe, translate literally or compound one. When you are not sure such a word exists, give null: a null is correct and a coined word is the worse fault. Write the paragraph with the own word where there is one, and with the entry's word as written where it is null.",
+ 		"Use only the entries given. Do not add, guess or generalise beyond them, and leave out what they do not say. Keep each detail with the entry it comes from: never move a time, place, name or number to another entry, and keep what is being learned, planned or looked for as learning, planning or looking.",
+ 		"An entry marked ongoing is under way now and one marked temporary is a passing state; present nothing as finished or past unless an entry says so.",
+ 		scopeKind === "project"
+ 			? "Refer to the project by its name when one is given."
+ 			: "Refer to the person by their name, in the third person, when a name is given; otherwise address them as you.",
+ 		"Cover every subject the entries are filed under, with at least one short, plain sentence for each, and leave no entry out: when a subject has several small entries, name each in a few words within one sentence rather than dropping any. Use as many sentences as that takes, never more than ten, each one simple, with no fact twice; no headings, lists, quotation marks or emphasis. Never mention memory, entries, lists or this task.",
+-		'Return JSON: {"overview": "<the paragraph>"}.',
++		'Return JSON: {"borrowed_words": [{"word": "<borrowed word>", "own_word": "<its everyday word, or null>"}], "overview": "<the paragraph>"}. The list is empty when no entry holds such a word.',
+ 	].join("\n");
+ }
+ 

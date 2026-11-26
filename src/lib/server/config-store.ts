@@ -11,7 +11,13 @@ import type { ModelId } from "$lib/model-types";
 import { db } from "./db";
 import { adminConfig } from "./db/schema";
 import type { ImageModel, ModelConfig } from "./env";
-import { config as envConfig } from "./env";
+import {
+	config as envConfig,
+	parseUnitInterval,
+	parseWholeDays,
+	parseWholeMinutes,
+	parseWholePercent,
+} from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 import {
 	getAvailableModelsWithProvidersForSettings,
@@ -137,6 +143,15 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_CONSOLIDATION_MODEL",
 	"MEMORY_JUDGE_IDLE_MINUTES",
 	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+	"MEMORY_RECALL_CORE_PERCENT",
+	"MEMORY_RECALL_PROJECT_PERCENT",
+	"MEMORY_TEMPORARY_EARLIER_DAYS",
+	"MEMORY_ONGOING_QUIET_DAYS",
+	"MEMORY_ONGOING_EARLIER_DAYS",
+	"MEMORY_EARLIER_RERANK_MIN",
+	"MEMORY_EARLIER_RERANK_WORD_MIN",
+	"MEMORY_RETAIN_WAIT_MINUTES",
+	"MEMORY_CONSOLIDATION_WAIT_MINUTES",
 	"HINDSIGHT_URL",
 	"HINDSIGHT_WORKER_ENABLED",
 	"HINDSIGHT_CONCURRENCY",
@@ -256,6 +271,15 @@ export interface RuntimeConfig {
 	memoryJudgeIdleMinutes: number;
 	memoryConsolidationIntervalMinutes: number;
 	memoryJudgeDryRun: boolean;
+	memoryRecallCorePercent: number;
+	memoryRecallProjectPercent: number;
+	memoryTemporaryEarlierDays: number;
+	memoryOngoingQuietDays: number;
+	memoryOngoingEarlierDays: number;
+	memoryEarlierRerankMin: number;
+	memoryEarlierRerankWordMin: number;
+	memoryRetainWaitMinutes: number;
+	memoryConsolidationWaitMinutes: number;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSynthesisModel: ModelId;
@@ -421,6 +445,15 @@ function buildDefaultConfig(): RuntimeConfig {
 		memoryConsolidationIntervalMinutes:
 			envConfig.memoryConsolidationIntervalMinutes,
 		memoryJudgeDryRun: envConfig.memoryJudgeDryRun,
+		memoryRecallCorePercent: envConfig.memoryRecallCorePercent,
+		memoryRecallProjectPercent: envConfig.memoryRecallProjectPercent,
+		memoryTemporaryEarlierDays: envConfig.memoryTemporaryEarlierDays,
+		memoryOngoingQuietDays: envConfig.memoryOngoingQuietDays,
+		memoryOngoingEarlierDays: envConfig.memoryOngoingEarlierDays,
+		memoryEarlierRerankMin: envConfig.memoryEarlierRerankMin,
+		memoryEarlierRerankWordMin: envConfig.memoryEarlierRerankWordMin,
+		memoryRetainWaitMinutes: envConfig.memoryRetainWaitMinutes,
+		memoryConsolidationWaitMinutes: envConfig.memoryConsolidationWaitMinutes,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		analyticsExcludedUserIds: [],
@@ -1117,6 +1150,50 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (Number.isFinite(n) && n > 0)
 			config.memoryConsolidationIntervalMinutes = n;
 	},
+	// A share that is not a whole percent from 0 to 100 leaves the current
+	// value: a typo must not hand the whole recall budget to one lane.
+	MEMORY_RECALL_CORE_PERCENT: (config, value) => {
+		const percent = parseWholePercent(value);
+		if (percent !== null) config.memoryRecallCorePercent = percent;
+	},
+	MEMORY_RECALL_PROJECT_PERCENT: (config, value) => {
+		const percent = parseWholePercent(value);
+		if (percent !== null) config.memoryRecallProjectPercent = percent;
+	},
+	// An aging threshold that is not a whole day count from 1 to 3650 leaves
+	// the current value: a typo must not make every entry Earlier at once.
+	MEMORY_TEMPORARY_EARLIER_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryTemporaryEarlierDays = days;
+	},
+	MEMORY_ONGOING_QUIET_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryOngoingQuietDays = days;
+	},
+	MEMORY_ONGOING_EARLIER_DAYS: (config, value) => {
+		const days = parseWholeDays(value);
+		if (days !== null) config.memoryOngoingEarlierDays = days;
+	},
+	// A floor that is not a plain decimal from 0 to 1 leaves the current value:
+	// a typo must not let every Earlier entry in, or none.
+	MEMORY_EARLIER_RERANK_MIN: (config, value) => {
+		const floor = parseUnitInterval(value);
+		if (floor !== null) config.memoryEarlierRerankMin = floor;
+	},
+	MEMORY_EARLIER_RERANK_WORD_MIN: (config, value) => {
+		const floor = parseUnitInterval(value);
+		if (floor !== null) config.memoryEarlierRerankWordMin = floor;
+	},
+	// A wait that is not a whole minute count from 1 to 1440 leaves the current
+	// value: a typo must not make every Memory job give up on Hindsight at once.
+	MEMORY_RETAIN_WAIT_MINUTES: (config, value) => {
+		const minutes = parseWholeMinutes(value);
+		if (minutes !== null) config.memoryRetainWaitMinutes = minutes;
+	},
+	MEMORY_CONSOLIDATION_WAIT_MINUTES: (config, value) => {
+		const minutes = parseWholeMinutes(value);
+		if (minutes !== null) config.memoryConsolidationWaitMinutes = minutes;
+	},
 	HINDSIGHT_CURATION_MODEL: (config, value) => {
 		config.hindsightCurationModel = /^(model[12]|provider:[^:]+:[^:]+)$/.test(
 			value.trim(),
@@ -1647,6 +1724,81 @@ export function getParallelFreeMonthlyUsd(): number {
 }
 
 /**
+ * Admin-configurable. The shares of each chat's memory space that native
+ * Memory recall keeps: `corePercent` for the person's basics and, in a project
+ * chat, `projectPercent` for that project's own memories. Whole percents from
+ * 0 to 100; what the message is about fills the rest.
+ */
+export function getMemoryRecallShares(): {
+	corePercent: number;
+	projectPercent: number;
+} {
+	return {
+		corePercent: runtimeConfig.memoryRecallCorePercent,
+		projectPercent: runtimeConfig.memoryRecallProjectPercent,
+	};
+}
+
+/**
+ * Admin-configurable. When native Memory entries age, in whole days: a
+ * temporary entry is Earlier `temporaryEarlierDays` after the later of its
+ * last mention and its event; an ongoing one is quiet `ongoingQuietDays` and
+ * Earlier `ongoingEarlierDays` after its last mention
+ * (`memory-profile/entry-time.ts`). An entry is never quiet after it is
+ * Earlier: a quiet threshold above the Earlier one (set so, or left behind by
+ * lowering Earlier below quiet's default) reads as the Earlier threshold, and
+ * such an entry goes from current straight to Earlier.
+ */
+export function getMemoryAgingThresholds(): {
+	temporaryEarlierDays: number;
+	ongoingQuietDays: number;
+	ongoingEarlierDays: number;
+} {
+	return {
+		temporaryEarlierDays: runtimeConfig.memoryTemporaryEarlierDays,
+		ongoingQuietDays: Math.min(
+			runtimeConfig.memoryOngoingQuietDays,
+			runtimeConfig.memoryOngoingEarlierDays,
+		),
+		ongoingEarlierDays: runtimeConfig.memoryOngoingEarlierDays,
+	};
+}
+
+/**
+ * Admin-configurable. The floors of the Earlier gate's reranker check
+ * (`memory-context/earlier-rerank.ts`), as scores from 0 to 1: an Earlier
+ * entry in its bank's top three joins a turn when the reranker scores it at or
+ * above `min`, or at or above `wordMin` when the words of the message mention
+ * it too. A word floor above the main floor would never matter, so it reads as
+ * the main floor.
+ */
+export function getMemoryEarlierRerank(): { min: number; wordMin: number } {
+	return {
+		min: runtimeConfig.memoryEarlierRerankMin,
+		wordMin: Math.min(
+			runtimeConfig.memoryEarlierRerankWordMin,
+			runtimeConfig.memoryEarlierRerankMin,
+		),
+	};
+}
+
+/**
+ * Admin-configurable. How long a Memory job waits for Hindsight to finish, in
+ * all, across its attempts (`memory-profile/delivery-policy.ts`): a retain,
+ * and a consolidation or the bank's quiet before a capture. Waiting spends
+ * none of the job's attempts; past this the job ends `native_operation_timeout`.
+ */
+export function getMemoryNativeWaits(): {
+	retainMs: number;
+	consolidationMs: number;
+} {
+	return {
+		retainMs: runtimeConfig.memoryRetainWaitMinutes * 60_000,
+		consolidationMs: runtimeConfig.memoryConsolidationWaitMinutes * 60_000,
+	};
+}
+
+/**
  * ADR 0063: the model configured for each Atlas v3 task. A `null` entry means
  * the task inherits ATLAS_SYNTHESIS_MODEL or ATLAS_AUDIT_MODEL; the inheritance
  * itself lives in `atlas-v3/config.ts` so the choice of which key a task falls
@@ -1925,6 +2077,19 @@ export function getResolvedAdminConfigValues(
 		MEMORY_JUDGE_IDLE_MINUTES: String(config.memoryJudgeIdleMinutes),
 		MEMORY_CONSOLIDATION_INTERVAL_MINUTES: String(
 			config.memoryConsolidationIntervalMinutes,
+		),
+		MEMORY_RECALL_CORE_PERCENT: String(config.memoryRecallCorePercent),
+		MEMORY_RECALL_PROJECT_PERCENT: String(config.memoryRecallProjectPercent),
+		MEMORY_TEMPORARY_EARLIER_DAYS: String(config.memoryTemporaryEarlierDays),
+		MEMORY_ONGOING_QUIET_DAYS: String(config.memoryOngoingQuietDays),
+		MEMORY_ONGOING_EARLIER_DAYS: String(config.memoryOngoingEarlierDays),
+		MEMORY_EARLIER_RERANK_MIN: toPlainDecimal(config.memoryEarlierRerankMin),
+		MEMORY_EARLIER_RERANK_WORD_MIN: toPlainDecimal(
+			config.memoryEarlierRerankWordMin,
+		),
+		MEMORY_RETAIN_WAIT_MINUTES: String(config.memoryRetainWaitMinutes),
+		MEMORY_CONSOLIDATION_WAIT_MINUTES: String(
+			config.memoryConsolidationWaitMinutes,
 		),
 		HINDSIGHT_URL: config.hindsightUrl,
 		HINDSIGHT_WORKER_ENABLED: String(config.hindsightWorkerEnabled),

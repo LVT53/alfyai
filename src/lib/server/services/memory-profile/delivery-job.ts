@@ -16,8 +16,8 @@ import type { Tx } from "../jobs/types";
 import {
 	NATIVE_BANK_CONFIG_LEGACY_UNKNOWN,
 	NATIVE_BANK_CONFIG_PENDING,
-	NATIVE_DELIVERY_ATTEMPT_LIMIT,
 } from "./contracts";
+import { decideMemoryDeliveryFailure } from "./delivery-policy";
 import {
 	type RepairPlan,
 	readDependencyRepairPlan,
@@ -27,23 +27,84 @@ import {
 import {
 	assertMemoryBankFence,
 	assertMemoryDependencySourceCurrent,
+	retainEndRecorded,
 } from "./revisions";
 
+/**
+ * A bank's work in flight, as the FROM and WHERE of a subquery over `flight`
+ * (the job) and `sent` (a chat delivery's source revision): a chat delivery
+ * whose chat was sent, or a person's action or a source cleanup that an
+ * attempt began and the failure policy put back (waiting on Hindsight, a
+ * counted retry, a lost worker; a Retry or an operator's reopen clears the
+ * code), or a chat delivery put back with a dependency repair in its
+ * checkpoint (an unchanged resend sends no chat, but its repair retains
+ * replacements). Hindsight may hold its writes while nothing published them.
+ * Any other chat put back before it was sent holds nothing there, so it
+ * holds no bank. `instr`, not `json_extract`: a malformed checkpoint must not
+ * throw inside the claim. Uncorrelated, so SQLite reads it once per claim,
+ * not once per queued row.
+ */
+const IN_FLIGHT = sql`
+	FROM memory_delivery_jobs flight
+	LEFT JOIN memory_source_revisions sent
+		ON flight.kind = 'source' AND sent.id = flight.source_id
+	WHERE flight.status = 'queued'
+		AND flight.bank_id IS NOT NULL
+		AND (
+			sent.native_submitted = 1
+			OR (flight.started_at IS NOT NULL
+				AND flight.error_code IS NOT NULL
+				AND (flight.kind IN ('action', 'source_cleanup')
+					OR (flight.kind = 'source'
+						AND instr(coalesce(flight.checkpoint_json, ''), '"dependencyRepair"') > 0)))
+		)`;
+
+/** Whether Memory jobs may run in this process: the worker switch, and no restore hold. */
+export function memoryDeliveryEnabled(): boolean {
+	const config = getConfig();
+	return config.hindsightWorkerEnabled && !config.hindsightRestoreHold;
+}
 export const memoryDeliveryJob = defineJobKind({
 	name: "memory",
 	logPrefix: "[MEMORY]",
 	tables: { jobs: memoryDeliveryJobs, attempts: memoryDeliveryAttempts },
-	enabled: () => {
-		const config = getConfig();
-		return config.hindsightWorkerEnabled && !config.hindsightRestoreHold;
-	},
+	enabled: memoryDeliveryEnabled,
 	// One active mutation per user is stricter than per-bank and prevents native bank overlap.
 	limits: () => ({ global: getConfig().hindsightConcurrency, perUser: 1 }),
 	lease: () => ({ heartbeatMs: 15_000, staleAfterMs: 120_000 }),
+	// A job put back mid-flight is queued, not running, yet its writes may sit
+	// in Hindsight unpublished, and publication refuses every observation on
+	// another chat's unpublished fact: an import's delivery waited on
+	// Hindsight, the next one was sent meanwhile, each refused the other's
+	// publication and every later delivery of the bank failed (2026-11-25).
+	// So while a bank has work in flight (`IN_FLIGHT`), only its first piece
+	// (a sent chat first, then the earliest started) may be claimed among its
+	// chat deliveries, and every new chat delivery waits behind it. A person's
+	// action and a source cleanup are never held: a pending Remove or Edit
+	// already holds the bank's publications until it ends
+	// (`assertCurationPublication`), so holding it behind a chat would leave
+	// each waiting for the other, and a cleanup takes a withdrawn chat out of
+	// Hindsight (it waits before its own repair writes anything while a chat
+	// is in flight). The runner checks again before a chat's first send
+	// (`unpublishedChats`), so a bank whose unpublished chat failed for good
+	// takes in no chat until it is repaired.
 	claimable: (jobs) =>
 		sql`NOT EXISTS (
 			SELECT 1 FROM memory_delivery_jobs running
 			WHERE running.bank_id = ${jobs.bankId} AND running.status = 'running'
+		) AND (
+			${jobs.kind} <> 'source'
+			OR ${jobs.bankId} NOT IN (SELECT flight.bank_id ${IN_FLIGHT})
+			OR ${jobs.id} IN (
+				SELECT id FROM (
+					SELECT flight.id AS id, row_number() OVER (
+						PARTITION BY flight.bank_id
+						ORDER BY coalesce(sent.native_submitted, 0) DESC,
+							flight.started_at IS NULL, flight.started_at, flight.rowid
+					) AS place
+					${IN_FLIGHT}
+				) WHERE place = 1
+			)
 		) AND (
 			${jobs.kind} = 'cleanup' OR NOT EXISTS (
 			SELECT 1 FROM memory_migration_manifests m
@@ -95,10 +156,9 @@ export const memoryDeliveryJob = defineJobKind({
 		code: "memory_worker_lost",
 		message: "Memory preparation was interrupted.",
 	}),
+	// Waiting on Hindsight spends no attempt; see delivery-policy.ts.
 	onFailure: (failure, history) =>
-		failure.retryable && history.attempts < NATIVE_DELIVERY_ATTEMPT_LIMIT
-			? { requeue: true, delayMs: Math.min(60_000, 5_000 * history.attempts) }
-			: { requeue: false, retryable: failure.retryable },
+		decideMemoryDeliveryFailure(failure, history),
 	userRetry: { from: ["failed"], requireRetryable: true },
 	handler: () => import("./delivery-runner").then((m) => m.runMemoryDelivery),
 });
@@ -331,6 +391,8 @@ export function bankCleanupInputs(
 							),
 						)
 						.all()
+						// An ended retain is never sent again: nothing to settle.
+						.filter((source) => !retainEndRecorded(source))
 						.map((source) => source.nativeOperationId)
 						.filter(Boolean),
 				]),

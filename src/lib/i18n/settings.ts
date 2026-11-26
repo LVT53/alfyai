@@ -1718,6 +1718,42 @@ const settingsDict = {
 			"Consolidation sweep",
 		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.meaning":
 			"How often stored memories are merged and tidied.",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.label":
+			"Basics share of recall (%)",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.meaning":
+			"Percent of each chat's memory space kept for the person's basics.",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.label":
+			"Project share of recall (%)",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
+			"In a project chat, percent of the memory space kept for that project's own memories.",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
+			"Wait for Memory to save a chat",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
+			"Minutes a Memory job waits for the memory service to finish reading a chat, or saving a Memory edit, before it gives up. Waiting uses none of the job's tries.",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
+			"Wait for Memory to sort its entries",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
+			"Minutes a Memory job waits for the memory service to merge new facts into entries, and to finish its work before a check, before it gives up. Waiting uses none of the job's tries.",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.label":
+			"Temporary memories fade after",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.meaning":
+			"Days after a temporary memory was last mentioned, or after its event if that is later, before it counts as earlier and is no longer brought up on its own.",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.label":
+			"Ongoing memories go quiet after",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.meaning":
+			"Days without anything new about an ongoing activity before it is marked quiet.",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.label":
+			"Ongoing memories fade after",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.meaning":
+			"Days without anything new about an ongoing activity before it counts as earlier and is no longer brought up on its own.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.label":
+			"Earlier memory: score that brings it back",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.meaning":
+			"How well the reranker must match an earlier memory to the person's message, from 0 to 1, for it to be brought up. Lower brings back more.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.label":
+			"Earlier memory: score when words match",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.meaning":
+			"A lower score, from 0 to 1, that is enough when the message also shares a significant word with the earlier memory. Never read above the score before it.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Maintenance sweep",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":
@@ -3941,6 +3977,42 @@ const settingsDict = {
 			"Összevonási körút",
 		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.meaning":
 			"Milyen gyakran vonjuk össze és rendezzük a tárolt emlékeket.",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.label":
+			"Alapadatok aránya (%)",
+		"admin.system.keys.MEMORY_RECALL_CORE_PERCENT.meaning":
+			"A beszélgetésenkénti memóriakeret hány százaléka jut a személy alapadataira.",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.label":
+			"Projekt aránya (%)",
+		"admin.system.keys.MEMORY_RECALL_PROJECT_PERCENT.meaning":
+			"Projektbeszélgetésben a memóriakeret hány százaléka jut a projekt saját emlékeire.",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.label":
+			"Várakozás egy beszélgetés mentésére",
+		"admin.system.keys.MEMORY_RETAIN_WAIT_MINUTES.meaning":
+			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás feldolgoz egy beszélgetést vagy egy szerkesztést, mielőtt feladja. A várakozás nem számít próbálkozásnak.",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.label":
+			"Várakozás a bejegyzések rendezésére",
+		"admin.system.keys.MEMORY_CONSOLIDATION_WAIT_MINUTES.meaning":
+			"Hány percig vár egy memóriafeladat, amíg a memóriaszolgáltatás beolvasztja az új tényeket a bejegyzésekbe, és befejezi a munkáját egy ellenőrzés előtt. A várakozás nem számít próbálkozásnak.",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.label":
+			"Átmeneti emlékek elhalványulása",
+		"admin.system.keys.MEMORY_TEMPORARY_EARLIER_DAYS.meaning":
+			"Hány nappal az utolsó említés után (vagy az esemény után, ha az későbbi) számít egy átmeneti emlék korábbinak, és nem kerül elő magától.",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.label":
+			"Folyamatban lévő emlékek csendessé válása",
+		"admin.system.keys.MEMORY_ONGOING_QUIET_DAYS.meaning":
+			"Hány nap kell új hír nélkül ahhoz, hogy egy folyamatban lévő tevékenység csendesnek számítson.",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.label":
+			"Folyamatban lévő emlékek elhalványulása",
+		"admin.system.keys.MEMORY_ONGOING_EARLIER_DAYS.meaning":
+			"Hány nap kell új hír nélkül ahhoz, hogy egy folyamatban lévő tevékenység korábbinak számítson, és ne kerüljön elő magától.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.label":
+			"Korábbi emlék visszahozása: pontszám",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_MIN.meaning":
+			"Mekkora pontszámot (0 és 1 között) kell adnia az újrarangsorolónak egy korábbi emléknek az üzenethez, hogy előkerüljön. Minél kisebb, annál több emlék tér vissza.",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.label":
+			"Korábbi emlék: pontszám egyező szavaknál",
+		"admin.system.keys.MEMORY_EARLIER_RERANK_WORD_MIN.meaning":
+			"Alacsonyabb pontszám (0 és 1 között), amely akkor is elég, ha az üzenet egy lényeges szót is megoszt a korábbi emlékkel. Az előző pontszámnál soha nem számít magasabbnak.",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
 			"Karbantartási körút",
 		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":

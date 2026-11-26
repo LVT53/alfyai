@@ -26,8 +26,8 @@
 // not hydrate (a page error, every input stays disabled) and the e2e run that follows spends
 // forty minutes failing on 15-second timeouts. Measured: check + build started together
 // broke the build, check started after it did not. So the build runs alone with respect to
-// those two; biome, the migration check and Fallow, which never touch `.svelte-kit/`, run
-// beside it. The build is about 16 s on its own.
+// those two; biome, the migration check, the Python tests and Fallow, which never touch
+// `.svelte-kit/`, run beside it. The build is about 16 s on its own.
 //
 // What the numbers mean and what the baselines are: docs/plans/claude-at-home-2/phase-5/common.md.
 import { spawn, spawnSync } from "node:child_process";
@@ -85,7 +85,9 @@ const BASELINE = {
 	// ToolActivityRow, ThinkingBlock and RouteItinerary were cleaned.)
 	buildUnusedCss: 0,
 	buildAria: 0,
-	fallowCircular: 4,
+	// Ratcheted to the one cycle left (chat-files, knowledge, memory-maintenance) when the
+	// baseline was made again on 2026-11-24; a cycle more fails the step.
+	fallowCircular: 1,
 	// The `check` section of the report the pinned Fallow made at the last accepted state of
 	// the tree. It lives in the repo, so every checkout and every agent compares with the same
 	// one; AGENTS.md ("Fallow Audit Gate") says when and how it is made again.
@@ -131,6 +133,7 @@ const STEP_ORDER = [
 	"check",
 	"biome",
 	"migrations",
+	"python",
 	"vitest",
 	"build",
 	"chunks",
@@ -167,6 +170,7 @@ function usage(message) {
 	console.error(
 		"usage: scripts/gates.sh <release|agent> <out-dir> [--workers N] [--port P] [--skip a,b] [--fallow-baseline F] [--schedule phased|overlap] [--base ref] [--all-unit-tests] [--no-fail-fast] [spec ...]",
 	);
+	console.error(`--skip takes the step names: ${STEP_ORDER.join(", ")}`);
 	process.exit(2);
 }
 
@@ -286,6 +290,27 @@ export function defineSteps(args) {
 			cmd: ["npm", "run", "check:migrations"],
 			parse: (log) => ({ ok: true, text: lastLine(log) }),
 		},
+		// The admission queue's Python tests (deploy/hindsight/README.md, "Python tests"): every
+		// test_admission_*.py there, which needs the standard library alone, so plain python3 runs
+		// them. The other Python tests in that folder need the pinned Hindsight image and stay out.
+		python: {
+			cmd: [
+				"python3",
+				"-B",
+				"-m",
+				"unittest",
+				"discover",
+				"-v",
+				"-s",
+				"deploy/hindsight",
+				"-t",
+				"deploy/hindsight",
+				"-p",
+				"test_admission_*.py",
+			],
+			env: { PYTHONDONTWRITEBYTECODE: "1" },
+			parse: parsePythonLog,
+		},
 		vitest: {
 			cmd: vitestCommand,
 			env: { ALFYAI_VITEST_REPORT: join(reportDir, "vitest.json") },
@@ -372,6 +397,44 @@ export function parseCheckLog(log) {
 		};
 	}
 	return { ok: false, text: lastLine(log) };
+}
+
+/**
+ * Python's unittest: the last `Ran N tests` line and the verdict under it. A run passes only when it
+ * ran a test and said OK, with or without skips. A pattern that found no file runs nothing, which
+ * Python 3.12 and later say as NO TESTS RAN and older ones as OK, so the count decides that.
+ */
+export function parsePythonLog(log) {
+	const text = stripAnsi(log);
+	const ran = [...text.matchAll(/^Ran (\d+) tests? in [\d.]+s$/gm)].at(-1);
+	if (!ran) return { ok: false, text: lastLine(log) || "no output" };
+	const tests = Number(ran[1]);
+	if (tests === 0) return { ok: false, text: "no tests ran" };
+	const counted = `${tests} test${tests === 1 ? "" : "s"}`;
+	const verdict =
+		text
+			.slice(ran.index + ran[0].length)
+			.split("\n")
+			.map((line) => line.trim())
+			.find(Boolean) ?? "";
+	const passed = verdict.match(/^OK(?: (\(.*\)))?$/);
+	if (passed) {
+		return {
+			ok: true,
+			text: `${counted} ok${passed[1] ? ` ${passed[1]}` : ""}`,
+		};
+	}
+	// unittest heads each failed test's report with `FAIL: name (where)` or `ERROR: name (where)`.
+	const failed = [...text.matchAll(/^((?:FAIL|ERROR): .+)$/gm)].map((match) =>
+		match[1].slice(0, 170),
+	);
+	return {
+		ok: false,
+		text: [
+			`${verdict || "no verdict"} in ${counted}`,
+			...failed.slice(0, 6).map((line) => `      ${line}`),
+		].join("\n"),
+	};
 }
 
 export function parseVitestLog(
@@ -871,9 +934,10 @@ export async function runSteps(
 	// The schedule. Every step is a lane of its own, so what the caller did not skip always runs:
 	// the build too, which was no lane and started only as the step another one waits for, so with
 	// check, vitest, chunks and playwright all skipped nothing asked for it and the gate ran
-	// nothing and passed. The build starts at once, with biome, the migration check and Fallow
-	// beside it (none of them touches `.svelte-kit/`); check, vitest and the chunk check start when
-	// the build is done (see the header: a sync during the build breaks the app it makes).
+	// nothing and passed. The build starts at once, with biome, the migration check, the Python
+	// tests and Fallow beside it (none of them touches `.svelte-kit/`); check, vitest and the
+	// chunk check start when the build is done (see the header: a sync during the build breaks
+	// the app it makes).
 	// Phased: the e2e run starts when vitest, which wants every core, is done, so the
 	// browsers do not share the machine with it. Overlap: nothing waits for vitest, which
 	// shares the machine on a few threads.

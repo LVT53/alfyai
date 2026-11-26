@@ -1,0 +1,131 @@
+// Reviewer-added probe (review F): does a provider stream that goes silent mid-stream still end
+// in bounded time now that the upstream idle watchdog (stream-idle-timeout.ts) is gone?
+import { describe, expect, it, vi } from "vitest";
+import {
+	type NormalChatOutputEvent,
+	projectNormalChatOutput,
+} from "$lib/shared/normal-chat-output";
+
+vi.mock("$lib/server/services/providers", () => ({
+	getProviderByName: async () => null,
+	getProviderWithSecrets: async () => null,
+	decryptApiKey: () => "synthetic",
+}));
+vi.mock("$lib/server/services/provider-models", () => ({
+	listEnabledProviderModels: async () => [],
+	getProviderModel: async () => null,
+}));
+
+import {
+	runPlainNormalChatModelRun,
+	runStreamingNormalChatModelRun,
+} from "$lib/server/services/normal-chat-model";
+
+const provider = {
+	id: "p",
+	name: "openai",
+	displayName: "Test",
+	baseUrl: "https://completion.invalid/v1",
+	modelName: "test",
+	apiKey: "synthetic",
+	requestTimeoutMs: 300000,
+	maxOutputTokens: 1000,
+	maxModelContext: 32000,
+};
+
+const sse = (delta: Record<string, unknown>, finish: string | null = null) =>
+	`data: ${JSON.stringify({ id: "r", object: "chat.completion.chunk", created: 1, model: "actual-test", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+
+function hungAfterFirstChunk(signal?: AbortSignal | null): Response {
+	const encoder = new TextEncoder();
+	return new Response(
+		new ReadableStream({
+			start(controller) {
+				controller.enqueue(encoder.encode(sse({ content: "Let me check." })));
+				// never enqueue again and never close: the provider has gone silent.
+				// Like undici's fetch, an aborted request errors its body stream.
+				signal?.addEventListener("abort", () =>
+					controller.error(signal.reason ?? new Error("aborted")),
+				);
+			},
+		}),
+		{ headers: { "content-type": "text/event-stream" } },
+	);
+}
+
+function closedAnswer(): Response {
+	return new Response(
+		[
+			sse({ content: "closed answer" }),
+			`data: ${JSON.stringify({ id: "r", object: "chat.completion.chunk", created: 1, model: "actual-test", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 } })}\n\ndata: [DONE]\n\n`,
+		].join(""),
+		{ headers: { "content-type": "text/event-stream" } },
+	);
+}
+
+describe("review F probe: silent provider stream", () => {
+	it("streaming: a stream that stalls after its first chunk is cut at the working deadline and closed", async () => {
+		const output: NormalChatOutputEvent[] = [];
+		let requests = 0;
+		const started = Date.now();
+		const events = [];
+		for await (const event of runStreamingNormalChatModelRun({
+			provider,
+			messages: [{ role: "user" as const, content: "Find it" }],
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 1200,
+				totalTimeoutMs: 800, // reserve = min(60000, floor(800/4)) = 200 ms
+				onOutputEvent: (e: NormalChatOutputEvent) => output.push(e),
+				forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
+			},
+			fetch: async (_url: unknown, init?: { signal?: AbortSignal | null }) =>
+				++requests === 1 ? hungAfterFirstChunk(init?.signal) : closedAnswer(),
+		}))
+			events.push(event);
+		const elapsed = Date.now() - started;
+		const projected = projectNormalChatOutput(output);
+		console.info("[review-F] streaming hung probe", {
+			elapsed,
+			requests,
+			answer: projected.answer,
+			activity: projected.activity.map((a) => a.text),
+			completion: output.filter((e) => e.type === "completion").length,
+		});
+		expect(elapsed).toBeLessThan(5000);
+	}, 20000);
+
+	it("plain: a body that never arrives is cut at the working deadline", async () => {
+		const output: NormalChatOutputEvent[] = [];
+		let requests = 0;
+		const started = Date.now();
+		const result = await runPlainNormalChatModelRun({
+			provider,
+			messages: [{ role: "user" as const, content: "Find it" }],
+			completionPolicy: {
+				turnId: "t",
+				segmentId: "s",
+				deadlineAt: Date.now() + 1200,
+				totalTimeoutMs: 800,
+				onOutputEvent: (e: NormalChatOutputEvent) => output.push(e),
+				forAttempt: () => ({ classifyExecution: () => "succeeded" as const }),
+			},
+			fetch: async (_url: unknown, init?: { signal?: AbortSignal | null }) => {
+				requests++;
+				if (requests > 1) return closedAnswer();
+				return await new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () =>
+						reject(init.signal?.reason ?? new Error("aborted")),
+					);
+				});
+			},
+		});
+		console.info("[review-F] plain hung probe", {
+			elapsed: Date.now() - started,
+			requests,
+			completion: result.completion,
+		});
+		expect(Date.now() - started).toBeLessThan(5000);
+	}, 20000);
+});
