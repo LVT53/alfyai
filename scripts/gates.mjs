@@ -218,6 +218,7 @@ export function parseArgs(argv) {
 			usage(`--skip: no step called "${name}" (${STEP_ORDER.join(", ")})`);
 		}
 	}
+	// Three representative agent changes averaged 2m37s phased and 4m21s overlapped.
 	args.schedule ??= mode === "release" ? "overlap" : "phased";
 	if (!["phased", "overlap"].includes(args.schedule)) {
 		usage('--schedule must be "phased" or "overlap"');
