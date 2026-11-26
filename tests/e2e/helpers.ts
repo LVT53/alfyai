@@ -1,4 +1,6 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+
+export { login, loginThroughForm, TEST_EMAIL, TEST_PASSWORD } from "./sign-in";
 
 /** Ordinary fake chat flows need room for the real prompt and complete tool catalogue.
  * Capacity-boundary specs configure their own models instead of using this helper. */
@@ -22,47 +24,6 @@ export async function configureFakeNormalChatCapacity(
 	expect(await response.json()).toMatchObject({
 		model: { id: modelId, maxModelContext: 131_072, maxTokens: 4_096 },
 	});
-}
-
-const TEST_EMAIL = process.env.E2E_EMAIL || "admin@local";
-const TEST_PASSWORD = process.env.E2E_PASSWORD || "admin123";
-
-export async function login(
-	page: Page,
-	email = TEST_EMAIL,
-	password = TEST_PASSWORD,
-) {
-	await test.step(
-		"sign in",
-		async () => {
-			await page.goto("/login", { waitUntil: "domcontentloaded" });
-			const result = await page.evaluate(
-				async ({ email: nextEmail, password: nextPassword }) => {
-					const response = await fetch("/api/auth/login", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ email: nextEmail, password: nextPassword }),
-					});
-
-					return {
-						ok: response.ok,
-						status: response.status,
-					};
-				},
-				{ email, password },
-			);
-
-			expect(result.ok, `Login failed with status ${result.status}`).toBe(true);
-			await page.goto("/", { waitUntil: "domcontentloaded" });
-			await expect(page.getByTestId("message-input")).toBeVisible({
-				timeout: 15000,
-			});
-			await expect(page.getByTestId("message-input")).toBeEnabled({
-				timeout: 15000,
-			});
-		},
-		{ box: true },
-	);
 }
 
 /**
@@ -467,8 +428,6 @@ export function buildAiSdkUiStreamBody(
 	);
 	return chunks.join("");
 }
-
-export { TEST_EMAIL, TEST_PASSWORD };
 
 /**
  * The open workspace panel's landmark name is the item it shows ("Trip notes,

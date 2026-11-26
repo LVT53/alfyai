@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, waitForHydration } from "./helpers";
+import { loginThroughForm, waitForHydration } from "./helpers";
 
 /**
  * What the app does once the server stops accepting this tab's session.
@@ -26,7 +26,7 @@ test.describe("Expired session", () => {
 	test("puts a row at the top of the app and says so when an action is refused", async ({
 		page,
 	}) => {
-		await login(page);
+		await loginThroughForm(page);
 		await waitForHydration(page);
 
 		// Nothing to see while the session is good.
@@ -73,7 +73,7 @@ test.describe("Expired session", () => {
 		page,
 		context,
 	}) => {
-		await login(page);
+		await loginThroughForm(page);
 		await waitForHydration(page);
 
 		await context.clearCookies();
@@ -91,7 +91,7 @@ test.describe("Expired session", () => {
 	test("sends the user to a login screen that explains itself", async ({
 		page,
 	}) => {
-		await login(page);
+		await loginThroughForm(page);
 		await waitForHydration(page);
 		await killSessionServerSide(page);
 
@@ -122,7 +122,7 @@ test.describe("Expired session", () => {
 	test("explains itself on a page navigation made with a dead session", async ({
 		page,
 	}) => {
-		await login(page);
+		await loginThroughForm(page);
 		await killSessionServerSide(page);
 
 		await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -146,7 +146,7 @@ test.describe("Expired session", () => {
 test("an authenticated response held across expiry cannot re-arm its announcement", async ({
 	page,
 }) => {
-	await login(page);
+	await loginThroughForm(page);
 	await waitForHydration(page);
 
 	let release!: () => void;

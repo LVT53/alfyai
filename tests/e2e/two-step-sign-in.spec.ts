@@ -5,7 +5,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
-import { login, logout } from "./helpers";
+import { login, loginThroughForm, logout } from "./helpers";
 
 /**
  * Two-step sign-in end to end: turning it on through all three steps, signing
@@ -287,7 +287,7 @@ test("turns two-step sign-in off with a backup code", async ({ page }) => {
 test("an admin resets the account's two-step sign-in", async ({ page }) => {
 	// The previous test turned it off, so the password alone opens a session
 	// (a plain login, not the two-step card).
-	await login(page, state.email, PASSWORD);
+	await loginThroughForm(page, state.email, PASSWORD);
 	await turnOn(page);
 	await logout(page);
 

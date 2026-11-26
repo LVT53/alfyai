@@ -23,6 +23,7 @@ import {
 import {
 	ensureSidebarExpanded,
 	login,
+	loginThroughForm,
 	logout,
 	waitForHydration,
 	waitForMotionToSettle,
@@ -423,7 +424,7 @@ test.describe("The tours' reader, where the panel sits over the Files dialog", (
 
 		// The first reader opens their first Canvas from the Files dialog and
 		// finishes its tour: the page now holds "seen" for Canvas.
-		await login(page, reader.email, reader.password);
+		await loginThroughForm(page, reader.email, reader.password);
 		const dialog = await openFilesDialog(page, readers.first.projectId);
 		await openButton(dialog, readers.first.names.canvas).click();
 		await finishTour(page);
