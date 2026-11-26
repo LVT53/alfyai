@@ -1,0 +1,20 @@
+Green pre-optimization coverage baseline on 2026-11-26. Existing swap means this is an observed run, outside the design’s idle-Mac timing criteria.
+
+gates release at ae4b83a34 Coordinate Mac gates and narrow agent verification — 16:36:59
+machine: 14 cores, load at start 4.4 6.9 7.9; e2e workers 6; schedule overlap
+queue: held
+check      exit=0 ok    1m08s (+24s) :: 0 errors, 0 warnings in 10429 files
+biome      exit=0 ok       2s (+0s) :: Found 1 info.
+migrations exit=0 ok       0s (+0s) :: All schema tables have corresponding migrations.
+vitest     exit=0 ok   15m30s (+24s) :: files 1510 passed | 2 skipped (1512) of 1,512; tests 29468 passed | 4 skipped (29472); chose: all (release gate); worker time: tests 1358s, import 604s, environment 584s, transform 76s, setup 51s
+build      exit=0 ok      24s (+0s) :: unused-css=0 aria=0 (baseline 0/0)
+chunks     exit=0 ok       2s (+24s) :: editor closure 70.2 kB gzip; chat route first paint 730300 B gzip in 106 chunks (information only)
+fallow     exit=0 ok       5s (+0s) :: total=1 circular=1 new_vs_baseline=0 gone_vs_baseline=3; fallow 3.33.1: health 86.9 (A), duplication 3.7%, 1,453,134 LOC (information only)
+playwright exit=0 ok   16m14s (+24s) :: 1731 passed, 77 skipped, 0 failed, 0 flaky on 6 workers
+      slowest: images-motion.spec.ts 6m41s, artifact-canvas.spec.ts 2m56s, artifact-canvas-charts.spec.ts 2m14s, artifact-canvas-multi-select.spec.ts 1m57s, artifact-canvas-review.spec.ts 1m54s
+      workers: 6, the first idle 3m35s before the end; sign-in 10m58s in all
+mac: priority 31 or higher throughout; swap 1770.88 MB at start, 2081.69 MB at peak; free memory down to 0.0 GB
+measured: no (1770.88 MB of swap in use at the start)
+before: no earlier release gate in the history
+total 16m39s; load at end 5.2 15.4 17.6; ALL GATES PASSED; over 10 minutes, but not a measured run
+logs: ../../../../../../../../../../tmp/alfyai-speed-frozen-baseline.OOQF2K/run-gONoRA

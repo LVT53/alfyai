@@ -1,0 +1,789 @@
+{
+  "playwright": {
+    "files": [
+      {
+        "file": "images-motion.spec.ts",
+        "ms": 400845
+      },
+      {
+        "file": "artifact-canvas.spec.ts",
+        "ms": 175665
+      },
+      {
+        "file": "artifact-canvas-charts.spec.ts",
+        "ms": 133689
+      },
+      {
+        "file": "artifact-canvas-multi-select.spec.ts",
+        "ms": 116920
+      },
+      {
+        "file": "artifact-canvas-review.spec.ts",
+        "ms": 114430
+      },
+      {
+        "file": "artifact-canvas-frame-group.spec.ts",
+        "ms": 108412
+      },
+      {
+        "file": "feature-guide.spec.ts",
+        "ms": 97708
+      },
+      {
+        "file": "artifact-canvas-draw.spec.ts",
+        "ms": 93143
+      },
+      {
+        "file": "artifact-canvas-comments.spec.ts",
+        "ms": 87271
+      },
+      {
+        "file": "artifact-canvas-frames.spec.ts",
+        "ms": 86096
+      },
+      {
+        "file": "artifact-document.spec.ts",
+        "ms": 85591
+      },
+      {
+        "file": "read-aloud.spec.ts",
+        "ms": 83594
+      },
+      {
+        "file": "artifact-panel-motion.spec.ts",
+        "ms": 82727
+      },
+      {
+        "file": "artifact-canvas-undo.spec.ts",
+        "ms": 77632
+      },
+      {
+        "file": "artifact-canvas-edit-inserted.spec.ts",
+        "ms": 71947
+      },
+      {
+        "file": "chat-edit.spec.ts",
+        "ms": 69187
+      },
+      {
+        "file": "ask-me-first.spec.ts",
+        "ms": 67929
+      },
+      {
+        "file": "artifact-canvas-live.spec.ts",
+        "ms": 66482
+      },
+      {
+        "file": "images.spec.ts",
+        "ms": 58320
+      },
+      {
+        "file": "chat-scroll-on-load.spec.ts",
+        "ms": 57976
+      },
+      {
+        "file": "artifact-canvas-friction-board.spec.ts",
+        "ms": 55151
+      },
+      {
+        "file": "app-frame-navigation.spec.ts",
+        "ms": 54681
+      },
+      {
+        "file": "artifact-canvas-blocks.spec.ts",
+        "ms": 49924
+      },
+      {
+        "file": "artifact-history.spec.ts",
+        "ms": 48996
+      },
+      {
+        "file": "artifact-app.spec.ts",
+        "ms": 48493
+      },
+      {
+        "file": "context-usage-ring-placement.spec.ts",
+        "ms": 47522
+      },
+      {
+        "file": "artifact-tours.spec.ts",
+        "ms": 46260
+      },
+      {
+        "file": "artifact-canvas-export.spec.ts",
+        "ms": 45752
+      },
+      {
+        "file": "artifact-canvas-edit-polish.spec.ts",
+        "ms": 44966
+      },
+      {
+        "file": "mermaid-hardening.spec.ts",
+        "ms": 44631
+      },
+      {
+        "file": "artifact-document-comments.spec.ts",
+        "ms": 44217
+      },
+      {
+        "file": "artifact-panel-history.spec.ts",
+        "ms": 43889
+      },
+      {
+        "file": "server-update.spec.ts",
+        "ms": 43666
+      },
+      {
+        "file": "app-webrtc-guard.spec.ts",
+        "ms": 43660
+      },
+      {
+        "file": "artifact-canvas-touchpad.spec.ts",
+        "ms": 42808
+      },
+      {
+        "file": "images-pipeline.spec.ts",
+        "ms": 41694
+      },
+      {
+        "file": "artifact-canvas-edit-reveal.spec.ts",
+        "ms": 41653
+      },
+      {
+        "file": "artifacts-panel-scope.spec.ts",
+        "ms": 41353
+      },
+      {
+        "file": "two-step-sign-in.spec.ts",
+        "ms": 40732
+      },
+      {
+        "file": "read-aloud-failures.spec.ts",
+        "ms": 39972
+      },
+      {
+        "file": "artifact-canvas-selection.spec.ts",
+        "ms": 38337
+      },
+      {
+        "file": "phone-polish.spec.ts",
+        "ms": 37115
+      },
+      {
+        "file": "artifact-document-keyboard.spec.ts",
+        "ms": 36738
+      },
+      {
+        "file": "artifact-canvas-keyboard.spec.ts",
+        "ms": 35611
+      },
+      {
+        "file": "artifact-document-friction.spec.ts",
+        "ms": 35082
+      },
+      {
+        "file": "project-panel-over-dialog.spec.ts",
+        "ms": 33873
+      },
+      {
+        "file": "artifact-canvas-unsaved-step.spec.ts",
+        "ms": 32928
+      },
+      {
+        "file": "artifact-canvas-pill.spec.ts",
+        "ms": 32770
+      },
+      {
+        "file": "images-video.spec.ts",
+        "ms": 31217
+      },
+      {
+        "file": "artifact-downloads.spec.ts",
+        "ms": 30646
+      },
+      {
+        "file": "artifact-document-review-bar.spec.ts",
+        "ms": 30572
+      },
+      {
+        "file": "artifact-tours-arrival.spec.ts",
+        "ms": 30398
+      },
+      {
+        "file": "images-composer.spec.ts",
+        "ms": 29589
+      },
+      {
+        "file": "read-aloud-voices.spec.ts",
+        "ms": 27090
+      },
+      {
+        "file": "artifact-canvas-app-drag.spec.ts",
+        "ms": 26280
+      },
+      {
+        "file": "artifact-canvas-perf.spec.ts",
+        "ms": 25789
+      },
+      {
+        "file": "artifact-canvas-fit-growth.spec.ts",
+        "ms": 25639
+      },
+      {
+        "file": "conversation.spec.ts",
+        "ms": 25545
+      },
+      {
+        "file": "artifact-versions.spec.ts",
+        "ms": 24874
+      },
+      {
+        "file": "turn-completion-contract.spec.ts",
+        "ms": 23596
+      },
+      {
+        "file": "chat-header-room.spec.ts",
+        "ms": 23414
+      },
+      {
+        "file": "context-relevance.spec.ts",
+        "ms": 23401
+      },
+      {
+        "file": "artifact-canvas-refit.spec.ts",
+        "ms": 22920
+      },
+      {
+        "file": "knowledge.spec.ts",
+        "ms": 22416
+      },
+      {
+        "file": "project-files.spec.ts",
+        "ms": 21717
+      },
+      {
+        "file": "sidebar-multi-select.spec.ts",
+        "ms": 21221
+      },
+      {
+        "file": "composer-outline-popover.spec.ts",
+        "ms": 21217
+      },
+      {
+        "file": "artifact-history-live.spec.ts",
+        "ms": 21031
+      },
+      {
+        "file": "read-aloud-document.spec.ts",
+        "ms": 20758
+      },
+      {
+        "file": "artifact-canvas-edit-phone.spec.ts",
+        "ms": 20445
+      },
+      {
+        "file": "artifact-canvas-alfy-blocks.spec.ts",
+        "ms": 19891
+      },
+      {
+        "file": "settings-connections.spec.ts",
+        "ms": 19826
+      },
+      {
+        "file": "images-viewer.spec.ts",
+        "ms": 19620
+      },
+      {
+        "file": "project-page.spec.ts",
+        "ms": 19382
+      },
+      {
+        "file": "settings-admin.spec.ts",
+        "ms": 19381
+      },
+      {
+        "file": "composer-direction-b.spec.ts",
+        "ms": 19103
+      },
+      {
+        "file": "feature-note.spec.ts",
+        "ms": 18943
+      },
+      {
+        "file": "images-history.spec.ts",
+        "ms": 18900
+      },
+      {
+        "file": "admin-users-campaigns.spec.ts",
+        "ms": 18239
+      },
+      {
+        "file": "read-aloud-report.spec.ts",
+        "ms": 18044
+      },
+      {
+        "file": "campaign-audience.spec.ts",
+        "ms": 17980
+      },
+      {
+        "file": "artifact-tours-empty-states.spec.ts",
+        "ms": 17705
+      },
+      {
+        "file": "incognito-indicator.spec.ts",
+        "ms": 16599
+      },
+      {
+        "file": "artifact-panel-swap.spec.ts",
+        "ms": 16414
+      },
+      {
+        "file": "artifacts-panel.spec.ts",
+        "ms": 15963
+      },
+      {
+        "file": "artifact-delete.spec.ts",
+        "ms": 15857
+      },
+      {
+        "file": "settings-admin-system.spec.ts",
+        "ms": 15794
+      },
+      {
+        "file": "atlas-job-flow.spec.ts",
+        "ms": 14979
+      },
+      {
+        "file": "everyday-redesign-screens.spec.ts",
+        "ms": 14800
+      },
+      {
+        "file": "artifact-card-arrival.spec.ts",
+        "ms": 14277
+      },
+      {
+        "file": "composer-command-v1.spec.ts",
+        "ms": 14171
+      },
+      {
+        "file": "chat-remote-resources.spec.ts",
+        "ms": 13915
+      },
+      {
+        "file": "artifact-panel-rows.spec.ts",
+        "ms": 13874
+      },
+      {
+        "file": "artifact-canvas-rail.spec.ts",
+        "ms": 13675
+      },
+      {
+        "file": "settings-profile-redesign.spec.ts",
+        "ms": 13390
+      },
+      {
+        "file": "composer-chips.spec.ts",
+        "ms": 13299
+      },
+      {
+        "file": "artifact-canvas-floats-narrow.spec.ts",
+        "ms": 12079
+      },
+      {
+        "file": "artifact-canvas-wobble.spec.ts",
+        "ms": 11418
+      },
+      {
+        "file": "images-video-card.spec.ts",
+        "ms": 11360
+      },
+      {
+        "file": "artifact-card-narrow.spec.ts",
+        "ms": 11350
+      },
+      {
+        "file": "search-modal.spec.ts",
+        "ms": 11329
+      },
+      {
+        "file": "artifact-chat-card.spec.ts",
+        "ms": 11291
+      },
+      {
+        "file": "file-fragmentation.spec.ts",
+        "ms": 11278
+      },
+      {
+        "file": "responsive-verification.spec.ts",
+        "ms": 11075
+      },
+      {
+        "file": "streaming.spec.ts",
+        "ms": 11026
+      },
+      {
+        "file": "artifact-canvas-floating.spec.ts",
+        "ms": 10920
+      },
+      {
+        "file": "memory-replacement.spec.ts",
+        "ms": 10808
+      },
+      {
+        "file": "follow-up-chips.spec.ts",
+        "ms": 10536
+      },
+      {
+        "file": "chat.spec.ts",
+        "ms": 10340
+      },
+      {
+        "file": "artifact-canvas-phone-board.spec.ts",
+        "ms": 9870
+      },
+      {
+        "file": "artifact-document-selection-bubble.spec.ts",
+        "ms": 9565
+      },
+      {
+        "file": "artifact-document-touch-targets.spec.ts",
+        "ms": 9541
+      },
+      {
+        "file": "chat-scroller.spec.ts",
+        "ms": 9535
+      },
+      {
+        "file": "home-compact.spec.ts",
+        "ms": 9265
+      },
+      {
+        "file": "artifact-tours-admin.spec.ts",
+        "ms": 9109
+      },
+      {
+        "file": "artifact-panel-popover-press.spec.ts",
+        "ms": 9107
+      },
+      {
+        "file": "write-confirm.spec.ts",
+        "ms": 8399
+      },
+      {
+        "file": "artifact-history-presses.spec.ts",
+        "ms": 8359
+      },
+      {
+        "file": "conversation-refresh.spec.ts",
+        "ms": 8157
+      },
+      {
+        "file": "conversation-title-refresh.spec.ts",
+        "ms": 7649
+      },
+      {
+        "file": "artifact-document-prose.spec.ts",
+        "ms": 7467
+      },
+      {
+        "file": "attachment-modal.spec.ts",
+        "ms": 7337
+      },
+      {
+        "file": "mobile-scale.spec.ts",
+        "ms": 7215
+      },
+      {
+        "file": "chat-turn-files.spec.ts",
+        "ms": 7164
+      },
+      {
+        "file": "home-projects.spec.ts",
+        "ms": 6094
+      },
+      {
+        "file": "document-type.spec.ts",
+        "ms": 5949
+      },
+      {
+        "file": "knowledge-sidebar-clipping.spec.ts",
+        "ms": 5942
+      },
+      {
+        "file": "core-user-flows-smoke.spec.ts",
+        "ms": 5825
+      },
+      {
+        "file": "admin-last-active.spec.ts",
+        "ms": 5634
+      },
+      {
+        "file": "responsive.spec.ts",
+        "ms": 5550
+      },
+      {
+        "file": "retry-cleanup.spec.ts",
+        "ms": 5211
+      },
+      {
+        "file": "auth.spec.ts",
+        "ms": 5170
+      },
+      {
+        "file": "instructions-dialog.spec.ts",
+        "ms": 4964
+      },
+      {
+        "file": "file-drag-drop.spec.ts",
+        "ms": 4847
+      },
+      {
+        "file": "artifact-app-chat-edit.spec.ts",
+        "ms": 4776
+      },
+      {
+        "file": "mobile-design.spec.ts",
+        "ms": 4744
+      },
+      {
+        "file": "branding.spec.ts",
+        "ms": 4683
+      },
+      {
+        "file": "artifact-panel-grid.spec.ts",
+        "ms": 4471
+      },
+      {
+        "file": "stream-reconnect-failure.spec.ts",
+        "ms": 4439
+      },
+      {
+        "file": "instruction-suggestions.spec.ts",
+        "ms": 4389
+      },
+      {
+        "file": "chat-one-card-per-item.spec.ts",
+        "ms": 4139
+      },
+      {
+        "file": "images-picture-filter.spec.ts",
+        "ms": 3982
+      },
+      {
+        "file": "map-route-card.spec.ts",
+        "ms": 3761
+      },
+      {
+        "file": "chat-failed-tool-row.spec.ts",
+        "ms": 3710
+      },
+      {
+        "file": "artifact-canvas-pill-phone.spec.ts",
+        "ms": 3695
+      },
+      {
+        "file": "instruction-command.spec.ts",
+        "ms": 3608
+      },
+      {
+        "file": "full-user-journey.test.ts",
+        "ms": 3455
+      },
+      {
+        "file": "session-expiry.spec.ts",
+        "ms": 3434
+      },
+      {
+        "file": "time-zone.spec.ts",
+        "ms": 3293
+      },
+      {
+        "file": "vision.spec.ts",
+        "ms": 3253
+      },
+      {
+        "file": "artifact-panel-names.spec.ts",
+        "ms": 3146
+      },
+      {
+        "file": "dialog-focus-trap.spec.ts",
+        "ms": 3145
+      },
+      {
+        "file": "first-message-handoff.spec.ts",
+        "ms": 3134
+      },
+      {
+        "file": "files-strip.spec.ts",
+        "ms": 3123
+      },
+      {
+        "file": "integration-big-patch.spec.ts",
+        "ms": 2929
+      },
+      {
+        "file": "login.test.ts",
+        "ms": 2740
+      },
+      {
+        "file": "send-with-enter.spec.ts",
+        "ms": 2588
+      },
+      {
+        "file": "artifact-tours-api.spec.ts",
+        "ms": 2580
+      },
+      {
+        "file": "report-preview-images.spec.ts",
+        "ms": 2433
+      },
+      {
+        "file": "live-citation-audit.spec.ts",
+        "ms": 2423
+      },
+      {
+        "file": "sidebar-expand-helper.spec.ts",
+        "ms": 2346
+      },
+      {
+        "file": "chatgpt-import.spec.ts",
+        "ms": 2343
+      },
+      {
+        "file": "images-switch.spec.ts",
+        "ms": 2319
+      },
+      {
+        "file": "live-evidence-metadata.spec.ts",
+        "ms": 2315
+      },
+      {
+        "file": "fake-provider-chat.spec.ts",
+        "ms": 2282
+      },
+      {
+        "file": "settings-profile-model-layout.spec.ts",
+        "ms": 2255
+      },
+      {
+        "file": "source-provenance.spec.ts",
+        "ms": 2255
+      },
+      {
+        "file": "pdf-preview-size.spec.ts",
+        "ms": 2178
+      },
+      {
+        "file": "context-usage-ring-popover.spec.ts",
+        "ms": 2170
+      },
+      {
+        "file": "conversation-forks.spec.ts",
+        "ms": 1975
+      },
+      {
+        "file": "chat-type.spec.ts",
+        "ms": 1513
+      },
+      {
+        "file": "skill-draft-live.spec.ts",
+        "ms": 1501
+      },
+      {
+        "file": "instruction-suggestion-live.spec.ts",
+        "ms": 1496
+      },
+      {
+        "file": "artifact-keep-title.spec.ts",
+        "ms": 1288
+      },
+      {
+        "file": "artifact-library-delete.spec.ts",
+        "ms": 1194
+      },
+      {
+        "file": "project-file-tool-read-live.spec.ts",
+        "ms": 1192
+      },
+      {
+        "file": "jump-to-latest-workspace.spec.ts",
+        "ms": 980
+      },
+      {
+        "file": "home-memory-review-notice.spec.ts",
+        "ms": 799
+      },
+      {
+        "file": "atlas-report-preview.spec.ts",
+        "ms": 205
+      },
+      {
+        "file": "artifacts-api.spec.ts",
+        "ms": 23
+      },
+      {
+        "file": "e2e-sqlite-immediate.spec.ts",
+        "ms": 0
+      }
+    ],
+    "workers": [
+      {
+        "slot": 0,
+        "endMs": 765470
+      },
+      {
+        "slot": 1,
+        "endMs": 772283
+      },
+      {
+        "slot": 2,
+        "endMs": 968307
+      },
+      {
+        "slot": 3,
+        "endMs": 753390
+      },
+      {
+        "slot": 4,
+        "endMs": 801138
+      },
+      {
+        "slot": 5,
+        "endMs": 763757
+      }
+    ],
+    "tailMs": 214917,
+    "signInMs": 658025
+  },
+  "vitest": {
+    "split": {
+      "transform": 76.76,
+      "setup": 51.4,
+      "import": 604.14,
+      "tests": 1358.74,
+      "environment": 584.52
+    },
+    "slowest": [
+      {
+        "file": "src/lib/server/services/images/files.test.ts",
+        "ms": 55828.425048828125
+      },
+      {
+        "file": "src/lib/server/services/memory-profile/migration.integration.test.ts",
+        "ms": 42294.449951171875
+      },
+      {
+        "file": "src/lib/server/services/images/image-runner.test.ts",
+        "ms": 37910.370361328125
+      },
+      {
+        "file": "src/routes/(app)/chat/[conversationId]/page-runtime.test.ts",
+        "ms": 31229.178466796875
+      },
+      {
+        "file": "src/lib/server/services/images/video/runner.test.ts",
+        "ms": 27212.46533203125
+      }
+    ]
+  }
+}
