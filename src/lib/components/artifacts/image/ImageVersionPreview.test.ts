@@ -147,7 +147,7 @@ describe("ImageVersionPreview Attach", () => {
 
 	// The version's prompt arrives with it, under the row, and the row moves up by the
 	// prompt's height. A row that moves as it is about to be pressed is a layout shift
-	// (images-motion.spec.ts "move nothing": the strip frame opens History on a version
+	// (images-motion-panel.spec.ts "move nothing": the strip frame opens History on a version
 	// whose body is still on its way). The row is hidden, not removed, until the first
 	// version has loaded: it keeps its room and nothing visible moves.
 	describe("while the first version is on its way", () => {

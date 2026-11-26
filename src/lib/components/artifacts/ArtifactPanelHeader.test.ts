@@ -213,7 +213,7 @@ describe("ArtifactPanelHeader", () => {
 	// A button that steps aside (Comments and Download while History is open) must not
 	// move the box that holds the others. A box as wide as its buttons, behind a spacer,
 	// loses its left edge when one goes, and the browser counts that as a layout shift
-	// (the strip frame in the Image panel, images-motion.spec.ts "move nothing").
+	// (the strip frame in the Image panel, images-motion-panel.spec.ts "move nothing").
 	describe("the box the actions sit in stays where it is when a button steps aside", () => {
 		const style = readFileSync(
 			join(

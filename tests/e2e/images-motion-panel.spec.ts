@@ -1,0 +1,2336 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, type Page, test } from "@playwright/test";
+import sharp from "sharp";
+import {
+	AI_SMOKE_LATE_CARD_FINAL_TEXT,
+	AI_SMOKE_LATE_CARD_MARKER,
+} from "../fixtures/ai/late-card-scenario";
+import {
+	AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT,
+	AI_SMOKE_CHANGE_PICTURE_MARKER,
+} from "../fixtures/ai/late-picture-scenario";
+import {
+	assistantAnswer,
+	expectTerminalActivityGone,
+} from "./artifact-live-edit.helpers";
+import {
+	createTourUser,
+	IMAGE_ITEM_TITLE,
+	markToursSeen,
+	openItem,
+	reopenChat,
+	seedImageItem,
+	startChatAs,
+} from "./artifact-tours-helpers";
+import { sendMessage, waitForMotionToSettle } from "./helpers";
+import {
+	boxes,
+	CARD,
+	closeFlow,
+	DESKTOP,
+	DOC_BODY,
+	doubleTap,
+	expectHistoryShown,
+	type Flow,
+	fakeProvider,
+	firstSeen,
+	historyButton,
+	MOBILE_SHELL,
+	makePicture,
+	mark,
+	momentOf,
+	newChat,
+	nextFrame,
+	OUT_DIR,
+	openFlow,
+	openSeededFlow,
+	openSeededItem,
+	PANEL_LOADED,
+	PHONE,
+	type SeededFlow,
+	saveRecording,
+	seedDocumentHistory,
+	seedPictureHistory,
+	settle,
+	sizeDrift,
+} from "./images-motion-helpers";
+import {
+	type MotionFrame,
+	type MotionRun,
+	profile,
+	shiftSum,
+	startRecording,
+	stopRecording,
+	type TrackedBox,
+} from "./panel-motion-helpers";
+
+// ---------------------------------------------------------------------------
+// Plan 2b T3: the picture in the panel (MOTION-PARITY, F19, F23, F24).
+//
+// The Image opens in the family's panel, `DocumentWorkspace`, as a body; the
+// open, dock, expand and phone sheet are the shell's. What is held here: the
+// chat and the panel move on the same curve as for the Document (measured in
+// the same run, side by side), the picture's box never re-flows while the dock
+// opens (F24), Before / After and a strip frame move nothing, pinch-zoom moves
+// only `transform` on a phone and keeps the sheet open, and a version that lands
+// while the panel is open swaps the picture in place (F23).
+// ---------------------------------------------------------------------------
+
+const PANEL_FRAME = '[data-testid="image-body-frame"]';
+
+const PANEL_TRACK = {
+	frame: PANEL_FRAME,
+	loaded: PANEL_LOADED,
+	docBody: DOC_BODY,
+	mobileShell: MOBILE_SHELL,
+	strip: '[data-testid="image-version-strip"]',
+	toolbar: ".image-body-toolbar",
+	/** The shell's own content box, whatever kind it holds: what a re-flow would move. */
+	content: "aside.workspace-shell-desktop > .workspace-content",
+};
+
+/** The shell's content box at rest, after a step has settled. */
+async function settledContent(page: Page) {
+	const box = await page.locator(PANEL_TRACK.content).first().boundingBox();
+	return box ? { width: box.width, height: box.height } : null;
+}
+
+/** What the panel's motion is made of, one kind's run: the chat, the panel, the curve, what else moved. */
+function measurePanel(run: MotionRun) {
+	const chat = profile(run.frames, "chatW");
+	const panel = profile(run.frames, "panelW");
+	const shell = boxes(run.frames, "mobileShell");
+	const shellFirst = firstSeen(run.frames, "mobileShell");
+	const frameFrom = firstSeen(run.frames, "frame");
+	const end = Math.max(chat.settledAt, panel.settledAt, run.inputAt ?? 0) + 120;
+	const real = run.transitions.filter((entry) => entry.duration >= 1);
+	return {
+		chat: {
+			travel: chat.total,
+			maxStepFraction: chat.maxStepFraction,
+			between: chat.between,
+			movedAt: chat.movedAt,
+			settledAt: chat.settledAt,
+			durationMs: chat.movedAt < 0 ? 0 : chat.settledAt - chat.movedAt,
+		},
+		panel: {
+			travel: panel.total,
+			maxStepFraction: panel.maxStepFraction,
+			between: panel.between,
+			durationMs: panel.movedAt < 0 ? 0 : panel.settledAt - panel.movedAt,
+		},
+		phoneSheet:
+			shellFirst < 0
+				? null
+				: {
+						firstSeenMs: run.frames[shellFirst].t - (run.inputAt ?? 0),
+						opacityFrames: shell.map((box) => Number(box.opacity.toFixed(3))),
+						transforms: [...new Set(shell.map((box) => box.transform))],
+					},
+		frameDrift:
+			frameFrom < 0 ? null : sizeDrift(run.frames.slice(frameFrom), "frame"),
+		frameFirstSeenMs:
+			frameFrom < 0 ? null : run.frames[frameFrom].t - (run.inputAt ?? 0),
+		pictureLoadedMs: (() => {
+			const at = momentOf(run, "loaded");
+			return at === null ? null : at - (run.inputAt ?? 0);
+		})(),
+		cls: shiftSum(run),
+		clsNoInput: shiftSum(run, { ignoreRecentInput: true }),
+		shifts: run.shifts,
+		longFramesInMotion: run.longFrames.filter(
+			(frame) =>
+				frame.t + frame.duration >= (run.inputAt ?? 0) && frame.t <= end,
+		),
+		longFramesAll: run.longFrames,
+		transitions: [
+			...new Map(
+				real.map((entry) => [
+					`${entry.property}|${entry.target}`,
+					{
+						property: entry.property,
+						target: entry.target,
+						duration: entry.duration,
+						easing: entry.easing,
+					},
+				]),
+			).values(),
+		],
+		animations: run.animations.map((entry) => ({
+			target: entry.target,
+			properties: entry.properties,
+			duration: entry.duration,
+			easing: entry.easing,
+		})),
+	};
+}
+
+type PanelMetrics = ReturnType<typeof measurePanel>;
+
+/**
+ * What belongs to the picture, by the recorder's target names. The shell's own
+ * motion (the column's width, the content's fade) is compared with the
+ * Document's instead; the chat's hover and focus colours (a card, the composer,
+ * the count button) are the chat's, the same for both kinds.
+ */
+const PICTURE_PART = /^(image-body|image-picture|image-version)/;
+
+/** A picture piece that animates anything but transform and opacity (MOTION-PARITY 3). */
+function unsafePictureTransitions(metrics: PanelMetrics) {
+	return metrics.transitions.filter(
+		(entry) =>
+			PICTURE_PART.test(entry.target) &&
+			entry.property !== "opacity" &&
+			entry.property !== "transform",
+	);
+}
+
+/** The Image's numbers against the Document's, the same interaction: same curve, same timing. */
+function compareKinds(image: PanelMetrics, document: PanelMetrics) {
+	// The shell's own motion: what moves the column and what fades its content in.
+	const curves = (metrics: PanelMetrics) =>
+		[
+			...metrics.transitions
+				.filter((entry) => /^workspace/.test(entry.target))
+				.map(
+					(entry) =>
+						`${entry.target} ${entry.property} ${Math.round(entry.duration)}ms ${entry.easing}`,
+				),
+			...metrics.animations
+				.filter((entry) => /^workspace/.test(entry.target))
+				.map(
+					(entry) =>
+						`${entry.target} ${entry.properties.join("+")} ${Math.round(entry.duration)}ms ${entry.easing}`,
+				),
+		].sort();
+	return {
+		chatDurationDeltaMs: image.chat.durationMs - document.chat.durationMs,
+		panelDurationDeltaMs: image.panel.durationMs - document.panel.durationMs,
+		imageCurves: [...new Set(curves(image))],
+		documentCurves: [...new Set(curves(document))],
+	};
+}
+
+/** Asks Alfy to change the picture, and waits for the change's card to show its picture. */
+async function changePicture(flow: Flow, artifactId: string) {
+	const { page } = flow;
+	const before = await assistantAnswer(page)
+		.getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT)
+		.count();
+	await sendMessage(page, `${AI_SMOKE_CHANGE_PICTURE_MARKER} ${artifactId}`);
+	await expect(
+		assistantAnswer(page).getByText(AI_SMOKE_CHANGE_PICTURE_FINAL_TEXT),
+	).toHaveCount(before + 1, { timeout: 45_000 });
+	await expectTerminalActivityGone(page);
+}
+
+/** Makes a Document through the chat's late card, the side-by-side's other kind. */
+async function makeDocument(flow: Flow) {
+	await newChat(flow);
+	await sendMessage(flow.page, AI_SMOKE_LATE_CARD_MARKER);
+	await expect(flow.page.locator(CARD)).toBeVisible({ timeout: 30_000 });
+	await expect(
+		assistantAnswer(flow.page).getByText(AI_SMOKE_LATE_CARD_FINAL_TEXT, {
+			exact: false,
+		}),
+	).toBeVisible({ timeout: 30_000 });
+	await expectTerminalActivityGone(flow.page);
+}
+
+const isPhoneFlow = (flow: Flow) =>
+	(flow.page.viewportSize()?.width ?? 1440) < 768;
+
+/** The open panel, whichever surface shows it. */
+function shellOf(flow: Flow) {
+	return isPhoneFlow(flow)
+		? flow.page.locator(MOBILE_SHELL)
+		: flow.page.locator("aside.workspace-shell-desktop");
+}
+
+/** Opens the newest card's item from its head, recording, and waits for its body to be drawn. */
+async function openFromCard(flow: Flow, kind: "image" | "document") {
+	const { page } = flow;
+	await settle(page);
+	await startRecording(page, PANEL_TRACK);
+	mark(flow, `open-${kind}`);
+	await page.locator(CARD).last().getByTestId("artifact-card-head").click();
+	await expect(shellOf(flow)).toBeVisible();
+	await expect(
+		page
+			.locator(kind === "image" ? PANEL_LOADED : `${DOC_BODY}:visible`)
+			.first(),
+	).toBeVisible({ timeout: 20_000 });
+	await settle(page);
+	return measurePanel(await stopRecording(page));
+}
+
+async function closePanel(flow: Flow, kind: "image" | "document") {
+	const { page } = flow;
+	await startRecording(page, PANEL_TRACK);
+	mark(flow, `close-${kind}`);
+	await page.locator(".workspace-close-button:visible").first().click();
+	await expect(shellOf(flow)).toHaveCount(0);
+	await settle(page);
+	return measurePanel(await stopRecording(page));
+}
+
+/** The bars the Document's own panel spec holds, held for whichever kind opened. */
+function holdOpen(metrics: PanelMetrics, phone: boolean, reduced: boolean) {
+	// MOTION-PARITY holds long frames during transitions; under reduced motion none
+	// runs (asserted on its own), and the Document's editor mounting there once took
+	// 50.3 ms with nothing moving.
+	if (!reduced) {
+		expect(
+			metrics.longFramesInMotion,
+			"a frame over 50 ms while the panel moved",
+		).toEqual([]);
+	}
+	expect(
+		unsafePictureTransitions(metrics),
+		"the picture animated something other than transform/opacity",
+	).toEqual([]);
+	if (phone || reduced) return;
+	expect(metrics.chat.travel, "the chat did not make room").toBeGreaterThan(
+		300,
+	);
+	expect(
+		metrics.chat.maxStepFraction,
+		"the chat went to its width in one frame",
+	).toBeLessThan(0.5);
+	expect(
+		metrics.chat.between,
+		"the chat was never seen on its way",
+	).toBeGreaterThanOrEqual(4);
+}
+
+function holdClose(metrics: PanelMetrics, phone: boolean, reduced: boolean) {
+	// MOTION-PARITY holds long frames during transitions; under reduced motion none
+	// runs (asserted on its own), and the Document's editor mounting there once took
+	// 50.3 ms with nothing moving.
+	if (!reduced) {
+		expect(
+			metrics.longFramesInMotion,
+			"a frame over 50 ms while the panel moved",
+		).toEqual([]);
+	}
+	expect(unsafePictureTransitions(metrics)).toEqual([]);
+	if (phone || reduced) return;
+	expect(metrics.chat.travel).toBeGreaterThan(300);
+	expect(metrics.chat.maxStepFraction).toBeLessThan(0.5);
+	expect(metrics.chat.between).toBeGreaterThanOrEqual(3);
+}
+
+/**
+ * The Image against the Document, the same open and close: the Document holds its
+ * own bars, the Image adds no shift it does not have, takes the same time (one
+ * sampler frame either way, where the column moves) and runs the shell on the
+ * same curves, on every surface.
+ */
+function holdSideBySide(
+	image: { open: PanelMetrics; close: PanelMetrics },
+	document: { open: PanelMetrics; close: PanelMetrics },
+	noColumn: boolean,
+) {
+	holdOpen(document.open, noColumn, noColumn);
+	holdClose(document.close, noColumn, noColumn);
+	expect(image.open.clsNoInput).toBeLessThanOrEqual(
+		Math.max(0.01, document.open.clsNoInput + 0.005),
+	);
+	for (const step of ["open", "close"] as const) {
+		if (!noColumn) {
+			expect(
+				Math.abs(image[step].chat.durationMs - document[step].chat.durationMs),
+				`${step}: the picture's panel took another time`,
+			).toBeLessThanOrEqual(34);
+		}
+		// The shell's own curves (the column's width, the content's fade).
+		const side = compareKinds(image[step], document[step]);
+		expect(
+			side.imageCurves,
+			`${step}: the panel ran on another curve for the picture`,
+		).toEqual(side.documentCurves);
+	}
+}
+
+test.describe("the picture in the panel moves like the Document's (T3)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	const OPENS = [
+		{
+			name: "open-close-desktop-light",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			document: true,
+		},
+		{
+			name: "open-close-desktop-dark",
+			viewport: DESKTOP,
+			colorScheme: "dark",
+			document: false,
+		},
+		{
+			name: "open-close-phone-light",
+			viewport: PHONE,
+			colorScheme: "light",
+			document: true,
+		},
+		{
+			name: "open-close-phone-dark",
+			viewport: PHONE,
+			colorScheme: "dark",
+			document: false,
+		},
+		{
+			name: "open-close-desktop-reduced-motion",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			reducedMotion: "reduce",
+			document: true,
+		},
+	] as const;
+
+	for (const variant of OPENS) {
+		test(`${variant.name}: the picture opens from its card into the panel and closes on the Document's curve`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const reduced = "reducedMotion" in variant;
+			const options = {
+				viewport: variant.viewport,
+				colorScheme: variant.colorScheme,
+				reducedMotion: reduced ? ("reduce" as const) : undefined,
+			};
+			const phone = variant.viewport.width < 768;
+			const results: Record<string, PanelMetrics> = {};
+
+			// The Document first, recorded the same way: the side-by-side's reference.
+			if (variant.document) {
+				const docFlow = await openFlow(
+					browser,
+					testInfo.project.use.baseURL as string,
+					options,
+				);
+				try {
+					await makeDocument(docFlow);
+					results.documentOpen = await openFromCard(docFlow, "document");
+					await docFlow.page.waitForTimeout(300);
+					results.documentClose = await closePanel(docFlow, "document");
+				} finally {
+					await closeFlow(docFlow, `document-${variant.name}`, results, {
+						prefix: "t3",
+						segments: ["open-document", "close-document"],
+					});
+				}
+				expect(docFlow.errors, "the page logged an error").toEqual([]);
+			}
+
+			const flow = await openFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				options,
+			);
+			let metrics: Record<string, unknown> = {};
+			try {
+				await makePicture(flow);
+				results.imageOpen = await openFromCard(flow, "image");
+				await flow.page.waitForTimeout(300);
+				results.imageClose = await closePanel(flow, "image");
+				metrics = {
+					imageOpen: results.imageOpen,
+					imageClose: results.imageClose,
+					...(results.documentOpen
+						? {
+								openSideBySide: compareKinds(
+									results.imageOpen,
+									results.documentOpen,
+								),
+								closeSideBySide: compareKinds(
+									results.imageClose,
+									results.documentClose,
+								),
+							}
+						: {}),
+				};
+			} finally {
+				await closeFlow(flow, variant.name, metrics, {
+					prefix: "t3",
+					segments: ["open-image", "close-image"],
+				});
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+
+			const { imageOpen, imageClose } = results;
+			holdOpen(imageOpen, phone, reduced);
+			holdClose(imageClose, phone, reduced);
+			// F24: the picture's box is laid out once; the dock's motion never re-flows it.
+			expect(
+				imageOpen.frameDrift?.w ?? 0,
+				"the picture re-flowed while the panel opened",
+			).toBeLessThanOrEqual(0.5);
+			expect(imageOpen.frameDrift?.h ?? 0).toBeLessThanOrEqual(0.5);
+			if (reduced) {
+				expect(
+					imageOpen.chat.between,
+					"the chat was seen part-way under reduced motion",
+				).toBeLessThanOrEqual(1);
+				expect(
+					imageOpen.transitions,
+					"a transition ran under reduced motion",
+				).toEqual([]);
+			}
+			if (results.documentOpen) {
+				holdSideBySide(
+					{ open: imageOpen, close: imageClose },
+					{ open: results.documentOpen, close: results.documentClose },
+					phone || reduced,
+				);
+			}
+		});
+	}
+});
+
+/**
+ * How a tracked box's size moves over the frames, per side: every distinct
+ * value, how many frames changed it (by more than half a pixel), and whether
+ * every change went the same way.
+ */
+function contentChanges(frames: MotionFrame[], name: string) {
+	const seen = boxes(frames, name);
+	const side = (pick: (box: TrackedBox) => number) => {
+		const values = seen.map((box) => Math.round(pick(box) * 10) / 10);
+		const steps = values
+			.slice(1)
+			.map((value, index) => value - values[index])
+			.filter((step) => Math.abs(step) > 0.5);
+		return {
+			changes: steps.length,
+			monotonic:
+				steps.every((step) => step > 0) || steps.every((step) => step < 0),
+			first: values[0] ?? 0,
+			last: values.at(-1) ?? 0,
+			values: values.filter(
+				(value, index) => index === 0 || value !== values[index - 1],
+			),
+		};
+	};
+	return {
+		frames: seen.length,
+		width: side((box) => box.w),
+		height: side((box) => box.h),
+		x: side((box) => box.x),
+		y: side((box) => box.y),
+	};
+}
+
+/** How far a tracked box's top moved from its first frame, in px. */
+function topDrift(frames: MotionFrame[], name: string): number {
+	const seen = boxes(frames, name);
+	if (seen.length === 0) return 0;
+	return Math.max(...seen.map((box) => Math.abs(box.y - seen[0].y)));
+}
+
+/** Layout shifts of the panel's own pieces (the chat beside it streams and scrolls on its own). */
+const PANEL_SOURCES =
+	/^(image-body|image-picture|image-version|workspace|page-scroll-container|artifact-panel)/;
+
+function panelShifts(run: MotionRun) {
+	return run.shifts
+		.filter((entry) =>
+			(entry.sources ?? []).some((source) => PANEL_SOURCES.test(source)),
+		)
+		.reduce((sum, entry) => sum + entry.value, 0);
+}
+
+function pictureTransitions(run: MotionRun) {
+	const seen = run.transitions.filter(
+		(entry) => PICTURE_PART.test(entry.target) && entry.duration >= 1,
+	);
+	return {
+		properties: [...new Set(seen.map((entry) => entry.property))],
+		other: seen.filter(
+			(entry) => entry.property !== "opacity" && entry.property !== "transform",
+		),
+	};
+}
+
+/** The src of the picture the panel shows. */
+async function panelPictureSrc(page: Page) {
+	return page
+		.locator(
+			'[data-testid="image-body-picture"] [data-testid="image-picture-after"]',
+		)
+		.last()
+		.getAttribute("src");
+}
+
+test.describe("the picture in the panel: dock, versions, phone (T3)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	test("dock-expand: the picture's panel expands and docks on the Document's curve", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(180_000);
+		const runs: Record<string, Record<string, unknown>> = {};
+		const measureDock = async (flow: Flow, kind: "image" | "document") => {
+			const { page } = flow;
+			await openFromCard(flow, kind);
+			await settle(page);
+			await startRecording(page, PANEL_TRACK);
+			mark(flow, `expand-${kind}`);
+			await page.locator(".workspace-expand-button:visible").first().click();
+			await expect(
+				page.locator(".workspace-shell-expanded:visible"),
+			).toHaveCount(1);
+			await settle(page);
+			const expand = await stopRecording(page);
+			const expandSettled = await settledContent(page);
+			await startRecording(page, PANEL_TRACK);
+			mark(flow, `dock-${kind}`);
+			await page
+				.locator(".workspace-shell-expanded:visible")
+				.getByRole("button", { name: /to the docked workspace/ })
+				.click();
+			await expect(page.locator(".workspace-shell-expanded")).toHaveCount(0);
+			await settle(page);
+			const dock = await stopRecording(page);
+			const dockSettled = await settledContent(page);
+			// What the panel holds: the picture's own box, or the Document's text block.
+			const content = kind === "image" ? "frame" : "docBody";
+			return {
+				expand: {
+					...measurePanel(expand),
+					content: contentChanges(expand.frames, content),
+					shellContent: contentChanges(expand.frames, "content"),
+					settled: expandSettled,
+				},
+				dock: {
+					...measurePanel(dock),
+					content: contentChanges(dock.frames, content),
+					shellContent: contentChanges(dock.frames, "content"),
+					settled: dockSettled,
+				},
+			};
+		};
+
+		const docFlow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{
+				viewport: DESKTOP,
+			},
+		);
+		try {
+			await makeDocument(docFlow);
+			runs.document = await measureDock(docFlow, "document");
+		} finally {
+			await closeFlow(docFlow, "document-dock-expand", runs, {
+				prefix: "t3",
+				segments: ["expand-document", "dock-document"],
+			});
+		}
+		const flow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{
+				viewport: DESKTOP,
+			},
+		);
+		try {
+			await makePicture(flow);
+			runs.image = await measureDock(flow, "image");
+			const image = runs.image as unknown as Record<
+				"expand" | "dock",
+				PanelMetrics
+			>;
+			const document = runs.document as unknown as Record<
+				"expand" | "dock",
+				PanelMetrics
+			>;
+			runs.sideBySide = {
+				expand: compareKinds(image.expand, document.expand),
+				dock: compareKinds(image.dock, document.dock),
+			};
+		} finally {
+			await closeFlow(flow, "dock-expand", runs, {
+				prefix: "t3",
+				segments: ["expand-image", "dock-image"],
+			});
+		}
+		expect(docFlow.errors).toEqual([]);
+		expect(flow.errors).toEqual([]);
+		type DockRun = Record<
+			"expand" | "dock",
+			PanelMetrics & {
+				content: ReturnType<typeof contentChanges>;
+				shellContent: ReturnType<typeof contentChanges>;
+				settled: { width: number; height: number } | null;
+			}
+		>;
+		const image = runs.image as unknown as DockRun;
+		const document = runs.document as unknown as DockRun;
+		// The shell holds what the panel shows at its final size while its edges move:
+		// for both kinds the content box changes size at most once (when the hold
+		// starts), or moves one way only; never a re-flow through every frame.
+		for (const [kind, run] of [
+			["image", image],
+			["document", document],
+		] as const) {
+			for (const step of ["expand", "dock"] as const) {
+				// The shell's content box itself, for every kind: its size changes once
+				// per step at most (when the hold starts), its place moves one way, and
+				// where it ends is where it rests (no hold left behind).
+				const shell = run[step].shellContent;
+				expect(
+					shell.frames,
+					`${kind} ${step}: no shell content box`,
+				).toBeGreaterThan(0);
+				for (const side of ["width", "height"] as const) {
+					expect(
+						shell[side].changes,
+						`${kind} ${step}: the panel's content ${side} re-flowed (${shell[side].values.join(", ")})`,
+					).toBeLessThanOrEqual(1);
+				}
+				for (const axis of ["x", "y"] as const) {
+					expect(
+						shell[axis].monotonic,
+						`${kind} ${step}: the panel's content went back and forth in ${axis} (${shell[axis].values.join(", ")})`,
+					).toBe(true);
+				}
+				expect(
+					run[step].settled,
+					`${kind} ${step}: no content at rest`,
+				).not.toBeNull();
+				expect(
+					Math.abs(shell.width.last - (run[step].settled?.width ?? 0)),
+					`${kind} ${step}: the last width is not the resting width`,
+				).toBeLessThanOrEqual(0.5);
+				expect(
+					Math.abs(shell.height.last - (run[step].settled?.height ?? 0)),
+					`${kind} ${step}: the last height is not the resting height`,
+				).toBeLessThanOrEqual(0.5);
+				const box = run[step].content;
+				expect(box.frames, `${kind} ${step}: no content box`).toBeGreaterThan(
+					0,
+				);
+				for (const side of ["width", "height"] as const) {
+					expect(
+						box[side].changes <= 1 || box[side].monotonic,
+						`${kind} ${step}: the content's ${side} re-flowed (${box[side].values.join(", ")})`,
+					).toBe(true);
+				}
+			}
+		}
+		// Expanding gives the picture more room, never less (the panel is wider and
+		// nothing of the body's sits above the picture).
+		expect(
+			image.expand.content.width.last,
+			"the expanded picture is smaller than the docked one",
+		).toBeGreaterThan(image.expand.content.width.first);
+		for (const step of ["expand", "dock"] as const) {
+			const side = compareKinds(image[step], document[step]);
+			expect(
+				side.imageCurves,
+				`${step}: another curve for the picture`,
+			).toEqual(side.documentCurves);
+			expect(image[step].longFramesInMotion, `${step}: a long frame`).toEqual(
+				[],
+			);
+			expect(unsafePictureTransitions(image[step])).toEqual([]);
+			expect(
+				image[step].panel.travel,
+				`${step}: the panel did not change size`,
+			).toBeGreaterThan(300);
+			expect(
+				image[step].panel.maxStepFraction,
+				`${step}: the panel cut`,
+			).toBeLessThan(0.5);
+			expect(
+				Math.abs(
+					image[step].panel.durationMs - document[step].panel.durationMs,
+				),
+				`${step}: the picture's panel took another time`,
+			).toBeLessThanOrEqual(34);
+			expect(image[step].clsNoInput).toBeLessThanOrEqual(
+				Math.max(0.01, document[step].clsNoInput + 0.005),
+			);
+		}
+	});
+
+	test("before-after-and-strip: Before / After and a strip frame in the panel move nothing", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(200_000);
+		const flow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{
+				viewport: DESKTOP,
+			},
+		);
+		const { page } = flow;
+		let metrics: Record<string, unknown> = {};
+		try {
+			const { artifactId } = await makePicture(flow);
+			await changePicture(flow, artifactId);
+			await openFromCard(flow, "image");
+			await expect(page.getByTestId("image-version-frame")).toHaveCount(2, {
+				timeout: 15_000,
+			});
+			await settle(page);
+
+			await startRecording(page, PANEL_TRACK);
+			mark(flow, "before");
+			await page.getByTestId("image-body-before").click();
+			await expect(
+				page.locator(
+					'[data-testid="image-body-picture"] [data-testid="image-picture-before"].is-loaded',
+				),
+			).toBeVisible();
+			await expect(
+				page.getByTestId("image-body-picture").getByTestId("image-picture"),
+			).toHaveAttribute("data-showing", "before");
+			await page.waitForTimeout(300);
+			mark(flow, "after");
+			await page.getByTestId("image-body-after").click();
+			await expect(
+				page.getByTestId("image-body-picture").getByTestId("image-picture"),
+			).toHaveAttribute("data-showing", "after");
+			await settle(page);
+			const flip = await stopRecording(page);
+
+			await startRecording(page, PANEL_TRACK);
+			mark(flow, "strip");
+			await page.getByTestId("image-version-frame").first().click();
+			// T4: the frame opens History on its version; the body stays where it is under it.
+			await expectHistoryShown(page, "image");
+			await settle(page);
+			const strip = await stopRecording(page);
+			metrics = {
+				flip: {
+					cls: shiftSum(flip),
+					shifts: flip.shifts,
+					frameDrift: sizeDrift(flip.frames, "frame"),
+					frameTopDrift: topDrift(flip.frames, "frame"),
+					longFrames: flip.longFrames,
+					transitions: pictureTransitions(flip),
+				},
+				strip: {
+					cls: shiftSum(strip),
+					frameDrift: sizeDrift(strip.frames, "frame"),
+					stripTopDrift: topDrift(strip.frames, "strip"),
+					longFrames: strip.longFrames,
+					transitions: pictureTransitions(strip),
+					// T4: the frame's press opens History (HISTORY_PREVIEWS.image).
+					historyOpened: await page.getByTestId("artifact-history").count(),
+				},
+			};
+		} finally {
+			await closeFlow(flow, "before-after-and-strip", metrics, {
+				prefix: "t3",
+				segments: ["before", "after", "strip"],
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		const flip = metrics.flip as {
+			cls: number;
+			frameDrift: { w: number; h: number };
+			frameTopDrift: number;
+			longFrames: unknown[];
+			transitions: { other: unknown[]; properties: string[] };
+		};
+		expect(flip.cls).toBe(0);
+		expect(flip.frameDrift.w).toBeLessThanOrEqual(0.5);
+		expect(flip.frameDrift.h).toBeLessThanOrEqual(0.5);
+		expect(flip.frameTopDrift).toBeLessThanOrEqual(0.5);
+		expect(flip.longFrames).toEqual([]);
+		expect(flip.transitions.other).toEqual([]);
+		const strip = metrics.strip as typeof flip & {
+			stripTopDrift: number;
+			historyOpened: number;
+		};
+		expect(strip.historyOpened, "the frame did not open History").toBe(1);
+		expect(strip.cls).toBe(0);
+		expect(strip.frameDrift.h).toBeLessThanOrEqual(0.5);
+		expect(strip.stripTopDrift).toBeLessThanOrEqual(0.5);
+		expect(strip.longFrames).toEqual([]);
+		expect(strip.transitions.other).toEqual([]);
+	});
+
+	test("new-version-while-open: a version landing while the panel is open swaps the picture in place (F23)", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(200_000);
+		const flow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{
+				viewport: DESKTOP,
+			},
+		);
+		const { page } = flow;
+		let metrics: Record<string, unknown> = {};
+		try {
+			const { artifactId } = await makePicture(flow);
+			await openFromCard(flow, "image");
+			const first = await panelPictureSrc(page);
+			await settle(page);
+			await startRecording(page, PANEL_TRACK);
+			mark(flow, "send-change");
+			await changePicture(flow, artifactId);
+			await expect
+				.poll(() => panelPictureSrc(page), {
+					message: "the panel shows the new version",
+					timeout: 20_000,
+				})
+				.not.toBe(first);
+			mark(flow, "swapped");
+			await expect(page.locator(PANEL_LOADED).last()).toBeVisible();
+			await expect(page.getByTestId("image-version-frame")).toHaveCount(2);
+			await expect(page.getByTestId("image-body-before")).toBeVisible();
+			await settle(page);
+			const run = await stopRecording(page);
+			metrics = {
+				panelCls: panelShifts(run),
+				shifts: run.shifts,
+				frameDrift: sizeDrift(run.frames, "frame"),
+				frameTopDrift: topDrift(run.frames, "frame"),
+				stripTopDrift: topDrift(run.frames, "strip"),
+				stripHeightDrift: sizeDrift(run.frames, "strip").h,
+				transitions: pictureTransitions(run),
+				longFramesAll: run.longFrames,
+			};
+		} finally {
+			await closeFlow(flow, "new-version-while-open", metrics, {
+				prefix: "t3",
+				segments: ["send-change", "swapped"],
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		expect(metrics.panelCls).toBe(0);
+		expect(
+			(metrics.frameDrift as { w: number; h: number }).h,
+		).toBeLessThanOrEqual(0.5);
+		expect(metrics.frameTopDrift).toBeLessThanOrEqual(0.5);
+		expect(metrics.stripTopDrift).toBeLessThanOrEqual(0.5);
+		expect(metrics.stripHeightDrift).toBeLessThanOrEqual(0.5);
+		const swap = metrics.transitions as {
+			other: unknown[];
+			properties: string[];
+		};
+		expect(swap.other).toEqual([]);
+		// The new picture crosses over the old one (a fade), never a cut.
+		expect(swap.properties).toContain("opacity");
+	});
+
+	test("phone-pinch: on a phone the panel is the full-screen sheet, and two fingers zoom the picture", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(180_000);
+		const flow = await openFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{
+				viewport: PHONE,
+			},
+		);
+		const { page } = flow;
+		let metrics: Record<string, unknown> = {};
+		try {
+			await makePicture(flow);
+			metrics.open = await openFromCard(flow, "image");
+			const stage = await page.getByTestId("image-body-stage").boundingBox();
+			if (!stage) throw new Error("no stage on screen");
+			const shellBefore = await page.locator(MOBILE_SHELL).boundingBox();
+			const cx = stage.x + stage.width / 2;
+			const cy = stage.y + stage.height / 2;
+			const client = await page.context().newCDPSession(page);
+			const touch = (type: string, points: Array<{ x: number; y: number }>) =>
+				client.send("Input.dispatchTouchEvent", {
+					type,
+					touchPoints: points.map((point, id) => ({ ...point, id })),
+				});
+			const scaleOf = async () =>
+				page.getByTestId("image-body-frame").evaluate((frame) => {
+					const transform = getComputedStyle(frame).transform;
+					return transform === "none" ? 1 : new DOMMatrix(transform).a;
+				});
+
+			await startRecording(page, PANEL_TRACK);
+			mark(flow, "pinch");
+			await touch("touchStart", [
+				{ x: cx - 40, y: cy },
+				{ x: cx + 40, y: cy },
+			]);
+			for (let step = 1; step <= 10; step++) {
+				const spread = 40 + step * 4;
+				await touch("touchMove", [
+					{ x: cx - spread, y: cy },
+					{ x: cx + spread, y: cy },
+				]);
+				await nextFrame(page);
+			}
+			await touch("touchEnd", []);
+			await waitForMotionToSettle(page);
+			const zoomed = await scaleOf();
+			const shellAfter = await page.locator(MOBILE_SHELL).boundingBox();
+			mark(flow, "double-tap");
+			// The two taps carry their own times, 80 ms apart: what the page reads
+			// as their gap (event.timeStamp) is then never the harness's dispatch
+			// latency, which under load can pass the 300 ms double-tap window.
+			await doubleTap(client, { x: cx, y: cy });
+			await expect.poll(scaleOf, { timeout: 5_000 }).toBe(1);
+			await waitForMotionToSettle(page);
+			const reset = await scaleOf();
+			const run = await stopRecording(page);
+			metrics = {
+				...metrics,
+				zoomed,
+				reset,
+				sheetStillOpen: await page.locator(MOBILE_SHELL).isVisible(),
+				shellMoved:
+					shellBefore && shellAfter
+						? Math.abs(shellAfter.y - shellBefore.y)
+						: null,
+				cls: shiftSum(run),
+				longFrames: run.longFrames,
+				transitions: pictureTransitions(run),
+				frameTransitions: run.transitions.filter(
+					(entry) => entry.target === "image-body-frame",
+				),
+			};
+		} finally {
+			await closeFlow(flow, "phone-pinch", metrics, {
+				prefix: "t3",
+				segments: ["pinch", "double-tap"],
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		// The fingers spread from 80 px to 160 px: twice the size.
+		expect(metrics.zoomed as number).toBeGreaterThan(1.8);
+		expect(metrics.zoomed as number).toBeLessThanOrEqual(2.05);
+		expect(metrics.reset).toBe(1);
+		expect(metrics.sheetStillOpen).toBe(true);
+		expect(metrics.shellMoved).toBe(0);
+		expect(metrics.cls).toBe(0);
+		expect(metrics.longFrames).toEqual([]);
+		expect((metrics.transitions as { other: unknown[] }).other).toEqual([]);
+	});
+});
+
+test.describe("the versions strip on a phone (final review B-I5)", () => {
+	for (const variant of [
+		{ name: "phone-strip-current", reducedMotion: "no-preference" },
+		{ name: "phone-strip-current-reduced-motion", reducedMotion: "reduce" },
+	] as const) {
+		test(`${variant.name}: with five versions the current one shows whole, and the side that hides frames fades`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(120_000);
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{ viewport: PHONE, reducedMotion: variant.reducedMotion },
+				// Each later version a take the reader picked: one frame each.
+				(user, chatId) =>
+					seedImageItem(user, chatId, {
+						versions: 5,
+						authorOf: () => "picked",
+					}),
+			);
+			const { page } = flow;
+			let metrics: Record<string, unknown> = {};
+			try {
+				await openItem(page, IMAGE_ITEM_TITLE);
+				await expect(page.locator(PANEL_LOADED).last()).toBeVisible({
+					timeout: 20_000,
+				});
+				await expect(page.getByTestId("image-version-frame")).toHaveCount(5);
+				mark(flow, "strip");
+				await settle(page);
+				metrics = await page
+					.getByTestId("image-version-strip")
+					.last()
+					.evaluate((strip) => {
+						const box = strip.getBoundingClientRect();
+						const current = strip.querySelector('[aria-current="true"]');
+						const frame = current?.getBoundingClientRect() ?? null;
+						return {
+							strip: { left: box.left, right: box.right },
+							current: frame && { left: frame.left, right: frame.right },
+							currentWhole:
+								frame !== null &&
+								frame.left >= box.left - 0.5 &&
+								frame.right <= box.right + 0.5,
+							overflows: strip.scrollWidth > strip.clientWidth + 1,
+							fadeStart: strip.classList.contains("fade-start"),
+							fadeEnd: strip.classList.contains("fade-end"),
+							mask: getComputedStyle(strip).maskImage,
+						};
+					});
+			} finally {
+				await saveRecording(flow, variant.name, metrics, { prefix: "t3" });
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+			expect(metrics.overflows, "five frames overflow a phone's row").toBe(
+				true,
+			);
+			expect(metrics.currentWhole, "the current version is cut").toBe(true);
+			// The current (newest) frame is last: the hidden frames are at the start.
+			expect(metrics.fadeStart).toBe(true);
+			expect(metrics.fadeEnd).toBe(false);
+			expect(metrics.mask).toContain("linear-gradient");
+		});
+	}
+});
+
+test.describe("the picture panel's foot row on a narrow phone (T3b)", () => {
+	test("phone-foot-360-hu: the versions strip and Before / After share one row at 360 px in Hungarian, with 44 px targets", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(120_000);
+		const viewport = { width: 360, height: 780 };
+		const context = await browser.newContext({
+			baseURL: testInfo.project.use.baseURL as string,
+			viewport,
+			hasTouch: true,
+			isMobile: true,
+			recordVideo: OUT_DIR
+				? { dir: join(OUT_DIR, ".raw"), size: viewport }
+				: undefined,
+		});
+		const page = await context.newPage();
+		const errors: string[] = [];
+		page.on("pageerror", (error) => errors.push(error.message));
+		let metrics: Record<string, unknown> = {};
+		try {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const chatId = await startChatAs(page, user);
+			// Two versions, the newest made from the first: a Before, and a strip.
+			await seedImageItem(user, chatId, { versions: 2 });
+			await reopenChat(page, chatId);
+			await openItem(page, IMAGE_ITEM_TITLE);
+			await expect(page.locator(PANEL_LOADED).last()).toBeVisible({
+				timeout: 20_000,
+			});
+			await expect(page.getByTestId("image-version-frame")).toHaveCount(2);
+			const foot = page.getByTestId("image-body-foot").last();
+			await expect(foot.getByRole("button", { name: "Előtte" })).toBeVisible();
+			await waitForMotionToSettle(page);
+			await page.waitForTimeout(400);
+			metrics = await foot.evaluate((row) => {
+				const rect = (element: Element | null) =>
+					element ? element.getBoundingClientRect() : null;
+				const strip = row.querySelector(".image-body-strip");
+				const tools = row.querySelector(".image-body-toolbar");
+				// A button that is not drawn (the strip's Attach dot, hidden on touch) is no target.
+				const drawn = [...row.querySelectorAll("button")].filter(
+					(button) => button.getClientRects().length > 0,
+				);
+				const buttons = drawn.map((button) => {
+					const box = button.getBoundingClientRect();
+					return {
+						label:
+							button.getAttribute("aria-label") ?? button.textContent?.trim(),
+						width: box.width,
+						height: box.height,
+						left: box.left,
+						right: box.right,
+						clipped: button.scrollWidth > button.clientWidth + 0.5,
+					};
+				});
+				const rowBox = row.getBoundingClientRect();
+				const stripBox = rect(strip);
+				// The tools are items of the row, not a box of their own (`display:
+				// contents`): their extent is that of Before / After and Mark together.
+				const toolRects = tools
+					? [...tools.children].map((child) => child.getBoundingClientRect())
+					: [];
+				const toolsBox =
+					toolRects.length > 0
+						? {
+								left: Math.min(...toolRects.map((box) => box.left)),
+								right: Math.max(...toolRects.map((box) => box.right)),
+							}
+						: null;
+				return {
+					row: { left: rowBox.left, right: rowBox.right, width: rowBox.width },
+					rowOverflows: row.scrollWidth > row.clientWidth + 0.5,
+					pageOverflows:
+						document.documentElement.scrollWidth > window.innerWidth + 0.5,
+					stripBox: stripBox && { left: stripBox.left, right: stripBox.right },
+					toolsBox: toolsBox && { left: toolsBox.left, right: toolsBox.right },
+					gap: stripBox && toolsBox ? toolsBox.left - stripBox.right : null,
+					buttons,
+				};
+			});
+			await page.waitForTimeout(600);
+		} finally {
+			const video = page.video();
+			await context.close();
+			if (OUT_DIR) {
+				mkdirSync(OUT_DIR, { recursive: true });
+				const videoPath = join(OUT_DIR, "t3-phone-foot-360-hu.webm");
+				if (video) await video.saveAs(videoPath);
+				writeFileSync(
+					join(OUT_DIR, "t3-phone-foot-360-hu.json"),
+					`${JSON.stringify({ name: "phone-foot-360-hu", pageErrors: errors, ...metrics }, null, 2)}\n`,
+				);
+				// The panel at rest: the last second of the video, one sheet.
+				execFileSync(
+					"ffmpeg",
+					[
+						"-y",
+						"-loglevel",
+						"error",
+						"-sseof",
+						"-2",
+						"-i",
+						videoPath,
+						"-vf",
+						"fps=12,scale=480:-1,tile=6x4",
+						join(OUT_DIR, "t3-phone-foot-360-hu-sheet-%02d.png"),
+					],
+					{ stdio: "inherit" },
+				);
+			}
+		}
+		expect(errors).toEqual([]);
+		type Box = { left: number; right: number };
+		const m = metrics as {
+			row: Box & { width: number };
+			rowOverflows: boolean;
+			pageOverflows: boolean;
+			stripBox: Box;
+			toolsBox: Box;
+			gap: number;
+			buttons: Array<{
+				label: string;
+				width: number;
+				height: number;
+				left: number;
+				right: number;
+				clipped: boolean;
+			}>;
+		};
+		expect(m.rowOverflows, "the foot row scrolls sideways").toBe(false);
+		expect(m.pageOverflows, "the page scrolls sideways").toBe(false);
+		// The strip and the tools do not run into each other.
+		expect(m.gap, "the strip runs into Before / After").toBeGreaterThanOrEqual(
+			8,
+		);
+		expect(m.toolsBox.right).toBeLessThanOrEqual(m.row.right + 0.5);
+		for (const button of m.buttons) {
+			expect(button.clipped, `${button.label} is cut off`).toBe(false);
+			expect(
+				button.height,
+				`${button.label} is under 44 px tall`,
+			).toBeGreaterThanOrEqual(44);
+			expect(
+				button.width,
+				`${button.label} is under 44 px wide`,
+			).toBeGreaterThanOrEqual(44);
+		}
+		// The two words and at least two whole frames fit; the strip scrolls inside itself for more.
+		const frames = m.buttons.filter(
+			(button) =>
+				button.right <= m.stripBox.right + 0.5 &&
+				button.left >= m.stripBox.left - 0.5,
+		);
+		expect(
+			frames.length,
+			"fewer than two whole frames show",
+		).toBeGreaterThanOrEqual(2);
+	});
+});
+
+const HISTORY_SHEET = '[role="dialog"]:has([data-testid="artifact-history"])';
+
+const HISTORY_TRACK = {
+	/** The desktop's History slot over the body; the phone's is a sheet of its own. */
+	slot: ".workspace-history-slot",
+	sheet: HISTORY_SHEET,
+	rail: '[data-testid="artifact-history-rail"]',
+	preview: '[data-testid="image-version-preview"]',
+	thumb: '[data-testid="history-thumb"]',
+	thumbImg: '[data-testid="history-thumb"] [data-testid="image-picture-after"]',
+	wipe: '[data-testid="compare-wipe"]',
+	wipeTop: '[data-testid="compare-wipe-after"]',
+	line: '[data-testid="compare-wipe-line"]',
+	toast: '[data-testid="history-toast"]',
+	content: "aside.workspace-shell-desktop > .workspace-content",
+};
+
+/** History's own pieces and the picture's, by the recorder's target names. */
+const HISTORY_PICTURE_PART =
+	/^(image-version|image-picture|compare-wipe|history-thumb)/;
+
+/** What History's motion is made of: the shell's own animations, what moved, what shifted, what ran long. */
+function measureHistory(run: MotionRun) {
+	const real = run.transitions.filter((entry) => entry.duration >= 1);
+	const start = run.inputAt ?? 0;
+	const opacityOf = (name: string) =>
+		run.frames
+			.filter((frame) => frame.tracked[name] != null)
+			.map((frame) => ({
+				t: frame.t - start,
+				opacity: frame.tracked[name]?.opacity ?? 0,
+			}));
+	/** ms after the press when what shows History reached full opacity. */
+	const shownAt = (name: string) =>
+		opacityOf(name).find((frame) => frame.opacity >= 0.999)?.t ?? null;
+	return {
+		cls: shiftSum(run),
+		clsNoInput: shiftSum(run, { ignoreRecentInput: true }),
+		shifts: run.shifts,
+		longFrames: run.longFrames,
+		slotShownMs: shownAt("slot"),
+		sheetShownMs: shownAt("sheet"),
+		slotOpacity: opacityOf("slot").map((frame) =>
+			Number(frame.opacity.toFixed(3)),
+		),
+		contentDrift: sizeDrift(run.frames, "content"),
+		transitions: [
+			...new Map(
+				real.map((entry) => [
+					`${entry.property}|${entry.target}`,
+					{
+						property: entry.property,
+						target: entry.target,
+						duration: entry.duration,
+						easing: entry.easing,
+					},
+				]),
+			).values(),
+		],
+		animations: run.animations.map((entry) => ({
+			target: entry.target,
+			properties: entry.properties,
+			duration: Math.round(entry.duration),
+			easing: entry.easing,
+		})),
+	};
+}
+
+type HistoryMetrics = ReturnType<typeof measureHistory>;
+
+/** The picture's own pieces animate only transform and opacity (MOTION-PARITY 3). */
+function unsafeHistoryTransitions(metrics: HistoryMetrics) {
+	return metrics.transitions.filter(
+		(entry) =>
+			HISTORY_PICTURE_PART.test(entry.target) &&
+			entry.property !== "opacity" &&
+			entry.property !== "transform",
+	);
+}
+
+/** The shell's motion when History opens or closes: what animated, how long, on which curve; the same list for both kinds. */
+function historyCurves(metrics: HistoryMetrics) {
+	return [
+		...new Set(
+			metrics.animations
+				.filter((entry) => !HISTORY_PICTURE_PART.test(entry.target))
+				.map(
+					(entry) =>
+						`${entry.target} ${entry.properties.join("+")} ${entry.duration}ms ${entry.easing}`,
+				),
+		),
+	].sort();
+}
+
+function holdHistoryMotion(metrics: HistoryMetrics, reduced: boolean) {
+	expect(
+		metrics.clsNoInput,
+		"History moved something the reader did not",
+	).toBeLessThanOrEqual(0.01);
+	if (!reduced) {
+		expect(
+			metrics.longFrames,
+			"a frame over 50 ms in History's motion",
+		).toEqual([]);
+	}
+	expect(
+		unsafeHistoryTransitions(metrics),
+		"a picture piece animated something other than transform/opacity",
+	).toEqual([]);
+	// History is a slot over the body: the panel's own content is never re-laid out.
+	expect(metrics.contentDrift.w).toBeLessThanOrEqual(0.5);
+	expect(metrics.contentDrift.h).toBeLessThanOrEqual(0.5);
+	if (reduced) {
+		expect(
+			metrics.transitions.filter((entry) => entry.duration >= 1),
+			"a transition ran under reduced motion",
+		).toEqual([]);
+		expect(
+			metrics.animations.filter((entry) => entry.duration >= 1),
+			"an animation ran under reduced motion",
+		).toEqual([]);
+	}
+}
+
+/**
+ * Opens History once, unrecorded, and leaves it the reader's way, so that the open a flow
+ * then records is the page's second. History's code is one lazy chunk, loaded the first time
+ * History opens (`ensureHistoryMode` in `DocumentWorkspace.svelte`), and that first press also
+ * evaluates the module and its styles in the frame that mounts it: a few milliseconds on a
+ * quiet machine, over 50 ms on a busy one (the release gate once failed on a 61 ms frame 32 ms
+ * after the tap; with the page's CPU slowed six times it fails one run in three). That is the
+ * page loading its code, not History's motion, which is what these flows hold to a frame budget.
+ */
+async function warmHistory(page: Page, kind: "image" | "document") {
+	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await historyButton(page).click();
+	await expectHistoryShown(page, kind);
+	if (phone) await page.keyboard.press("Escape");
+	else await historyButton(page).click();
+	await expect(page.getByTestId("artifact-history")).toHaveCount(0);
+	await settle(page);
+}
+
+/** Opens History from the header (recorded), and leaves it the reader's way (recorded). */
+async function historyOpenClose(flow: SeededFlow, kind: "image" | "document") {
+	const { page } = flow;
+	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await warmHistory(page, kind);
+	await startRecording(page, HISTORY_TRACK);
+	mark(flow, `history-open-${kind}`);
+	await historyButton(page).click();
+	await expectHistoryShown(page, kind);
+	await settle(page);
+	const open = measureHistory(await stopRecording(page));
+
+	await startRecording(page, HISTORY_TRACK);
+	mark(flow, `history-close-${kind}`);
+	if (phone) await page.keyboard.press("Escape");
+	else await historyButton(page).click();
+	await expect(page.getByTestId("artifact-history")).toHaveCount(0);
+	await settle(page);
+	const close = measureHistory(await stopRecording(page));
+	return { open, close };
+}
+
+test.describe("History for pictures moves like the Document's (T4)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	const VARIANTS = [
+		{
+			name: "history-desktop-light",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			document: true,
+		},
+		{
+			name: "history-desktop-dark",
+			viewport: DESKTOP,
+			colorScheme: "dark",
+			document: false,
+		},
+		{
+			name: "history-phone-light",
+			viewport: PHONE,
+			colorScheme: "light",
+			document: true,
+		},
+		{
+			name: "history-phone-dark",
+			viewport: PHONE,
+			colorScheme: "dark",
+			document: false,
+		},
+		{
+			name: "history-desktop-reduced-motion",
+			viewport: DESKTOP,
+			colorScheme: "light",
+			reducedMotion: "reduce",
+			document: true,
+		},
+	] as const;
+
+	for (const variant of VARIANTS) {
+		test(`${variant.name}: History opens and closes over the picture on the Document's curve`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const reduced = "reducedMotion" in variant;
+			const options = {
+				viewport: variant.viewport,
+				colorScheme: variant.colorScheme,
+				reducedMotion: reduced ? ("reduce" as const) : undefined,
+			};
+			const baseURL = testInfo.project.use.baseURL as string;
+			const results: Record<string, HistoryMetrics> = {};
+
+			if (variant.document) {
+				const docFlow = await openSeededFlow(
+					browser,
+					baseURL,
+					options,
+					(user, chatId) => seedDocumentHistory(user, chatId),
+				);
+				try {
+					await openSeededItem(docFlow, "document");
+					const doc = await historyOpenClose(docFlow, "document");
+					results.documentOpen = doc.open;
+					results.documentClose = doc.close;
+				} finally {
+					await saveRecording(docFlow, `document-${variant.name}`, results, {
+						prefix: "t4",
+						segments: ["history-open-document", "history-close-document"],
+					});
+				}
+				expect(docFlow.errors, "the page logged an error").toEqual([]);
+			}
+
+			const flow = await openSeededFlow(
+				browser,
+				baseURL,
+				options,
+				(user, chatId) => seedPictureHistory(user, chatId),
+			);
+			let metrics: Record<string, unknown> = {};
+			try {
+				await openSeededItem(flow, "image");
+				const image = await historyOpenClose(flow, "image");
+				results.imageOpen = image.open;
+				results.imageClose = image.close;
+				metrics = {
+					imageOpen: image.open,
+					imageClose: image.close,
+					...(results.documentOpen
+						? {
+								sideBySide: {
+									open: {
+										image: historyCurves(image.open),
+										document: historyCurves(results.documentOpen),
+										imageShownMs:
+											image.open.slotShownMs ?? image.open.sheetShownMs,
+										documentShownMs:
+											results.documentOpen.slotShownMs ??
+											results.documentOpen.sheetShownMs,
+									},
+									close: {
+										image: historyCurves(image.close),
+										document: historyCurves(results.documentClose),
+									},
+								},
+							}
+						: {}),
+				};
+			} finally {
+				await saveRecording(flow, variant.name, metrics, {
+					prefix: "t4",
+					segments: ["history-open-image", "history-close-image"],
+				});
+			}
+			expect(flow.errors, "the page logged an error").toEqual([]);
+
+			holdHistoryMotion(results.imageOpen, reduced);
+			holdHistoryMotion(results.imageClose, reduced);
+			if (results.documentOpen) {
+				holdHistoryMotion(results.documentOpen, reduced);
+				holdHistoryMotion(results.documentClose, reduced);
+				for (const step of ["Open", "Close"] as const) {
+					expect(
+						historyCurves(results[`image${step}`]),
+						`${step}: History ran on another curve for the picture`,
+					).toEqual(historyCurves(results[`document${step}`]));
+				}
+				const imageShown =
+					results.imageOpen.slotShownMs ?? results.imageOpen.sheetShownMs;
+				const documentShown =
+					results.documentOpen.slotShownMs ?? results.documentOpen.sheetShownMs;
+				if (imageShown !== null && documentShown !== null && !reduced) {
+					expect(
+						Math.abs(imageShown - documentShown),
+						"History took another time to show for the picture",
+					).toBeLessThanOrEqual(50);
+				}
+			}
+		});
+	}
+
+	test("history-rail-thumbs: the rail's thumbnails are reserved at 32 px, fade in and scroll with nothing moving", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(240_000);
+		const flow = await openSeededFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: DESKTOP },
+			// Thirty versions, each a moment of its own: more than the rail shows.
+			(user, chatId) =>
+				seedPictureHistory(user, chatId, 30, { width: 624, height: 416 }),
+		);
+		const { page } = flow;
+		let metrics: Record<string, unknown> = {};
+		try {
+			await openSeededItem(flow, "image");
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "rail-open");
+			await historyButton(page).click();
+			await expectHistoryShown(page, "image");
+			await expect(
+				page.locator('[data-testid="history-thumb"] img.is-loaded'),
+			).toHaveCount(30, { timeout: 20_000 });
+			await settle(page);
+			const open = await stopRecording(page);
+			const thumbSizes = boxes(open.frames, "thumb").map(
+				(box) => `${Math.round(box.w)}x${Math.round(box.h)}`,
+			);
+			const thumbOpacity = boxes(open.frames, "thumbImg").map((box) =>
+				Number(box.opacity.toFixed(2)),
+			);
+
+			const rail = page.getByTestId("artifact-history-rail");
+			const railBox = await rail.boundingBox();
+			if (!railBox) throw new Error("no rail on screen");
+			const scrollable = await rail.evaluate(
+				(element) => element.scrollHeight - element.clientHeight,
+			);
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "rail-scroll");
+			await page.mouse.move(
+				railBox.x + railBox.width / 2,
+				railBox.y + railBox.height / 2,
+			);
+			for (let step = 0; step < 12; step++) {
+				await page.mouse.wheel(0, 80);
+				await nextFrame(page);
+			}
+			await settle(page);
+			const scroll = await stopRecording(page);
+			const scrolled = await rail.evaluate((element) => element.scrollTop);
+			const allThumbs = await page
+				.getByTestId("history-thumb")
+				.evaluateAll((elements) =>
+					elements.map((element) => {
+						const box = element.getBoundingClientRect();
+						return `${Math.round(box.width)}x${Math.round(box.height)}`;
+					}),
+				);
+			const imgTransition = await page
+				.locator('[data-testid="history-thumb"] img')
+				.first()
+				.evaluate((element) => getComputedStyle(element).transitionProperty);
+			metrics = {
+				open: measureHistory(open),
+				thumbSizes: [...new Set(thumbSizes)],
+				thumbOpacity,
+				scroll: {
+					scrollable,
+					scrolled,
+					cls: shiftSum(scroll),
+					longFrames: scroll.longFrames,
+					transitions: scroll.transitions.filter((entry) =>
+						HISTORY_PICTURE_PART.test(entry.target),
+					),
+				},
+				allThumbs: [...new Set(allThumbs)],
+				imgTransition,
+			};
+		} finally {
+			await saveRecording(flow, "history-rail-thumbs", metrics, {
+				prefix: "t4",
+				segments: ["rail-open", "rail-scroll"],
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		const open = metrics.open as HistoryMetrics;
+		holdHistoryMotion(open, false);
+		// Reserved: every frame a thumbnail was on screen it was 32 x 32.
+		expect(metrics.thumbSizes).toEqual(["32x32"]);
+		expect(metrics.allThumbs).toEqual(["32x32"]);
+		// It fades in: seen part-way, and ends shown.
+		const opacity = metrics.thumbOpacity as number[];
+		expect(opacity.at(-1)).toBe(1);
+		expect(metrics.imgTransition).toBe("opacity");
+		const scroll = metrics.scroll as {
+			scrollable: number;
+			scrolled: number;
+			cls: number;
+			longFrames: unknown[];
+			transitions: unknown[];
+		};
+		expect(scroll.scrollable, "the rail did not overflow").toBeGreaterThan(200);
+		expect(scroll.scrolled).toBeGreaterThan(200);
+		expect(scroll.cls).toBe(0);
+		expect(scroll.longFrames).toEqual([]);
+	});
+});
+
+/**
+ * A probe of the wipe's own writes: every `input` the range fires and every
+ * write to the top picture's `clip-path`, each stamped with the animation frame
+ * it happened in. "Applied in the same rAF" is: the write for an input lands in
+ * the frame the input was counted in (lag 0), and carries the input's position.
+ */
+async function installWipeProbe(page: Page) {
+	await page.evaluate(() => {
+		const w = window as unknown as Record<string, unknown>;
+		let frame = 0;
+		const tick = () => {
+			frame += 1;
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+		const inputs: Array<{ frame: number; value: number; t: number }> = [];
+		const writes: Array<{ frame: number; at: number; t: number }> = [];
+		const range = document.querySelector<HTMLInputElement>(
+			'[data-testid="compare-wipe-range"]',
+		);
+		const top = document.querySelector<HTMLElement>(
+			'[data-testid="compare-wipe-after"]',
+		);
+		range?.addEventListener("input", () =>
+			inputs.push({ frame, value: Number(range.value), t: performance.now() }),
+		);
+		range?.addEventListener("keydown", () =>
+			queueMicrotask(() =>
+				inputs.push({
+					frame,
+					value: Number(range.value),
+					t: performance.now(),
+				}),
+			),
+		);
+		const observer = new MutationObserver(() => {
+			const match = /inset\(0(?:px)? 0(?:px)? 0(?:px)? ([\d.]+)%\)/.exec(
+				top?.style.clipPath ?? "",
+			);
+			if (match)
+				writes.push({ frame, at: Number(match[1]), t: performance.now() });
+		});
+		if (top)
+			observer.observe(top, { attributes: true, attributeFilter: ["style"] });
+		w.__wipeProbe = {
+			read: () => ({ inputs: inputs.slice(), writes: writes.slice() }),
+			reset: () => {
+				inputs.length = 0;
+				writes.length = 0;
+			},
+		};
+	});
+}
+
+type WipeProbe = {
+	inputs: Array<{ frame: number; value: number; t: number }>;
+	writes: Array<{ frame: number; at: number; t: number }>;
+};
+
+async function readWipeProbe(page: Page): Promise<WipeProbe> {
+	return page.evaluate(() =>
+		(
+			window as unknown as { __wipeProbe: { read(): unknown } }
+		).__wipeProbe.read(),
+	) as Promise<WipeProbe>;
+}
+
+async function resetWipeProbe(page: Page) {
+	await page.evaluate(() =>
+		(
+			window as unknown as { __wipeProbe: { reset(): void } }
+		).__wipeProbe.reset(),
+	);
+}
+
+/** For each input, how many frames passed before the cut showed its position (or a later one). */
+function wipeLag(probe: WipeProbe) {
+	return probe.inputs.map((input) => {
+		const write = probe.writes.find(
+			(candidate) =>
+				candidate.t >= input.t && Math.abs(candidate.at - input.value) < 0.01,
+		);
+		const later = probe.writes.find((candidate) => candidate.t >= input.t);
+		const landed = write ?? later;
+		return landed ? landed.frame - input.frame : Number.POSITIVE_INFINITY;
+	});
+}
+
+/** Where the wipe's line stands, in px from the page's left, and the cut's position in %. */
+async function wipeLine(page: Page) {
+	return page.evaluate(() => {
+		const line = document.querySelector<HTMLElement>(
+			'[data-testid="compare-wipe-line"]',
+		);
+		const top = document.querySelector<HTMLElement>(
+			'[data-testid="compare-wipe-after"]',
+		);
+		const box = line?.getBoundingClientRect();
+		const match = /([\d.]+)%\)/.exec(top?.style.clipPath ?? "");
+		return {
+			x: box ? box.x + box.width / 2 : null,
+			at: match ? Number(match[1]) : null,
+			transition: top ? getComputedStyle(top).transitionProperty : null,
+		};
+	});
+}
+
+test.describe("the compare wipe follows the hand (T4)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	for (const variant of [
+		{ name: "history-wipe-desktop", viewport: DESKTOP },
+		{ name: "history-wipe-phone", viewport: PHONE },
+	] as const) {
+		test(`${variant.name}: the wipe is dragged by ${variant.viewport === PHONE ? "a finger" : "a pointer and the keyboard"}, its cut written in the same frame as each move`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const phone = variant.viewport === PHONE;
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{ viewport: variant.viewport },
+				(user, chatId) => seedPictureHistory(user, chatId, 2),
+			);
+			const { page } = flow;
+			const metrics: Record<string, unknown> = {};
+			try {
+				await openSeededItem(flow, "image");
+				// The newest version is selected: it is wiped against the one before it.
+				await historyButton(page).click();
+				if (phone) {
+					// The phone's History opens on its list: the newest row pushes its preview.
+					await page.getByTestId("history-option").first().tap();
+				}
+				await expectHistoryShown(page, "image");
+				await settle(page);
+				await installWipeProbe(page);
+				const wipe = await page.getByTestId("compare-wipe").boundingBox();
+				if (!wipe) throw new Error("no wipe on screen");
+				const y = wipe.y + wipe.height / 2;
+				const xAt = (percent: number) => wipe.x + (wipe.width * percent) / 100;
+
+				if (!phone) {
+					await startRecording(page, HISTORY_TRACK);
+					mark(flow, "wipe-pointer");
+					await page.mouse.move(xAt(50), y);
+					await page.mouse.down();
+					for (let step = 1; step <= 30; step++) {
+						await page.mouse.move(xAt(50 - step), y);
+						await nextFrame(page);
+					}
+					const held = await wipeLine(page);
+					await page.mouse.up();
+					await settle(page);
+					const run = await stopRecording(page);
+					const probe = await readWipeProbe(page);
+					metrics.pointer = {
+						inputs: probe.inputs.length,
+						lagFrames: [...new Set(wipeLag(probe))],
+						lineVsPointerPx:
+							held.x === null ? null : Math.abs(held.x - xAt(20)),
+						cutAt: held.at,
+						topTransitionProperty: held.transition,
+						cls: shiftSum(run),
+						longFrames: run.longFrames,
+						transitions: run.transitions.filter((entry) =>
+							HISTORY_PICTURE_PART.test(entry.target),
+						),
+					};
+
+					await resetWipeProbe(page);
+					await startRecording(page, HISTORY_TRACK);
+					mark(flow, "wipe-keyboard");
+					await page.getByTestId("compare-wipe-range").focus();
+					const keys: Array<{ key: string; at: number | null }> = [];
+					for (const key of [
+						"ArrowRight",
+						"ArrowRight",
+						"ArrowRight",
+						"Shift+ArrowRight",
+						"End",
+						"Home",
+						"PageUp",
+					]) {
+						await page.keyboard.press(key);
+						await nextFrame(page);
+						await nextFrame(page);
+						keys.push({ key, at: (await wipeLine(page)).at });
+					}
+					await settle(page);
+					const keyRun = await stopRecording(page);
+					const keyProbe = await readWipeProbe(page);
+					metrics.keyboard = {
+						keys,
+						lagFrames: [...new Set(wipeLag(keyProbe))],
+						cls: shiftSum(keyRun),
+						longFrames: keyRun.longFrames,
+					};
+				} else {
+					const client = await page.context().newCDPSession(page);
+					const touch = (
+						type: string,
+						points: Array<{ x: number; y: number }>,
+					) =>
+						client.send("Input.dispatchTouchEvent", {
+							type,
+							touchPoints: points.map((point, id) => ({ ...point, id })),
+						});
+					await startRecording(page, HISTORY_TRACK);
+					mark(flow, "wipe-touch");
+					await touch("touchStart", [{ x: xAt(50), y }]);
+					for (let step = 1; step <= 30; step++) {
+						await touch("touchMove", [{ x: xAt(50 + step), y }]);
+						await nextFrame(page);
+					}
+					const held = await wipeLine(page);
+					await touch("touchEnd", []);
+					await settle(page);
+					const run = await stopRecording(page);
+					const probe = await readWipeProbe(page);
+					metrics.touch = {
+						inputs: probe.inputs.length,
+						lagFrames: [...new Set(wipeLag(probe))],
+						lineVsFingerPx: held.x === null ? null : Math.abs(held.x - xAt(80)),
+						cutAt: held.at,
+						topTransitionProperty: held.transition,
+						sheetStillOpen: await page.locator(HISTORY_SHEET).isVisible(),
+						cls: shiftSum(run),
+						longFrames: run.longFrames,
+						transitions: run.transitions.filter((entry) =>
+							HISTORY_PICTURE_PART.test(entry.target),
+						),
+					};
+				}
+			} finally {
+				await saveRecording(flow, variant.name, metrics, {
+					prefix: "t4",
+					segments: phone ? ["wipe-touch"] : ["wipe-pointer", "wipe-keyboard"],
+				});
+			}
+			expect(flow.errors).toEqual([]);
+			type Drag = {
+				inputs: number;
+				lagFrames: number[];
+				cutAt: number | null;
+				topTransitionProperty: string | null;
+				cls: number;
+				longFrames: unknown[];
+				transitions: SeenTransitionLike[];
+			};
+			type SeenTransitionLike = { property: string };
+			const holdDrag = (drag: Drag, endsAt: number, offPx: number | null) => {
+				expect(drag.inputs, "the range never moved").toBeGreaterThan(10);
+				// The owner's bar, "the same frame": every move's cut is written in the
+				// frame its input was dispatched in (Chrome dispatches pointer and touch
+				// moves with the frame, before its animation callbacks), lag 0.
+				expect(drag.lagFrames).toEqual([0]);
+				expect(drag.cutAt ?? -1).toBeCloseTo(endsAt, 0);
+				// The line stands under the hand.
+				expect(offPx ?? 99).toBeLessThanOrEqual(2);
+				// Nothing eases the cut: the picture's only transition is its fade-in.
+				expect(drag.topTransitionProperty).toBe("opacity");
+				expect(
+					drag.transitions.filter((entry) => entry.property !== "opacity"),
+				).toEqual([]);
+				expect(drag.cls).toBe(0);
+				expect(drag.longFrames).toEqual([]);
+			};
+			if (phone) {
+				const drag = metrics.touch as Drag & {
+					lineVsFingerPx: number | null;
+					sheetStillOpen: boolean;
+				};
+				holdDrag(drag, 80, drag.lineVsFingerPx);
+				expect(drag.sheetStillOpen).toBe(true);
+			} else {
+				const drag = metrics.pointer as Drag & {
+					lineVsPointerPx: number | null;
+				};
+				holdDrag(drag, 20, drag.lineVsPointerPx);
+				const keyboard = metrics.keyboard as {
+					keys: Array<{ key: string; at: number | null }>;
+					lagFrames: number[];
+					cls: number;
+					longFrames: unknown[];
+				};
+				// From where the drag left it (20 %): +2, +2, +2, +10, the ends, +10.
+				expect(
+					keyboard.keys.map((entry) => Math.round(entry.at ?? -1)),
+				).toEqual([22, 24, 26, 36, 100, 0, 10]);
+				expect(keyboard.lagFrames).toEqual([0]);
+				expect(keyboard.cls).toBe(0);
+				expect(keyboard.longFrames).toEqual([]);
+			}
+		});
+	}
+});
+
+/** Restores the oldest version from History (recorded from the confirming press). */
+async function restoreOldest(flow: SeededFlow, kind: "image" | "document") {
+	const { page } = flow;
+	const phone = (page.viewportSize()?.width ?? 1440) < 768;
+	await historyButton(page).click();
+	await expectHistoryShown(page, kind);
+	const options = page.getByTestId("history-option");
+	if (phone) await options.last().tap();
+	else await options.last().click();
+	await expect(
+		page.locator('[data-testid="history-restore"]:visible').first(),
+	).toBeEnabled();
+	await settle(page);
+	await page.locator('[data-testid="history-restore"]:visible').first().click();
+	await settle(page);
+	await startRecording(page, HISTORY_TRACK);
+	mark(flow, `restore-${kind}`);
+	await page
+		.locator('[data-testid="history-restore-confirm"]:visible')
+		.first()
+		.click();
+	await expect(page.getByTestId("history-toast")).toContainText("Restored");
+	await expect(
+		page.locator('[data-testid="history-option"][aria-selected="true"]'),
+	).toHaveCount(phone ? 0 : 1);
+	await settle(page);
+	const run = await stopRecording(page);
+	const toastAt = (() => {
+		const start = run.inputAt ?? 0;
+		const frames = run.frames.filter((frame) => frame.tracked.toast != null);
+		const first = frames[0];
+		const shown = frames.find(
+			(frame) => (frame.tracked.toast?.opacity ?? 0) >= 0.999,
+		);
+		return {
+			firstSeenMs: first ? first.t - start : null,
+			shownMs: shown ? shown.t - start : null,
+			transforms: [
+				...new Set(frames.map((frame) => frame.tracked.toast?.transform)),
+			],
+		};
+	})();
+	return { ...measureHistory(run), toast: toastAt };
+}
+
+test.describe("Restore of a picture moves like the Document's (T4)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	for (const variant of [
+		{ name: "history-restore-desktop", viewport: DESKTOP, document: true },
+		{ name: "history-restore-phone", viewport: PHONE, document: false },
+	] as const) {
+		test(`${variant.name}: Restore lands the older picture with the Document's toast and no shift`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const baseURL = testInfo.project.use.baseURL as string;
+			const results: Record<string, unknown> = {};
+			if (variant.document) {
+				const docFlow = await openSeededFlow(
+					browser,
+					baseURL,
+					{ viewport: variant.viewport },
+					(user, chatId) => seedDocumentHistory(user, chatId),
+				);
+				try {
+					await openSeededItem(docFlow, "document");
+					results.document = await restoreOldest(docFlow, "document");
+				} finally {
+					await saveRecording(docFlow, `document-${variant.name}`, results, {
+						prefix: "t4",
+						segments: ["restore-document"],
+					});
+				}
+				expect(docFlow.errors).toEqual([]);
+			}
+			let fileIds: string[] = [];
+			const flow = await openSeededFlow(
+				browser,
+				baseURL,
+				{ viewport: variant.viewport },
+				async (user, chatId) => {
+					fileIds = (await seedPictureHistory(user, chatId)).fileIds;
+				},
+			);
+			try {
+				await openSeededItem(flow, "image");
+				results.image = await restoreOldest(flow, "image");
+				// Leaving History shows the restored picture in the panel.
+				if (variant.viewport === PHONE) {
+					await flow.page.keyboard.press("Escape");
+					await flow.page.keyboard.press("Escape");
+				} else {
+					await historyButton(flow.page).click();
+				}
+				await expect(flow.page.getByTestId("artifact-history")).toHaveCount(0);
+				await expect(
+					flow.page
+						.locator(
+							'[data-testid="image-body-picture"] [data-testid="image-picture-after"]',
+						)
+						.last(),
+				).toHaveAttribute("src", new RegExp(fileIds[0]));
+				results.panelShowsRestored = true;
+			} finally {
+				await saveRecording(flow, variant.name, results, {
+					prefix: "t4",
+					segments: ["restore-image"],
+				});
+			}
+			expect(flow.errors).toEqual([]);
+			type Restore = HistoryMetrics & {
+				toast: { firstSeenMs: number | null; shownMs: number | null };
+			};
+			const image = results.image as Restore;
+			holdHistoryMotion(image, false);
+			expect(image.toast.shownMs).not.toBeNull();
+			if (results.document) {
+				const document = results.document as Restore;
+				holdHistoryMotion(document, false);
+				expect(historyCurves(image)).toEqual(historyCurves(document));
+				expect(
+					Math.abs((image.toast.shownMs ?? 0) - (document.toast.shownMs ?? 0)),
+					"the restore's toast took another time for the picture",
+				).toBeLessThanOrEqual(80);
+			}
+		});
+	}
+});
+
+test.describe("History for pictures on a phone (T4)", () => {
+	test("history-phone-flow: a strip frame opens the sheet on its version, the wipe moves under a finger, Back and the sheet peel", async ({
+		browser,
+	}, testInfo) => {
+		test.setTimeout(180_000);
+		const flow = await openSeededFlow(
+			browser,
+			testInfo.project.use.baseURL as string,
+			{ viewport: PHONE },
+			(user, chatId) => seedPictureHistory(user, chatId),
+		);
+		const { page } = flow;
+		const metrics: Record<string, unknown> = {};
+		try {
+			await openSeededItem(flow, "image");
+			const frames = page.locator(
+				'[data-testid="image-version-frame"]:visible',
+			);
+			await expect(frames).toHaveCount(3);
+			const versionId = await frames.nth(1).getAttribute("data-version-id");
+			// The strip frame's press opens History for the page's second time: see `warmHistory`.
+			await warmHistory(page, "image");
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "phone-frame");
+			await frames.nth(1).tap();
+			await expectHistoryShown(page, "image");
+			await settle(page);
+			metrics.open = measureHistory(await stopRecording(page));
+
+			const wipe = await page.getByTestId("compare-wipe").boundingBox();
+			if (!wipe) throw new Error("no wipe on screen");
+			const client = await page.context().newCDPSession(page);
+			const touch = (type: string, points: Array<{ x: number; y: number }>) =>
+				client.send("Input.dispatchTouchEvent", {
+					type,
+					touchPoints: points.map((point, id) => ({ ...point, id })),
+				});
+			const y = wipe.y + wipe.height / 2;
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "phone-wipe");
+			await touch("touchStart", [{ x: wipe.x + wipe.width / 2, y }]);
+			for (let step = 1; step <= 20; step++) {
+				await touch("touchMove", [
+					{ x: wipe.x + wipe.width / 2 - (step * wipe.width) / 50, y },
+				]);
+				await nextFrame(page);
+			}
+			await touch("touchEnd", []);
+			await settle(page);
+			const wipeRun = await stopRecording(page);
+			metrics.wipe = {
+				cutAt: (await wipeLine(page)).at,
+				cls: shiftSum(wipeRun),
+				longFrames: wipeRun.longFrames,
+			};
+
+			await startRecording(page, HISTORY_TRACK);
+			mark(flow, "phone-back");
+			await page
+				.getByTestId("artifact-history")
+				.getByRole("button", { name: "History", exact: true })
+				.tap();
+			const selected = page.locator(
+				'[data-testid="history-option"][aria-selected="true"]',
+			);
+			await expect(selected).toHaveAttribute(
+				"data-version-id",
+				versionId ?? "",
+			);
+			await settle(page);
+			mark(flow, "phone-close");
+			await page.keyboard.press("Escape");
+			await expect(page.getByTestId("artifact-history")).toHaveCount(0);
+			await settle(page);
+			metrics.backAndClose = measureHistory(await stopRecording(page));
+		} finally {
+			await saveRecording(flow, "history-phone-flow", metrics, {
+				prefix: "t4",
+				segments: ["phone-frame", "phone-wipe", "phone-back"],
+			});
+		}
+		expect(flow.errors).toEqual([]);
+		holdHistoryMotion(metrics.open as HistoryMetrics, false);
+		holdHistoryMotion(metrics.backAndClose as HistoryMetrics, false);
+		const wipe = metrics.wipe as {
+			cutAt: number;
+			cls: number;
+			longFrames: unknown[];
+		};
+		expect(wipe.cutAt).toBeCloseTo(10, 0);
+		expect(wipe.cls).toBe(0);
+		expect(wipe.longFrames).toEqual([]);
+	});
+});
+
+/** One pixel of the page, as [r, g, b]. */
+async function pixelAt(page: Page, x: number, y: number) {
+	const png = await page.screenshot({
+		clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 },
+	});
+	const raw = await sharp(png).removeAlpha().raw().toBuffer();
+	return [raw[0], raw[1], raw[2]];
+}
+
+/** How far a colour is from grey: the checkerboard's cells are near-grey in both themes, the gradients are not. */
+const chroma = ([r, g, b]: number[]) => Math.max(r, g, b) - Math.min(r, g, b);
+
+test.describe("a see-through picture in the wipe (T4 fix round 1)", () => {
+	test.describe.configure({ mode: "serial" });
+
+	for (const colorScheme of ["light", "dark"] as const) {
+		test(`history-wipe-transparent-${colorScheme}: the selected picture's see-through part shows the checkerboard, never the picture compared with`, async ({
+			browser,
+		}, testInfo) => {
+			test.setTimeout(180_000);
+			const flow = await openSeededFlow(
+				browser,
+				testInfo.project.use.baseURL as string,
+				{ viewport: DESKTOP, colorScheme },
+				// An opaque first picture, then one see-through right of 55 %.
+				(user, chatId) =>
+					seedImageItem(user, chatId, {
+						versions: 2,
+						seeThroughOf: (index) => index === 1,
+					}),
+			);
+			const { page } = flow;
+			const metrics: Record<string, unknown> = {};
+			try {
+				await openSeededItem(flow, "image");
+				await historyButton(page).click();
+				await expectHistoryShown(page, "image");
+				await settle(page);
+				const wipe = page.getByTestId("compare-wipe");
+				const box = await wipe.boundingBox();
+				if (!box) throw new Error("no wipe on screen");
+				const y = box.y + box.height * 0.5;
+				const at = (fraction: number) => box.x + box.width * fraction;
+				metrics.checkerboard = await wipe.evaluate((element) =>
+					element.classList.contains("image-checkerboard"),
+				);
+
+				await startRecording(page, HISTORY_TRACK);
+				mark(flow, "transparent-wipe");
+				const range = page.getByTestId("compare-wipe-range");
+				await range.focus();
+				// The cut at the middle: right of it is the selected picture, see-through at 80 %.
+				metrics.middle = {
+					seeThrough: await pixelAt(page, at(0.8), y),
+					opaque: await pixelAt(page, at(0.3), y),
+				};
+				// All of the picture compared with: at 80 % it is its own opaque gradient.
+				await page.keyboard.press("End");
+				await nextFrame(page);
+				await nextFrame(page);
+				metrics.allLeft = { at80: await pixelAt(page, at(0.8), y) };
+				// All of the selected picture: at 80 % its see-through part, on the checkerboard.
+				await page.keyboard.press("Home");
+				await nextFrame(page);
+				await nextFrame(page);
+				metrics.allRight = { at80: await pixelAt(page, at(0.8), y) };
+				metrics.clips = await page.evaluate(() => ({
+					under: document.querySelector<HTMLElement>(
+						'[data-testid="compare-wipe-under"]',
+					)?.style.clipPath,
+					top: document.querySelector<HTMLElement>(
+						'[data-testid="compare-wipe-after"]',
+					)?.style.clipPath,
+					underTransition: getComputedStyle(
+						document.querySelector<HTMLElement>(
+							'[data-testid="compare-wipe-under"]',
+						) as HTMLElement,
+					).transitionDuration,
+				}));
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await page.keyboard.press("PageUp");
+				await settle(page);
+				const run = await stopRecording(page);
+				metrics.cls = shiftSum(run);
+				metrics.longFrames = run.longFrames;
+			} finally {
+				await saveRecording(
+					flow,
+					`history-wipe-transparent-${colorScheme}`,
+					metrics,
+					{ prefix: "t4", segments: ["transparent-wipe"] },
+				);
+			}
+			expect(flow.errors).toEqual([]);
+			expect(metrics.checkerboard).toBe(true);
+			const middle = metrics.middle as {
+				seeThrough: number[];
+				opaque: number[];
+			};
+			// Right of the cut, where the selected picture is see-through: the
+			// checkerboard, not the opaque gradient of the picture compared with.
+			expect(
+				chroma(middle.seeThrough),
+				"the other picture showed through",
+			).toBeLessThan(30);
+			expect(chroma(middle.opaque)).toBeGreaterThan(60);
+			expect(
+				chroma((metrics.allLeft as { at80: number[] }).at80),
+				"the picture compared with is not shown left of the cut",
+			).toBeGreaterThan(60);
+			expect(
+				chroma((metrics.allRight as { at80: number[] }).at80),
+			).toBeLessThan(30);
+			const clips = metrics.clips as {
+				under: string;
+				top: string;
+				underTransition: string;
+			};
+			expect(clips.under).toBe("inset(0px 100% 0px 0px)");
+			expect(clips.top).toBe("inset(0px 0px 0px 0%)");
+			// No transition on the left side's cut either.
+			expect(clips.underTransition).toBe("0s");
+			expect(metrics.cls).toBe(0);
+			expect(metrics.longFrames).toEqual([]);
+		});
+	}
+});

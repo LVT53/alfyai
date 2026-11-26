@@ -685,7 +685,7 @@ describe("the panel body's room", () => {
 	// Before / After arriving beside Mark (a second version lands while the panel is
 	// open) must move nothing that was there. A box as wide as its tools, at the row's
 	// end, loses its left edge by the switch's width (150 px), and the browser counts
-	// that as a layout shift whatever it paints (images-motion.spec.ts
+	// that as a layout shift whatever it paints (images-motion-panel.spec.ts
 	// "new-version-while-open"). With no box of its own, the tools are items of the row:
 	// the strip keeps its start, Mark its end.
 	it("holds the tools as items of the row, not as a box that is as wide as they are", () => {
