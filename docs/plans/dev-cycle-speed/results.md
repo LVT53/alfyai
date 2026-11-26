@@ -8,6 +8,8 @@ All release runs use the Mac. The release gate runs every unit file and the Play
 | Browser track, one test failed | 6 / 3 | 15m16s | 14m55s | 13m17s | 3m33s | 3m45s | 1,858 → 1,858 MB |
 | Combined branch, one unit guard failed | 6 / 2 | 17m12s | 12m32s | 16m51s | 3m36s | 43s | 1,842 → 1,842 MB |
 | Combined branch, passed | 5 / 3 | 14m59s | 14m38s | 11m42s | 3m18s | 42s | 1,826 → 1,826 MB |
+| Eight-browser phased, passed | 8 / 6 | 15m30s | 9m42s | 5m26s | 3m47s | 45s | 1,802 → 1,802 MB |
+| Reviewed release with `nice -n 10`, passed | 5 / 3 | 15m15s | 14m53s | 12m30s | 3m32s | 44s | 1,794 → 1,794 MB |
 
 The baseline had 29,468 passing and four skipped unit tests, and 1,731 passing and 77 skipped browser tests. The browser track matched all 29,472 unit outcomes. Its 1,814 browser cases included six new sign-in tests and the sidebar sign-out test moved to its own suite. The browser track passed 1,736, skipped 77, and failed one when the test's intercepted download poll encountered a connection reset. These runs supplied coverage and timing diagnostics under the reported Mac conditions. The initial swap excludes these runs from the ten-minute acceptance runs.
 
@@ -50,4 +52,10 @@ The gate detected a translation use with neither locale, then a separate English
 
 ## Acceptance remaining
 
-The release target needs three passing full releases within ten minutes under the measured-run criteria. All runs in the comparison began with swap in use. The fastest passing full run took 14m59s. A wider phased run and a lower-priority comparison are still pending. The one-week and two-week observations depend on merge and elapsed time.
+The release target needs three passing full releases within ten minutes under the measured-run criteria. All runs in the comparison began with swap in use. The fastest passing full run took 14m59s. The one-week and two-week observations depend on merge and elapsed time.
+
+## Final Mac verification
+
+The eight-browser phased run finished Playwright in 9m42s, with Vitest and build bringing the total to 15m30s. Five browser workers and three Vitest workers in overlap remain the release default. The independent review fixes passed the agent gate and a full release. The live selector probe ran 63 tests and then correctly failed the gate because a second named spec was stale. A detached-process probe held the queue while its marked browser was alive and released the lock while an unrelated process was still running. A second worktree also waited behind the real phased release, showed its holder, and acquired the lock after the run.
+
+The reviewed release with `nice -n 10` took 15m15s, 16 seconds slower than the normal-priority five-browser run. It passed 30,503 active unit cases and 1,754 active browser cases. All 1,831 browser outcomes matched the normal-priority run. The only unit inventory differences were in the four changed gate and test-infrastructure suites. Swap stayed flat and the lowest reported free memory was 0.1 GB in both runs. Keep the normal priority default pending a qualifying comparison that demonstrates a benefit on the Mac.
