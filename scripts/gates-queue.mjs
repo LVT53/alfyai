@@ -31,9 +31,9 @@ export function takesTheQueue({ skip }) {
 
 // The OS owns the lock, and releases it when this pipe closes, even after SIGKILL.
 // Keep the inode across runs so competing waiters always lock the same file.
-function tryLock(path, handshakeMs) {
+function tryLock(path, handshakeMs, browserToken) {
 	return new Promise((resolveLock) => {
-		const child = spawn(process.execPath, [keeper, path], {
+		const child = spawn(process.execPath, [keeper, path, browserToken], {
 			detached: true,
 			stdio: ["pipe", "pipe", "ignore"],
 		});
@@ -107,8 +107,14 @@ function tryLock(path, handshakeMs) {
 					]);
 					if (result !== timeout) return result;
 					await stopWorkers();
-					child.kill("SIGKILL");
-					return "lock helper did not finish cleanup";
+					if (!browserToken) {
+						child.kill("SIGKILL");
+						return "lock helper did not finish cleanup";
+					}
+					// The detached keeper still owns the lock while cleanup is pending.
+					child.stdout.destroy();
+					child.unref();
+					return "lock helper is still waiting for cleanup";
 				},
 			});
 		});
@@ -126,6 +132,7 @@ function readHolder(path) {
 export async function acquireGateLock({
 	dir,
 	holder,
+	browserToken = "",
 	sleep = setTimeout,
 	now = () => performance.now(),
 	log = console.log,
@@ -150,6 +157,7 @@ export async function acquireGateLock({
 		const lock = await tryLock(
 			join(dir, "gate.lock"),
 			Math.min(2000, Math.max(1, maxWaitMs - (now() - start))),
+			browserToken,
 		);
 		if (lock.release) {
 			try {

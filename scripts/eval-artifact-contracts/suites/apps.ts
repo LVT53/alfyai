@@ -26,6 +26,7 @@ import {
 	extractAppHtml,
 } from "$lib/server/services/artifacts/app/generate";
 import { readReplyLanguage } from "$lib/server/services/language";
+import { gateBrowserArgs } from "../../../tests/e2e/e2e-env";
 import { type AppEvaluation, evaluateApp } from "../browser-eval";
 import { resolveEvalArtifactsConfig } from "../config";
 import type {
@@ -432,7 +433,7 @@ export const evaluateAppEval: SuiteEvaluator = async (evalCase, attempt) => {
 	);
 	mkdirSync(screenshotsDir, { recursive: true });
 
-	const browser = await chromium.launch();
+	const browser = await chromium.launch({ args: gateBrowserArgs() });
 	try {
 		const evaluation: AppEvaluation = await evaluateApp(
 			browser,

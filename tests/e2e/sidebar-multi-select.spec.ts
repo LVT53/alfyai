@@ -6,6 +6,7 @@ import { db } from "../../src/lib/server/db";
 import { conversations, messages } from "../../src/lib/server/db/schema";
 import { createProject } from "../../src/lib/server/services/projects";
 import { createTourUser, markToursSeen } from "./artifact-tours-helpers";
+import { gateBrowserArgs } from "./e2e-env";
 import { login, waitForHydration, waitForMotionToSettle } from "./helpers";
 
 /**
@@ -27,7 +28,10 @@ const MOD = "ControlOrMeta" as const;
 // launchOptions forces its own worker and Playwright rejects it inside a
 // describe group.
 test.use({
-	launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] },
+	launchOptions: {
+		args: gateBrowserArgs(),
+		ignoreDefaultArgs: ["--hide-scrollbars"],
+	},
 });
 
 // The app asks for `scrollbar-width: thin` and a `scrollbar-color` on everything,

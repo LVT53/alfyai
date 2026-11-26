@@ -947,6 +947,42 @@ describe("the Playwright report", () => {
 		);
 	});
 
+	it("fails when smoke passed but a requested full spec found no tests", () => {
+		const path = report({
+			stats: { expected: 2, skipped: 0, unexpected: 0, flaky: 0 },
+			suites: [
+				{
+					file: "chat.spec.ts",
+					specs: [{ ok: true, line: 12, tests: [{ projectName: "chromium" }] }],
+				},
+				{
+					file: "images.spec.ts",
+					specs: [{ ok: true, tests: [{ projectName: "chromium-smoke" }] }],
+				},
+			],
+		});
+		expect(readPlaywrightReport(path, ["tests/e2e/chat.spec.ts:12"]).ok).toBe(
+			true,
+		);
+		const result = readPlaywrightReport(path, [
+			"tests/e2e/chat.spec.ts",
+			"tests/e2e/images-motion.spec.ts",
+			"chat.spec.ts:1000",
+			"images.spec.ts",
+		]);
+		expect(result.ok).toBe(false);
+		expect(result.text).toContain(
+			"NO TESTS MATCHED REQUESTED SPEC tests/e2e/images-motion.spec.ts",
+		);
+		expect(result.text).toContain(
+			"NO TESTS MATCHED REQUESTED SPEC images.spec.ts",
+		);
+		expect(result.text).toContain(
+			"NO TESTS MATCHED REQUESTED SPEC chat.spec.ts:1000",
+		);
+		expect(readPlaywrightReport(path, ["e2e/CHAT.spec.t[s]:12"]).ok).toBe(true);
+	});
+
 	it("names each failed test with its file and line", () => {
 		const result = readPlaywrightReport(
 			report({

@@ -36,6 +36,33 @@ function signal(pid, kind) {
 	}
 }
 
+const browserToken = process.argv[3];
+function browserGroups() {
+	const result = spawnSync(
+		"/bin/ps",
+		["-axww", "-o", "pid=,pgid=,stat=,command="],
+		{ encoding: "utf8", timeout: 2000 },
+	);
+	if (result.status !== 0) return null;
+	const groups = new Set();
+	const marker = `--alfyai-gate-run=${browserToken}`;
+	for (const line of result.stdout.split("\n")) {
+		const [, pid, pgid, state, command] =
+			line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/) ?? [];
+		if (
+			pid === pgid &&
+			state &&
+			!state.startsWith("Z") &&
+			command.split(/\s+/).includes(marker)
+		) {
+			groups.add(Number(pgid));
+		}
+	}
+	return groups;
+}
+
+const browsers = browserToken ? browserGroups() : null;
+
 let remaining = [...groups].filter((pid) => signal(pid, "SIGINT"));
 const deadline = performance.now() + 8000;
 while (remaining.length && performance.now() < deadline) {
@@ -50,3 +77,28 @@ while (remaining.length && performance.now() < hardDeadline) {
 	remaining = remaining.filter((pid) => signal(pid, 0));
 }
 if (remaining.length) process.exitCode = 1;
+
+// Chromium leads its own process group. The Playwright worker normally closes
+// it. If the worker needed a hard stop, wait for its browser pipe to drain.
+// The marker proves ownership for observation only. Never signal a group
+// discovered through a process listing.
+if (browserToken) {
+	const observed = browsers ?? new Set();
+	let failedScans = 0;
+	for (;;) {
+		const active = browserGroups();
+		if (active) {
+			for (const pgid of active) observed.add(pgid);
+			failedScans = 0;
+		} else {
+			failedScans++;
+		}
+		for (const pgid of observed) if (!signal(pgid, 0)) observed.delete(pgid);
+		if (!observed.size && active) break;
+		if (!observed.size && failedScans >= 3) {
+			process.exitCode = 1;
+			break;
+		}
+		await setTimeout(250);
+	}
+}

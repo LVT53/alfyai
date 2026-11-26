@@ -162,6 +162,68 @@ test.skipIf(process.platform !== "darwin")(
 );
 
 test.skipIf(process.platform !== "darwin")(
+	"holds the lock for its detached browser while ignoring other runs",
+	async () => {
+		const dir = makeDir();
+		const token = "queue-browser-fixture";
+		const startBrowser = (marker: string) =>
+			spawn(
+				process.execPath,
+				[
+					"-e",
+					"setInterval(() => {}, 1000)",
+					"--",
+					`--alfyai-gate-run=${marker}`,
+				],
+				{ detached: true, stdio: "ignore" },
+			);
+		const browser = startBrowser(token);
+		const other = startBrowser(`${token}-other`);
+		const browserExit = once(browser, "exit");
+		const otherExit = once(other, "exit");
+		const acquire = () =>
+			queue.acquireGateLock({
+				dir,
+				holder,
+				pollMs: 25,
+				maxWaitMs: 350,
+				log: () => {},
+			});
+		const first = await queue.acquireGateLock({
+			dir,
+			holder,
+			browserToken: token,
+		});
+		let release: Promise<string | null> | undefined;
+		try {
+			expect(first.held).toBe(true);
+			release = first.release();
+			const waiting = await acquire();
+			try {
+				expect(waiting.held).toBe(false);
+			} finally {
+				await waiting.release?.();
+			}
+			browser.kill();
+			await browserExit;
+			expect(await release).toBeNull();
+
+			const next = await acquire();
+			try {
+				expect(next.held).toBe(true);
+				expect(other.exitCode).toBeNull();
+			} finally {
+				await next.release?.();
+			}
+		} finally {
+			browser.kill();
+			other.kill();
+			await Promise.all([browserExit, otherExit, release ?? first.release?.()]);
+		}
+	},
+);
+
+test.skipIf(process.platform !== "darwin")(
 	"contention falls back after the wait limit",
 	async () => {
 		const dir = makeDir();

@@ -100,19 +100,22 @@ describe("the e2e server mode and worker count", () => {
 });
 
 describe("the files an agent run names in full", () => {
-	it("are the basenames of the paths in E2E_FULL_SPECS, as globs under testDir", () => {
+	it("compile the paths in E2E_FULL_SPECS with Playwright’s selector rules", () => {
 		expect(
 			e2eFullSpecs({
 				E2E_FULL_SPECS:
 					"tests/e2e/artifact-document.spec.ts, tests/e2e/chat.spec.ts",
 			}),
-		).toEqual(["**/artifact-document.spec.ts", "**/chat.spec.ts"]);
+		).toEqual([
+			/tests\/e2e\/artifact-document.spec.ts/i,
+			/tests\/e2e\/chat.spec.ts/i,
+		]);
 	});
 
-	it("drop a line suffix, so a spec given as file:line is still the whole file", () => {
+	it("keep the file filter for a selector that specifies a line and column", () => {
 		expect(
 			e2eFullSpecs({ E2E_FULL_SPECS: "tests/e2e/chat.spec.ts:34:2" }),
-		).toEqual(["**/chat.spec.ts"]);
+		).toEqual([/tests\/e2e\/chat.spec.ts/i]);
 	});
 
 	it("are nothing in any other run", () => {

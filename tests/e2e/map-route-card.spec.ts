@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages, users } from "../../src/lib/server/db/schema";
-import { e2eServerMode } from "./e2e-env";
+import { e2eServerMode, gateBrowserArgs } from "./e2e-env";
 import { login } from "./helpers";
 
 /**
@@ -170,12 +170,12 @@ test.use({
 	// screenshot attached below shows the drawn line rather than a slice of it.
 	viewport: { width: 1280, height: 1000 },
 	launchOptions: {
-		args: [
+		args: gateBrowserArgs([
 			"--use-gl=angle",
 			"--use-angle=swiftshader",
 			"--enable-unsafe-swiftshader",
 			"--ignore-gpu-blocklist",
-		],
+		]),
 	},
 });
 

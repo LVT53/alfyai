@@ -7,6 +7,7 @@
 // spends most of an hour failing each test on a 15-second timeout. Measured on this
 // branch (the release gate's first run). So the runner looks at the app itself first.
 import type { Page } from "@playwright/test";
+import { gateBrowserArgs } from "./e2e-env";
 
 /** What a failed probe says: what was seen, and the one thing that most often causes it. */
 export function hydrationFailure(
@@ -66,7 +67,7 @@ export async function assertBuildHydrates(baseUrl: string): Promise<void> {
 	// Loaded here, not at the top: the unit test of `probeHydration` imports this module
 	// and needs no browser library.
 	const { chromium } = await import("@playwright/test");
-	const browser = await chromium.launch();
+	const browser = await chromium.launch({ args: gateBrowserArgs() });
 	try {
 		await probeHydration(await browser.newPage(), baseUrl);
 	} finally {

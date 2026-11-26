@@ -7,6 +7,7 @@ import {
   e2eSessionSecret,
   e2eSlot,
   e2eWorkerCount,
+  gateBrowserArgs,
 } from './tests/e2e/e2e-env';
 import {
   loadQuarantine,
@@ -69,6 +70,7 @@ export default defineConfig({
     : 'list',
   use: {
     baseURL: e2eBaseUrl(SLOT),
+    launchOptions: { args: gateBrowserArgs() },
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

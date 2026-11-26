@@ -31,6 +31,7 @@
 //
 // What the numbers mean and what the baselines are: docs/plans/claude-at-home-2/phase-5/common.md.
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
 	closeSync,
 	existsSync,
@@ -45,6 +46,7 @@ import {
 import { cpus, loadavg } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { e2eSpecSelector } from "../tests/e2e/e2e-env.ts";
 import {
 	appendHistory,
 	comparisonLines,
@@ -286,6 +288,7 @@ export function defineSteps(args) {
 		E2E_AGENT_GATE: args.mode === "agent" ? "1" : "0",
 		E2E_FULL_SPECS: args.mode === "agent" ? args.specs.join(",") : "",
 		E2E_SERVER: "build",
+		ALFYAI_GATE_BROWSER_TOKEN: args.browserToken ?? "",
 		PLAYWRIGHT_REUSE_EXISTING_SERVER: "false",
 	};
 	if (args.mode === "agent") {
@@ -344,7 +347,10 @@ export function defineSteps(args) {
 		},
 		vitest: {
 			cmd: vitestCommand,
-			env: { ALFYAI_VITEST_REPORT: join(reportDir, "vitest.json") },
+			env: {
+				ALFYAI_VITEST_REPORT: join(reportDir, "vitest.json"),
+				ALFYAI_GATE_BROWSER_TOKEN: args.browserToken ?? "",
+			},
 			after: ["build"],
 			parse: (log, code) =>
 				parseVitestLog(log, code, { selection, total: args.unitFileCount }),
@@ -394,7 +400,7 @@ export function defineSteps(args) {
 			cmd: ["npx", "playwright", "test", ...e2eArgs],
 			env: e2eEnv,
 			after: ["build"],
-			parse: () => readPlaywrightReport(jsonReport),
+			parse: () => readPlaywrightReport(jsonReport, args.specs),
 		},
 	};
 }
@@ -720,7 +726,7 @@ function playwrightCost(report, path) {
 	return cost;
 }
 
-export function readPlaywrightReport(path) {
+export function readPlaywrightReport(path, requestedSpecs = []) {
 	let report;
 	try {
 		report = JSON.parse(readFileSync(path, "utf8"));
@@ -731,22 +737,49 @@ export function readPlaywrightReport(path) {
 		};
 	}
 	const { expected, unexpected, flaky, skipped } = report.stats;
+	const namedLocations = [];
 	const failed = [];
-	const walk = (suite, inherited) => {
+	const walk = (suite, inherited, ancestors = []) => {
 		const file = suite.file ?? inherited;
+		const locations = suite.line ? [...ancestors, suite] : ancestors;
 		for (const spec of suite.specs ?? []) {
+			const specFile = spec.file ?? file;
+			if (
+				specFile &&
+				spec.tests?.some(({ projectName }) => projectName === "chromium")
+			)
+				namedLocations.push({
+					file: specFile,
+					locations: [...locations, spec],
+				});
 			if (!spec.ok)
 				failed.push(`${file ?? "?"}:${spec.line} ${spec.title}`.slice(0, 170));
 		}
-		for (const child of suite.suites ?? []) walk(child, file);
+		for (const child of suite.suites ?? []) walk(child, file, locations);
 	};
 	for (const suite of report.suites ?? []) walk(suite, undefined);
+	const unmatched = requestedSpecs.filter((spec) => {
+		const { pattern, line, column } = e2eSpecSelector(spec);
+		return !namedLocations.some(({ file, locations }) => {
+			pattern.lastIndex = 0;
+			return (
+				pattern.test(resolve(ROOT, "tests", "e2e", file)) &&
+				(!line ||
+					locations.some(
+						(location) =>
+							location.line === line && (!column || location.column === column),
+					))
+			);
+		});
+	});
 	// How many workers the run really used (the config's number, or fewer when there were
 	// fewer files than workers), so a summary says what it measured.
 	const workers = report.config?.projects?.[0]?.metadata?.actualWorkers;
 	const lines = [
 		`${expected} passed, ${skipped} skipped, ${unexpected} failed, ${flaky} flaky${workers ? ` on ${workers} workers` : ""}`,
 	];
+	for (const file of unmatched)
+		lines.push(`      NO TESTS MATCHED REQUESTED SPEC ${file}`);
 	for (const title of failed.slice(0, 12)) lines.push(`      FAILED ${title}`);
 	const cost = playwrightCost(report, path);
 	if (cost.files.length)
@@ -761,7 +794,7 @@ export function readPlaywrightReport(path) {
 			`      workers: ${cost.workers.length}, the first idle ${minutes(cost.tailMs)} before the end; sign-in ${minutes(cost.signInMs)} in all`,
 		);
 	return {
-		ok: unexpected === 0 && flaky === 0,
+		ok: unexpected === 0 && flaky === 0 && unmatched.length === 0,
 		text: lines.join("\n"),
 		counts: { passed: expected, failed: unexpected, flaky, skipped, workers },
 	};
@@ -1068,6 +1101,11 @@ function unitSelectionFor(args) {
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
+	if (
+		process.platform === "darwin" &&
+		(!args.skip.has("playwright") || !args.skip.has("vitest"))
+	)
+		args.browserToken = randomUUID();
 	const outputRoot = args.outDir;
 	mkdirSync(outputRoot, { recursive: true });
 	args.outDir = mkdtempSync(join(outputRoot, "run-"));
@@ -1115,6 +1153,7 @@ async function main() {
 	if (heavy && process.platform === "darwin") {
 		const local = await acquireGateLock({
 			dir: join(ROOT, "data", "gate-worktree"),
+			browserToken: args.browserToken,
 			holder,
 			pollMs: 500,
 			maxWaitMs: 5000,
@@ -1128,7 +1167,11 @@ async function main() {
 		stopIfLost(local);
 	}
 	const shared = heavy
-		? await acquireGateLock({ dir: stateDir, holder })
+		? await acquireGateLock({
+				dir: stateDir,
+				holder,
+				browserToken: args.browserToken,
+			})
 		: { held: false, waitedMs: 0, reason: "no heavy step" };
 	stopIfLost(shared);
 	const queue = {

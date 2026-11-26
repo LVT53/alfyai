@@ -22,6 +22,12 @@ import { join } from "node:path";
 
 export const E2E_HOST = "127.0.0.1";
 
+/** Lets the Mac keeper recognize browsers that belong to this gate. */
+export function gateBrowserArgs(args: string[] = []): string[] {
+	const token = process.env.ALFYAI_GATE_BROWSER_TOKEN;
+	return token ? [...args, `--alfyai-gate-run=${token}`] : args;
+}
+
 /** Long enough for the session-secret check, and public: it only ever signs e2e cookies. */
 export const E2E_SESSION_SECRET_FALLBACK =
 	"e2e-test-session-secret-long-enough-1234567890";
@@ -110,10 +116,26 @@ export function e2eReusesServers(env: Env = process.env): boolean {
  * which `scripts/gates.sh agent` sets), as globs under testDir. Empty for any
  * other run.
  */
-export function e2eFullSpecs(env: Env = process.env): string[] {
+/** Playwright applies positional arguments as case-insensitive path regexes with an optional location. */
+export function e2eSpecSelector(spec: string) {
+	const [, filter, line, column] = /^(.*?):(\d+):?(\d+)?$/.exec(spec) ?? [
+		null,
+		spec,
+	];
+	const explicit = filter.match(/^\/(.*)\/([gi]*)$/);
+	return {
+		pattern: explicit
+			? new RegExp(explicit[1], explicit[2])
+			: new RegExp(filter, "i"),
+		line: line ? Number(line) : null,
+		column: column ? Number(column) : null,
+	};
+}
+
+export function e2eFullSpecs(env: Env = process.env): RegExp[] {
 	return (env.E2E_FULL_SPECS ?? "")
 		.split(",")
-		.map((spec) => spec.trim().replace(/:\d+(:\d+)?$/, ""))
-		.filter((spec) => spec !== "")
-		.map((spec) => `**/${spec.split("/").pop()}`);
+		.map((spec) => spec.trim())
+		.filter(Boolean)
+		.map((spec) => e2eSpecSelector(spec).pattern);
 }
