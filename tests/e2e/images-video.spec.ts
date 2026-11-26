@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { desc, eq } from "drizzle-orm";
@@ -26,15 +28,15 @@ import { clearAdminConfig, login } from "./helpers";
 
 // A video take, end to end on the server (docs/plans/ltx-video, slice 4): the
 // real job engine claims the take, the real runner posts the LTX graph to a
-// fake ComfyUI on a loopback port, decodes and joins the clips with the real
-// ffmpeg, stores the mp4 with its poster and thumbnail, and writes the `video`
+// fake ComfyUI on a loopback port, decodes the clip with the real ffmpeg,
+// stores the mp4 with its poster and thumbnail, and writes the `video`
 // artifact version. No GPU is involved. The card and the player are slice 3's
 // spec; this one stays on the pipeline.
 //
 // The take is queued through the app's own `enqueueVideoTake` in this process,
 // into the file the worker's server also writes; the server's idle tick claims
-// it within five seconds. No chat turn is needed here (the tool slice's own
-// tests cover `make_video`).
+// it (30 s for this kind, so a take can wait that long before it starts). No
+// chat turn is needed here (the tool slice's own tests cover `make_video`).
 
 const CONFIG_KEYS = ["COMFYUI_LTX_URL"] as const;
 
@@ -87,6 +89,49 @@ async function storeStill(width = 1920, height = 1080): Promise<string> {
 		png,
 	});
 	return file.id;
+}
+
+/**
+ * A real ten second clip: 241 frames at 24 fps, what a 241 frame render hands
+ * back. The fake answers a video graph with its own five second clip unless a
+ * test gives it other bytes, and the stored file can only be ten seconds long
+ * if the render's answer was. Made as that clip was (same colour, size and x264
+ * settings) and as `images-video-card.spec.ts` makes its portrait one.
+ */
+async function tenSecondClip(): Promise<Uint8Array> {
+	const path = join(tmpdir(), `alfyai-e2e-ten-second-${process.pid}.mp4`);
+	try {
+		execFileSync(
+			"ffmpeg",
+			[
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				"-y",
+				"-f",
+				"lavfi",
+				"-i",
+				"color=c=#336699:s=64x64:r=24",
+				"-frames:v",
+				"241",
+				"-c:v",
+				"libx264",
+				"-pix_fmt",
+				"yuv420p",
+				"-preset",
+				"veryfast",
+				"-crf",
+				"30",
+				"-movflags",
+				"+faststart",
+				path,
+			],
+			{ stdio: "ignore" },
+		);
+		return new Uint8Array(await readFile(path));
+	} finally {
+		await rm(path, { force: true });
+	}
 }
 
 async function queueTake(
@@ -277,33 +322,40 @@ test("a 5 second take renders, stores and becomes a video artifact", async ({
 	expect((await served.body()).byteLength).toBeGreaterThan(1_000);
 });
 
-test("a 10 second take renders two chained segments and stores ten seconds", async () => {
+test("a 10 second take is one 241 frame render and stores ten seconds", async () => {
+	// A real 241 frame render answers with ten seconds; the fake would answer
+	// with its five second clip.
+	fake.setOptions({ videoBytes: await tenSecondClip() });
 	const { takeId } = await queueTake(10);
 	const take = await waitForTake(takeId);
 	expect(take.status, take.errorMessage ?? "").toBe("succeeded");
 
+	// One render: a single prompt of 241 frames, in the picture latent and the
+	// sound latent alike. The still is the only picture uploaded, because there
+	// is no second segment to guide with a last frame cut from a first clip.
 	const graphs = promptGraphs(fake);
-	expect(graphs).toHaveLength(2);
-	const first = graphs[0] as Graph;
-	const second = graphs[1] as Graph;
-	const firstSource = nodeOfType(first, "LoadImage").image;
-	const secondSource = nodeOfType(second, "LoadImage").image;
-	// The chain's second segment is guided by a picture of its own: the last
-	// decoded frame of the first clip, uploaded by the runner.
-	expect(secondSource).not.toBe(firstSource);
+	expect(graphs).toHaveLength(1);
+	const graph = graphs[0] as Graph;
+	expect(nodeOfType(graph, "EmptyLTXVLatentVideo")).toMatchObject({
+		length: 241,
+	});
+	expect(nodeOfType(graph, "LTXVEmptyLatentAudio").frames_number).toBe(241);
 	expect(
 		fake.requests.filter((request) => request.path === "/upload/image"),
-	).toHaveLength(2);
+	).toHaveLength(1);
 
 	const clip = await storedClip();
 	expect(clip).not.toBeNull();
 	if (!clip) throw new Error("No stored clip");
+	expect(take.resultFileId).toBe(clip.id);
 	expect(clip.durationMs).toBe(10000);
-	expect(
-		await probeDurationMs(
-			await readFile(join(process.cwd(), clip.storagePath)),
-		),
-	).toBeGreaterThan(9_500);
+	// The file is the render's own ten seconds, stored once: not five, and not
+	// two clips joined.
+	const fileDurationMs = await probeDurationMs(
+		await readFile(join(process.cwd(), clip.storagePath)),
+	);
+	expect(fileDurationMs).toBeGreaterThan(9_500);
+	expect(fileDurationMs).toBeLessThan(10_500);
 	const stored = await storedArtifact(clip.id);
 	expect(parseVideoVersionBody(stored?.newest?.body ?? null)?.durationMs).toBe(
 		10_000,
