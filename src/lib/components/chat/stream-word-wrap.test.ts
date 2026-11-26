@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import {
 	MAX_NEW_WORDS_PER_TICK,

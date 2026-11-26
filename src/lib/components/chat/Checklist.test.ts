@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import Checklist from "./Checklist.svelte";

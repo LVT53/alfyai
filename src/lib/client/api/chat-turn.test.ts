@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { checkChatTurn } from "./chat-turn";
 import { ApiError } from "./http";

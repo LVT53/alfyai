@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NormalChatTurnObservation } from "$lib/services/ai-sdk-ui-stream-contract";
 import type {

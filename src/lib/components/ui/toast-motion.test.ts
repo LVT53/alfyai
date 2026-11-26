@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { cubicIn } from "svelte/easing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOTION_DURATION } from "$lib/utils/motion";

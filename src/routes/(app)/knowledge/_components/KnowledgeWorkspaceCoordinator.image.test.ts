@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * RV-1A: ruling 12's gate, the editor half, for the constructs the review
  * found broken — the same path a real reopen takes: the stored canonical

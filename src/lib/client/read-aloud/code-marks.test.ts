@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { idleReadAloudView, type ReadAloudView } from "$lib/stores/read-aloud";
 import { MOTION_DURATION } from "$lib/utils/motion";

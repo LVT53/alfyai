@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { placeReplySegments } from "$lib/components/chat/reply-segments";
 import {

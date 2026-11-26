@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { applyOp, type BoardOp } from "$lib/shared/artifacts/board-ops";
 import type { CanvasBody, Pt } from "$lib/shared/artifacts/canvas";

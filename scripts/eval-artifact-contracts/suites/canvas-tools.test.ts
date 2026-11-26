@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * The eval's Canvas tools answer as the app's do (decisions.md ruling 62): each
  * answer the simulator gives the model is compared, call for call, with what the

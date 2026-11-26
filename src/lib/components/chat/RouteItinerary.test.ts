@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, render } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {

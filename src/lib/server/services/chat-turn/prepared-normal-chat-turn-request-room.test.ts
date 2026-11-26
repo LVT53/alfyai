@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // A context built up to its budget, end to end: the real prepared turn, the real
 // context preparation (prepareOutboundContext and prepareOutboundChatContext
 // with their stages), the real tool pack with every connector on, and the real

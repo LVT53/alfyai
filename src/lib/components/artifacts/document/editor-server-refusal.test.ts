@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * T7.4's named proof (`slice-1.md` Task T7, Step 1.4): "the user's edit is
  * what the next `read_artifact` sees" — through the REAL editor, not hand-

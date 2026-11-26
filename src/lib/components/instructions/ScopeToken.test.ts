@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import type { InstructionScope } from "$lib/shared/instructions";

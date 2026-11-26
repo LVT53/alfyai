@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { MAX_SHOWN_CHARS } from "$lib/shared/read-aloud/session-limits";
 import {

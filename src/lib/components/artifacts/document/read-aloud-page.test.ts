@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { focusScrollTop, PAGE_NOT_TEXT, textRevision } from "./read-aloud-page";
 

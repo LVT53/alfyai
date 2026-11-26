@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { renderStandardReportHtml } from "$lib/server/services/file-production/renderers/standard-report-html";
 import { validateGeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getArtifactTour, markArtifactTourSeen } from "./artifact-tours";
 import { ApiError } from "./http";

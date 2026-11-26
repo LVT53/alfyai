@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/svelte";
 import { afterEach, describe, expect, it } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";

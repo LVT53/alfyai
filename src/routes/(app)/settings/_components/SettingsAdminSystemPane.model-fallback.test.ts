@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelCapabilitySet } from "$lib/model-capabilities";

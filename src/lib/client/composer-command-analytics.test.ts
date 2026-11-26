@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { ACTIVITY_EVENT_NAME_MAX_LENGTH } from "$lib/server/services/activity-events";
 import {

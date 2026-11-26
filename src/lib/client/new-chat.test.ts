@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { currentConversationId, landingResetRequested } from "$lib/stores/ui";

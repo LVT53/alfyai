@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

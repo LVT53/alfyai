@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { get } from "svelte/store";
 import { afterEach, describe, expect, it } from "vitest";
 import { degradedToolLabels } from "$lib/client/degraded-capabilities";

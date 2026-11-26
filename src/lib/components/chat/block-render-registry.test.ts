@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { blockRenderer } from "./block-render-registry";
 import Chart from "./Chart.svelte";

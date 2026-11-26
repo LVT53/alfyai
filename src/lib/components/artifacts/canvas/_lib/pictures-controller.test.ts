@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // The controller behind a board's pictures: when a poster is taken and when it is
 // not, what a failed one leaves (nothing but a word on the block), and how the
 // download reports itself. The renderer and the board are fakes; the timing, the

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";

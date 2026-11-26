@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * T7.7's local recording (`slice-1.md` Task T7, Step 1.7; ruling 9's
  * principle: "structural in CI, measured locally for the figure" — Slice 3's

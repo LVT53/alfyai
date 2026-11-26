@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { expect, it, vi } from "vitest";
 import MemoryQuarantineReview from "./MemoryQuarantineReview.svelte";

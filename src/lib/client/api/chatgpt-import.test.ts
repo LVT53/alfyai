@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import { readExportedConversations } from "$lib/shared/chatgpt-export";

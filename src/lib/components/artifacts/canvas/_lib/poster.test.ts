@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // The still image of a block: which kinds want one, what a block with none is
 // drawn as, what a picture leaves out, and that a failed capture never throws
 // past its own error type or leaves anything kept.

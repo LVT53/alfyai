@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, screen } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";

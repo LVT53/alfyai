@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, it } from "vitest";
 import { imageThumbnailRouteUrl } from "$lib/shared/url-provenance";
