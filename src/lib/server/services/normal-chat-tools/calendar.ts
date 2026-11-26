@@ -20,6 +20,7 @@ import {
 	GoogleCalendarError,
 	googleGetEvent,
 	googleListCalendars,
+	validGoogleEventTimes,
 } from "$lib/server/services/connections/providers/google-calendar";
 import { matchingConnections } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
@@ -1492,6 +1493,18 @@ async function calendarWriteOutcome(
 				);
 	}
 
+	if (
+		action !== "delete_event" &&
+		!validGoogleEventTimes(input.start, input.end)
+	) {
+		return buildPayload({
+			success: false,
+			action,
+			reason: "request_adjusted",
+			message:
+				"Retry with valid event times. For a timed event, include the UTC offset or Z in both timestamps (for example 2026-12-01T10:00:00Z). Use the timezone the person specified, or their known local timezone. If it is unknown, ask. For an all-day event use YYYY-MM-DD for both dates. The end must be later than the start.",
+		});
+	}
 	if (action === "create_event") {
 		return proposeCreateEvent(
 			userId,

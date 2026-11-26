@@ -14,6 +14,7 @@
 // module's write path; it only ever proposes a PENDING write via
 // createPendingWrite.
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import {
 	bearerAuthHeader,
 	ConnectionHttpError,
@@ -578,10 +579,39 @@ export function googleEventIdForOp(op: WriteOperation): string {
 // a valid ISO 8601 datetime) is passed through as a dateTime.
 const ALL_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+const GOOGLE_EVENT_DATE = z.iso.date();
+const GOOGLE_EVENT_DATETIME = z.iso.datetime({ offset: true });
+
+// Minute precision with an explicit offset identifies an instant. Google
+// requires RFC3339 seconds; a missing offset cannot be filled in safely.
+function withSeconds(value: string): string {
+	return value.replace(/(T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/, "$1:00$2");
+}
+
+export function validGoogleEventTimes(start?: string, end?: string): boolean {
+	for (const value of [start, end]) {
+		if (value === undefined) continue;
+		if (typeof value !== "string") return false;
+		if (
+			!GOOGLE_EVENT_DATE.safeParse(value).success &&
+			!GOOGLE_EVENT_DATETIME.safeParse(withSeconds(value)).success
+		)
+			return false;
+	}
+	return (
+		start === undefined ||
+		end === undefined ||
+		(ALL_DAY_PATTERN.test(start) === ALL_DAY_PATTERN.test(end) &&
+			Date.parse(start) < Date.parse(end))
+	);
+}
+
 function toGoogleEventTime(
 	value: string,
 ): { date: string } | { dateTime: string } {
-	return ALL_DAY_PATTERN.test(value) ? { date: value } : { dateTime: value };
+	return ALL_DAY_PATTERN.test(value)
+		? { date: value }
+		: { dateTime: withSeconds(value) };
 }
 
 async function calendarWriteRequest(
@@ -894,6 +924,9 @@ registerWriteExecutor({
 	async execute(userId, connectionId, op, content, opts) {
 		const parsed = parseContent(content);
 		if (!parsed) return { ok: false, reason: "unsupported_operation" };
+		if (!validGoogleEventTimes(parsed.event?.start, parsed.event?.end)) {
+			return { ok: false, reason: "invalid_event_time" };
+		}
 
 		const tokenResult = await getAccessTokenOrReauth(
 			userId,

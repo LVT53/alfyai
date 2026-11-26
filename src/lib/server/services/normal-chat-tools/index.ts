@@ -443,7 +443,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	calendar: {
 		description:
-			"Read Google, Apple iCloud, CalDAV and Outlook schedules. list_events reads upcoming or ranged events. list_calendars discovers calendarId for scoped reads or writes. Google and Outlook support scoped event lists. check_availability combines busy periods across accounts, using Google/Outlook default calendars and configured DAV collections unless scoped. Report any unchecked accounts. Select an account by provider, label or email. Do not use for to-dos, due dates or checklists (tasks), or travel time (map_route). create_event/update_event/delete_event on write-enabled Google or Apple calendars propose changes requiring user confirmation. Ask whether to change one occurrence or the whole recurring series.",
+			"Read Google, Apple iCloud, CalDAV and Outlook schedules. list_events reads upcoming or ranged events. list_calendars discovers calendarId for scoped reads or writes. Google and Outlook support scoped event lists. check_availability combines busy periods across accounts, using Google/Outlook default calendars and configured DAV collections unless scoped. Report any unchecked accounts. Select an account by provider, label or email. Do not use for to-dos, due dates or checklists (tasks), or travel time (map_route). create_event/update_event/delete_event on write-enabled Google or Apple calendars propose changes requiring user confirmation. Use YYYY-MM-DD for all-day events, or times with seconds and Z or a UTC offset. Ask whether to change one occurrence or the whole recurring series.",
 		errorPrefix: "Calendar lookup failed",
 	},
 	email: {

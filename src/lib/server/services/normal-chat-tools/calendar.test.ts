@@ -1492,6 +1492,29 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			}
 		});
 
+		it.each(["create_event", "update_event"] as const)(
+			"requires a timezone for %s before any proposal or event read",
+			async (action) => {
+				resolveConnectionsForCapabilityMock.mockResolvedValue([
+					makeWritableGoogleConn(),
+				]);
+				const result = await runCalendarTool(
+					"user-1",
+					{
+						action,
+						eventId: "one",
+						title: "Review demo",
+						start: "2026-12-01T10:00",
+						end: "2026-12-01T10:30",
+					},
+					LOCAL_MODEL_ID,
+				);
+				expect(reasonCodeOf(result.modelPayload)).toBe("request_adjusted");
+				expect(result.modelPayload.message).toContain("UTC offset");
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+				expect(googleGetEventMock).not.toHaveBeenCalled();
+			},
+		);
 		it("ordinary read-only Google accounts get no invitation to grant write access or pending row", async () => {
 			const conn = makeWritableGoogleConn({ oauthScopes: [] });
 			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);

@@ -124,6 +124,47 @@ describe("google write-executor — registration (Issue 6.0/6.1)", () => {
 });
 
 describe("google write-executor — calendar.create_event", () => {
+	it("does not send a previously stored floating time to Google", async () => {
+		const fetch = vi.fn();
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			makeCreateOp(),
+			JSON.stringify({
+				calendarId: "primary",
+				event: { start: "2026-12-01T10:00", end: "2026-12-01T10:30" },
+			}),
+			{ fetch },
+		);
+		expect(result).toEqual({ ok: false, reason: "invalid_event_time" });
+		expect(fetch).not.toHaveBeenCalled();
+		expect(googleRefreshAccessTokenMock).not.toHaveBeenCalled();
+	});
+
+	it("adds RFC3339 seconds to a minute-precision timestamp without changing its offset", async () => {
+		const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body));
+			expect(body.start).toEqual({ dateTime: "2026-12-01T10:00:00+01:00" });
+			expect(body.end).toEqual({ dateTime: "2026-12-01T10:30:00+01:00" });
+			return jsonResponse(200, {});
+		});
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			makeCreateOp(),
+			JSON.stringify({
+				calendarId: "primary",
+				event: {
+					start: "2026-12-01T10:00+01:00",
+					end: "2026-12-01T10:30+01:00",
+				},
+			}),
+			{ fetch },
+		);
+		expect(result.ok).toBe(true);
+		expect(fetch).toHaveBeenCalledOnce();
+	});
+
 	it("POSTs with a client-supplied id derived from the idempotencyKey, and returns the etag on success", async () => {
 		const op = makeCreateOp();
 		const content = JSON.stringify({
