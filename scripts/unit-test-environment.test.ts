@@ -110,7 +110,11 @@ test("does not follow import type", () => {
 	);
 });
 
-test("every unit test that runs in Node reaches no module that acts differently in a browser", () => {
+// This assertion parses the whole repository with TypeScript. During the
+// release gate it shares the machine with Vitest workers and Chromium.
+test("every unit test that runs in Node reaches no module that acts differently in a browser", {
+	timeout: 20_000,
+}, () => {
 	const root = fileURLToPath(new URL("../", import.meta.url));
 	const violations = browserEnvironmentViolations(
 		root,
