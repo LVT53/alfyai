@@ -83,6 +83,10 @@ const MAY_NAME_THE_SERIF: MayNameTheSerif = {
 		sets: "the Feature Guide page title",
 		ways: ["class"],
 	},
+	"src/routes/about/+page.svelte": {
+		sets: "the public About page title",
+		ways: ["token"],
+	},
 	"src/routes/login/+page.svelte": {
 		sets: "the login page title",
 		ways: ["token"],

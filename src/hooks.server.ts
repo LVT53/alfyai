@@ -73,6 +73,7 @@ const PUBLIC_PATHS = [
 	// must be reachable unauthenticated to be submitted as the Google OAuth
 	// verification URL.
 	"/privacy",
+	"/about",
 ];
 
 /**
