@@ -79,6 +79,18 @@ test("leaves raw Vite glob reads in Node", () => {
 	).toEqual([]);
 });
 
+test("follows a raw Vite query combined with a worker query", () => {
+	expect(
+		scanFixture('import.meta.glob("./lib/**/*.ts", { query: "?raw&worker" });'),
+	).toEqual([
+		{
+			file: "src/entry.test.ts",
+			module: "src/lib/folder/index.ts",
+			reason: "typeof window",
+		},
+	]);
+});
+
 test.each([
 	['export const browser = typeof (window) !== "undefined";', "typeof window"],
 	["export const browser = !import.meta .env.SSR;", "import.meta.env.SSR"],

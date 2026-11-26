@@ -145,7 +145,8 @@ function isRawGlob(options) {
 		return (
 			ts.isPropertyAssignment(property) &&
 			ts.isStringLiteralLike(property.initializer) &&
-			/^\??raw(?:&|$)/.test(property.initializer.text)
+			(property.initializer.text === "raw" ||
+				property.initializer.text === "?raw")
 		);
 	}
 	return false;
