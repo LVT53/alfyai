@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";

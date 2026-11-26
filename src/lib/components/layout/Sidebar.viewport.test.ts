@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { readable } from "svelte/store";

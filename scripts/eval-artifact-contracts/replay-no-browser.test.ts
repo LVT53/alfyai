@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Ruling 56, end to end: "--replay constructs no browser and no client."
 // The unit tests in run.test.ts prove the generic core never calls
 // deps.evaluate under --replay; browser-eval.test.ts proves evaluateAppEval

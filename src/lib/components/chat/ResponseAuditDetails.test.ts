@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ChatMessage } from "$lib/server/services/messages-types";

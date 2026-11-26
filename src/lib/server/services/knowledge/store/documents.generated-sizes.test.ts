@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // What size a generated row of the Knowledge library shows (friction audit F23).
 //
 // The row's own `artifacts.size_bytes` is not the size of what it downloads: a

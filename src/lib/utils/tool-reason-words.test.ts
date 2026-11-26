@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // @always-run: scans source files for tool reason codes and their translations.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

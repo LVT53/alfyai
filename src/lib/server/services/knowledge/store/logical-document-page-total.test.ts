@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // `totalItems` and the rows beside it have to answer the same question.
 //
 // They did not. The ROWS were filtered by `isArtifactCanonicallyOwned` after

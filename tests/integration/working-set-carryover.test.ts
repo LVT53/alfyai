@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // What the working set keeps of a document the person is working on.
 //
 // After a turn that works on a document, the working set is what carries it into

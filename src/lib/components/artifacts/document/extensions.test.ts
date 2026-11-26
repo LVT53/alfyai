@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { Decoration } from "@tiptap/pm/view";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";

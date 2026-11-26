@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {

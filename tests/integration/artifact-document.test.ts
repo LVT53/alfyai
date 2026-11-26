@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // The Document type against a real, migrated database (Slice 1) — no mocked
 // `$lib/server/db`, the same connection bootstrap the server uses. This is
 // where the reload trap and the canonical-form-at-rest trap live: both are

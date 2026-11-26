@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Which documents a search looks at once the library holds more than the 120 it
 // takes by recency.
 //

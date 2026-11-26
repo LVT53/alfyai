@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";

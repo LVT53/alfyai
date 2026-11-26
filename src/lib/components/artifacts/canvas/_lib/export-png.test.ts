@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // A picture of the whole board, and above all what a failed one leaves behind:
 // nothing. The camera goes back where the reader had it and every poster comes
 // off, whichever step throws, and a block drawn as a card is named.

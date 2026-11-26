@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, waitFor } from "@testing-library/svelte";
 import { createRawSnippet, tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";

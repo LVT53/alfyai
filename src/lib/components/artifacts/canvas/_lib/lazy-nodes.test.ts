@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import * as AppModule from "../nodes/AppNode.svelte";
 import * as ChartModule from "../nodes/ChartNode.svelte";

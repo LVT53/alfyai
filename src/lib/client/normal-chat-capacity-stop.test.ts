@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Review-C scaffolding: the real runtime, deferred stream adapters and the real
 // page message-list helpers (finalize/output/remove) so effects are visible rows.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

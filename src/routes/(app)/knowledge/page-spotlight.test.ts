@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, screen } from "@testing-library/svelte";
 import type { Component } from "svelte";
 import { get } from "svelte/store";

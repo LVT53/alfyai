@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // The end-to-end test ADR 0063 promised: a three-section report through fakes,
 // asserting the properties v2 could not hold — a verdict that answers, an
 // answer table with a citation per cell, no claim repeated across sections,

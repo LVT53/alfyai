@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";

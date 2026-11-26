@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_MAX_FILE_UPLOAD_SIZE_BYTES } from "$lib/shared/file-types";

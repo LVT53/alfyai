@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import { toFriendlySendError } from "../../../routes/(app)/chat/[conversationId]/_helpers";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Atlas Local Sources against a real (in-memory) database: which of the user's
 // documents an Atlas job may read, resolved only through the knowledge
 // boundary and only under the job conversation's strict incognito scope.

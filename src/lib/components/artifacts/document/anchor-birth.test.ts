@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * RV-1A: a comment's anchor, made by the real editor from a real selection,
  * resolves as "exact" the moment it is made — against the stored Markdown's

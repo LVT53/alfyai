@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { ApiError } from "$lib/client/api/http";
 import { MIN_PASSWORD_LENGTH } from "$lib/shared/password-policy";

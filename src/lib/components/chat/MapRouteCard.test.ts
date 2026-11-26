@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { render, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";

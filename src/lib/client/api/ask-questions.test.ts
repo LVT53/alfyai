@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import type { AskQuestionDto } from "$lib/shared/ask-user";
 import { fetchConversationQuestions } from "./ask-questions";

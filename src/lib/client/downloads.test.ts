@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // The helper that stands between a download button and the browser.
 //
 // The bug it exists for is quiet and nasty: a `<a download>` is a NAVIGATION,

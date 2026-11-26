@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { getSuiteEvaluator, SUITE_EVALUATORS } from "./evaluators";
 import type { SuiteEvaluator } from "./types";
