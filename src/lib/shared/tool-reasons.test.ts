@@ -77,6 +77,7 @@ describe("tool reason codes", () => {
 			...CONNECTOR_REASON_CODES,
 			"availability_incomplete",
 			"calendar_edit_consent",
+			"online_meeting_notes",
 		]);
 		for (const name of CONNECTOR_TOOL_NAMES) {
 			if (name !== "calendar")
