@@ -3,6 +3,7 @@ import {
 	buildAiSdkUiStreamBody,
 	createConversation,
 	login,
+	loginThroughForm,
 	logout,
 	openConversationComposer,
 } from "./helpers";
@@ -24,7 +25,7 @@ function mockStreamRoute(page: import("@playwright/test").Page) {
 
 test.describe("Full User Journey", () => {
 	test("user can login with valid credentials", async ({ page }) => {
-		await login(page);
+		await loginThroughForm(page);
 		await expect(page).toHaveURL("/");
 		await expect(page.getByTestId("new-conversation")).toBeVisible({
 			timeout: 10000,
@@ -55,7 +56,7 @@ test.describe("Full User Journey", () => {
 	});
 
 	test("user can logout", async ({ page }) => {
-		await login(page);
+		await loginThroughForm(page);
 		// logout() clicks Logout and confirms the ConfirmDialog (ADR-0043 Slice 16).
 		await logout(page);
 		await expect(page).toHaveURL(/\/login/, { timeout: 10000 });

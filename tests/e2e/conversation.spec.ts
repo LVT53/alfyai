@@ -5,6 +5,7 @@ import {
 	createEmptyConversation,
 	ensureSidebarExpanded,
 	login,
+	loginThroughForm,
 	openConversationComposer,
 	renameConversationInSidebar,
 	renameProjectInSidebar,
@@ -545,10 +546,13 @@ test.describe("Conversation CRUD operations", () => {
 		await expect(conversationMenu).toBeVisible();
 		await expect(projectMenu).not.toBeVisible();
 	});
+});
 
+test.describe("Sidebar sign-out", () => {
 	test("confirms before logging out from the sidebar (ADR-0043 Slice 16)", async ({
 		page,
 	}) => {
+		await loginThroughForm(page);
 		await ensureSidebarExpanded(page);
 
 		// Clicking the sidebar Logout button opens a confirm dialog and does

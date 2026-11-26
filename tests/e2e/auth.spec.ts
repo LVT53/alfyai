@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login } from "./helpers";
+import { loginThroughForm } from "./helpers";
 
 test.describe("Authentication", () => {
 	test("login page renders correctly", async ({ page }) => {
@@ -94,7 +94,7 @@ test.describe("Authentication", () => {
 	test("logs in with valid credentials and redirects to app", async ({
 		page,
 	}) => {
-		await login(page);
+		await loginThroughForm(page);
 		await expect(page).toHaveURL("/");
 		await expect(page.getByTestId("new-conversation")).toBeVisible({
 			timeout: 10000,
@@ -102,7 +102,7 @@ test.describe("Authentication", () => {
 	});
 
 	test("logs out successfully", async ({ page }) => {
-		await login(page);
+		await loginThroughForm(page);
 		await page.waitForURL("/");
 		await page.getByRole("button", { name: "Logout" }).click();
 		// ADR-0043 Slice 16: logout opens a ConfirmDialog before ending the
@@ -120,7 +120,7 @@ test.describe("Authentication", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		await login(page);
+		await loginThroughForm(page);
 
 		await page.getByRole("button", { name: "Open user menu" }).click();
 		await page.getByTestId("header-logout").click();
