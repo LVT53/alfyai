@@ -451,19 +451,22 @@ describe("hooks.server.ts", () => {
 		expect(event.locals.user).toBeNull();
 	});
 
-	it("allows /privacy without a session (Redesign R6 — Google OAuth verification URL)", async () => {
-		const { handle } = await import("./hooks.server");
-		const resolve = vi.fn(
-			async (_event: HookEvent, _options?: ResolveOptions) =>
-				new Response("ok"),
-		);
-		const event = makeHookEvent("/privacy");
+	it.each(["/privacy", "/about"])(
+		"allows signed-out access to the public OAuth page %s",
+		async (path) => {
+			const { handle } = await import("./hooks.server");
+			const resolve = vi.fn(
+				async (_event: HookEvent, _options?: ResolveOptions) =>
+					new Response("ok"),
+			);
+			const event = makeHookEvent(path);
 
-		await handle({ event, resolve });
+			await handle({ event, resolve });
 
-		expect(resolve).toHaveBeenCalledOnce();
-		expect(event.locals.user).toBeNull();
-	});
+			expect(resolve).toHaveBeenCalledOnce();
+			expect(event.locals.user).toBeNull();
+		},
+	);
 
 	it.each([
 		{ segments: ["api", "tools", "image-search"] },
