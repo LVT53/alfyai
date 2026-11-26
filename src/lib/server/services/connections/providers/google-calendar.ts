@@ -384,15 +384,26 @@ export async function googleGetEvent(
 // googleFreeBusy
 // ---------------------------------------------------------------------------
 
+function incompleteFreeBusy(): never {
+	throw new GoogleCalendarError(
+		"Google returned incomplete free/busy data",
+		"request_failed",
+	);
+}
+
 function parseBusyIntervals(value: unknown): { start: string; end: string }[] {
-	if (!Array.isArray(value)) return [];
+	if (!Array.isArray(value)) return incompleteFreeBusy();
 	const intervals: { start: string; end: string }[] = [];
 	for (const entry of value) {
-		if (!isRecord(entry)) continue;
+		if (!isRecord(entry)) return incompleteFreeBusy();
 		const { start, end } = entry;
-		if (typeof start === "string" && typeof end === "string") {
-			intervals.push({ start, end });
-		}
+		if (
+			typeof start !== "string" ||
+			typeof end !== "string" ||
+			!(Date.parse(start) < Date.parse(end))
+		)
+			return incompleteFreeBusy();
+		intervals.push({ start, end });
 	}
 	return intervals;
 }
@@ -434,11 +445,23 @@ export async function googleFreeBusy(
 	}
 
 	const body: unknown = await response.json().catch(() => null);
-	if (!isRecord(body) || !isRecord(body.calendars)) return [];
+	if (!isRecord(body) || !isRecord(body.calendars)) return incompleteFreeBusy();
+	const calendars = body.calendars;
+	const entries = Object.entries(calendars);
+	if (
+		entries.length !== calendarIds.length ||
+		calendarIds.some((id) => id !== "primary" && !(id in calendars))
+	)
+		return incompleteFreeBusy();
 
 	const results: CalendarFreeBusy[] = [];
-	for (const [calendarId, entry] of Object.entries(body.calendars)) {
-		if (!isRecord(entry)) continue;
+	for (const [calendarId, entry] of entries) {
+		if (
+			!isRecord(entry) ||
+			(entry.errors !== undefined &&
+				!(Array.isArray(entry.errors) && entry.errors.length === 0))
+		)
+			return incompleteFreeBusy();
 		results.push({ calendarId, busy: parseBusyIntervals(entry.busy) });
 	}
 	return results;

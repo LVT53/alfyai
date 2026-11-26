@@ -1,26 +1,5 @@
-// OneDrive (Microsoft Graph) connector — Task 8 — a second provider under
-// the existing "files" capability, alongside Nextcloud. READ-ONLY for v1:
-// every exported read function only ever issues GET requests, and there is
-// no write path here at all (see normal-chat-tools/files.ts's provider
-// dispatch, which refuses every write action against a "onedrive"
-// connection with a clean not-supported message before this module is ever
-// touched).
-//
-// OAuth2 (auth-code + refresh) mirrors providers/google.ts's connect/finish/
-// refresh lifecycle and stateless signed-state scheme byte-for-byte (own
-// copy, not a shared import — every provider adapter in this directory is
-// self-contained, see nextcloud-files.ts/github.ts). One difference from
-// Google: Microsoft ROTATES refresh tokens on every use (a refresh response
-// commonly carries a new refresh_token that must replace the stored one) —
-// see onedriveRefreshAccessToken's doc comment below.
-//
-// Read methods (list/search/read/stat) mirror nextcloud-files.ts's shape
-// (same NcFile-like item fields: name/path/isDir/size/mtime/contentType/
-// etag) so normal-chat-tools/files.ts can dispatch between the two
-// providers through one common `FileEntry` shape. Every network call
-// accepts an injectable `fetch` so this whole module is testable against
-// mocked Microsoft/Graph endpoints — nothing here ever talks to a live
-// Microsoft server in tests.
+// Microsoft account OAuth and OneDrive file reads. The existing provider ID
+// and callback URL also serve Outlook Calendar with separate read consent.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
 import { config as envConfig } from "$lib/server/env";
@@ -96,11 +75,7 @@ const onedriveTimeout = (ms: number) =>
 		"request_failed",
 	);
 
-// Read-only v1 — Files.Read only (no Files.ReadWrite). User.Read resolves
-// the account's email/UPN for the connection's accountIdentifier;
-// offline_access is required for Microsoft to ever issue a refresh_token.
-// Shared with granted.ts via the registry — see the same note in
-// providers/google.ts.
+// User.Read identifies the Microsoft account. Files and calendar access are optional.
 const CAPABILITY_SCOPES: Partial<Record<Capability, string>> =
 	OAUTH_CAPABILITY_SCOPES.onedrive ?? {};
 
@@ -389,12 +364,6 @@ async function upsertOneDriveConnection(params: {
 	} satisfies StoredOneDriveSecret);
 
 	if (existing) {
-		const mergedCapabilities = [
-			...new Set([...existing.capabilities, ...params.capabilities]),
-		];
-		const mergedScopes = [
-			...new Set([...existing.oauthScopes, ...grantedScopes]),
-		];
 		await setConnectionSecret(
 			params.userId,
 			existing.id,
@@ -404,8 +373,8 @@ async function upsertOneDriveConnection(params: {
 		const updated = await updateConnection(params.userId, existing.id, {
 			status: "connected",
 			statusDetail: null,
-			capabilities: mergedCapabilities,
-			oauthScopes: mergedScopes,
+			capabilities: params.capabilities,
+			oauthScopes: grantedScopes,
 			tokenExpiresAt,
 		});
 		if (!updated) {
@@ -417,7 +386,7 @@ async function upsertOneDriveConnection(params: {
 	return createConnection({
 		userId: params.userId,
 		provider: "onedrive",
-		label: "OneDrive",
+		label: "Microsoft",
 		accountIdentifier: params.email,
 		capabilities: params.capabilities,
 		status: "connected",
@@ -473,13 +442,22 @@ export async function onedriveConnectFinish(
 	}
 	const email = userinfoBody.mail || userinfoBody.userPrincipalName || "";
 
+	// Graph can include previously consented scopes. Persist only the scopes
+	// requested in this signed flow, including when reconnecting with less access.
+	const requestedScopes = new Set(
+		scopesForCapabilities(statePayload.capabilities),
+	);
+	const scope = tokenBody.scope
+		.split(/\s+/)
+		.filter((s) => requestedScopes.has(s))
+		.join(" ");
 	const connection = await upsertOneDriveConnection({
 		userId: statePayload.userId,
 		email,
-		capabilities: capabilitiesFromScope(tokenBody.scope),
+		capabilities: capabilitiesFromScope(scope),
 		refreshToken: tokenBody.refresh_token,
 		accessToken: tokenBody.access_token,
-		scope: tokenBody.scope,
+		scope,
 		expiresIn: tokenBody.expires_in,
 	});
 
@@ -509,16 +487,26 @@ function isValidRefreshResponse(
 	);
 }
 
-// Obtains a fresh access token, refreshing unconditionally (mirrors
-// providers/google-calendar.ts's getAccessToken — always refresh rather than
-// caching, since a refresh is a cheap request and this guarantees freshness
-// without local clock-skew concerns). Microsoft ROTATES refresh tokens: a
-// refresh response commonly carries a NEW refresh_token that must replace
-// the stored one, unlike Google, which reuses the same refresh_token
-// indefinitely — the persisted secret below always prefers a returned
-// refresh_token, falling back to the existing one only when Microsoft omits
-// it.
-export async function onedriveRefreshAccessToken(
+// File and calendar reads share a rotating refresh token. Join concurrent
+// refreshes so one response cannot overwrite another response’s token.
+const pendingRefreshes = new Map<string, Promise<string>>();
+
+export function onedriveRefreshAccessToken(
+	userId: string,
+	connectionId: string,
+	opts?: FetchOpt,
+): Promise<string> {
+	const key = JSON.stringify([userId, connectionId]);
+	const pending = pendingRefreshes.get(key);
+	if (pending) return pending;
+	const refresh = refreshAccessToken(userId, connectionId, opts).finally(() =>
+		pendingRefreshes.delete(key),
+	);
+	pendingRefreshes.set(key, refresh);
+	return refresh;
+}
+
+async function refreshAccessToken(
 	userId: string,
 	connectionId: string,
 	opts?: FetchOpt,
@@ -548,7 +536,9 @@ export async function onedriveRefreshAccessToken(
 
 	const { clientId, clientSecret } = requireOneDriveCredentials();
 
-	const response = await fetchImpl(MS_TOKEN_URL, {
+	const response = await providerFetch(MS_TOKEN_URL, {
+		fetch: fetchImpl,
+		timeoutError: onedriveTimeout,
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -556,7 +546,9 @@ export async function onedriveRefreshAccessToken(
 			refresh_token: secret.refreshToken,
 			client_id: clientId,
 			client_secret: clientSecret,
-			scope: scopesForCapabilities(["files"]).join(" "),
+			scope: scopesForCapabilities(
+				capabilitiesFromScope(conn.oauthScopes.join(" ")),
+			).join(" "),
 		}).toString(),
 	});
 	const body: unknown = await response.json().catch(() => null);
@@ -603,14 +595,16 @@ export async function onedriveRefreshAccessToken(
 }
 
 // ---------------------------------------------------------------------------
-// Adapter — checkHealth (requiresSecret: true). Refreshes the access token
-// only when it's missing/near expiry (mirrors google.ts), then makes a
-// cheap `GET /me/drive` call to confirm the token actually works against
-// Microsoft Graph right now — a successful refresh alone doesn't guarantee
-// the resulting token has Files.Read still granted.
-// ---------------------------------------------------------------------------
+// Confirm the enabled Microsoft services with a small live read.
+const TOKEN_REFRESH_WINDOW_SECONDS = 60;
 
-const HEALTH_CHECK_REFRESH_WINDOW_SECONDS = 60;
+function tokenIsFresh(conn: ConnectionPublic): boolean {
+	return (
+		conn.tokenExpiresAt != null &&
+		conn.tokenExpiresAt - Math.floor(Date.now() / 1000) >
+			TOKEN_REFRESH_WINDOW_SECONDS
+	);
+}
 
 async function checkHealth(
 	secret: string,
@@ -621,13 +615,9 @@ async function checkHealth(
 	detail: string | null;
 }> {
 	const fetchImpl = opts?.fetch ?? fetch;
-	const now = Math.floor(Date.now() / 1000);
-	const tokenIsFreshEnough =
-		conn.tokenExpiresAt != null &&
-		conn.tokenExpiresAt - now > HEALTH_CHECK_REFRESH_WINDOW_SECONDS;
 
 	let accessToken: string;
-	if (tokenIsFreshEnough) {
+	if (tokenIsFresh(conn)) {
 		const stored = parseStoredSecret(secret);
 		if (!stored) {
 			return {
@@ -655,22 +645,42 @@ async function checkHealth(
 	}
 
 	try {
-		const response = await fetchImpl(`${GRAPH_BASE}/me/drive`, {
-			headers: { Authorization: `Bearer ${accessToken}` },
-		});
-		if (response.status === 200) {
-			return { status: "connected", detail: null };
-		}
-		if (response.status === 401) {
+		const granted = new Set<string>(
+			capabilitiesFromScope(conn.oauthScopes.join(" ")),
+		);
+		if (conn.capabilities.some((capability) => !granted.has(capability)))
 			return {
 				status: "needs_reauth",
-				detail: "Microsoft rejected the stored access token",
+				detail: "Microsoft access is missing for an enabled service",
 			};
-		}
-		return {
-			status: "error",
-			detail: `Microsoft Graph returned an unexpected status (${response.status})`,
-		};
+		const paths: string[] = conn.capabilities.map((capability) =>
+			capability === "files" ? "/me/drive" : "/me/calendar?$select=id",
+		);
+		if (paths.length === 0) paths.push("/me?$select=id");
+		const responses = await Promise.all(
+			paths.map((path) =>
+				providerFetch(GRAPH_BASE + path, {
+					fetch: fetchImpl,
+					headers: bearerAuthHeader(accessToken),
+					timeoutError: onedriveTimeout,
+				}),
+			),
+		);
+		const refused = responses.find(
+			(response) => response.status === 401 || response.status === 403,
+		);
+		if (refused)
+			return {
+				status: "needs_reauth",
+				detail: "Microsoft rejected the stored access token or permission",
+			};
+		const failed = responses.find((response) => !response.ok);
+		return failed
+			? {
+					status: "error",
+					detail: `Microsoft Graph returned an unexpected status (${failed.status})`,
+				}
+			: { status: "connected", detail: null };
 	} catch (err) {
 		return {
 			status: "error",
@@ -748,22 +758,27 @@ function assertNotAuthFailure(response: Response): void {
 	}
 }
 
-// Obtains a fresh access token for a read call — always refreshes (see
-// onedriveRefreshAccessToken's doc comment on why this is unconditional,
-// not expiry-gated like checkHealth). Exported so callers that fan out into
-// MULTIPLE read calls for a single logical operation (files.ts's `read`
-// action, which stats the path before downloading it — see onedriveStat/
-// onedriveReadFile's `opts.accessToken` below) can resolve a token exactly
-// ONCE and thread it through, instead of letting each call mint its own.
-// That matters specifically for OneDrive: Microsoft ROTATES refresh tokens
-// on every use (see onedriveRefreshAccessToken's doc comment), so two
-// refreshes for what is conceptually one read double the vault writes and
-// open a race where two concurrent reads on the same connection can each
-// invalidate the other's just-stored refresh token.
+// Check the selected grant before reusing a token. Microsoft can return
+// permissions from an earlier consent in the same access token.
 export async function onedriveGetAccessTokenForRead(
 	conn: ConnectionPublic,
 	opts?: FetchOpt,
+	capability: "files" | "calendar" = "files",
 ): Promise<string> {
+	if (
+		!conn.capabilities.includes(capability) ||
+		!capabilitiesFromScope(conn.oauthScopes.join(" ")).includes(capability)
+	) {
+		throw new OneDriveError(
+			"The selected Microsoft permission is unavailable",
+			"needs_reauth",
+		);
+	}
+	if (tokenIsFresh(conn)) {
+		const raw = await getConnectionSecret(conn.userId, conn.id);
+		const stored = raw ? parseStoredSecret(raw) : null;
+		if (stored) return stored.accessToken;
+	}
 	return onedriveRefreshAccessToken(conn.userId, conn.id, {
 		fetch: opts?.fetch,
 	});

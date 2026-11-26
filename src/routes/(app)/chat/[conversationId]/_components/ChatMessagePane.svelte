@@ -13,6 +13,7 @@ import type {
 	AtlasJobCard,
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
+import type { WriteAnswerState } from "$lib/components/chat/write-card-view";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
 import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
@@ -146,7 +147,7 @@ let {
 		message: string;
 		profile: AtlasProfile;
 	}) => void | Promise<void>;
-	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
+	writeActionState?: Record<string, WriteAnswerState>;
 	onConfirmWrite?: (writeId: string) => void | Promise<void>;
 	onCancelWrite?: (writeId: string) => void | Promise<void>;
 	/** `ConversationDetail.artifacts` (Feature 2), for every message's in-chat card. */

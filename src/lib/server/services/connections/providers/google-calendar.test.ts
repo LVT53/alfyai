@@ -201,6 +201,20 @@ describe("googleListEvents", () => {
 });
 
 describe("googleFreeBusy", () => {
+	it.each([
+		{ calendars: { primary: { errors: [{ reason: "notFound" }], busy: [] } } },
+		{ calendars: {} },
+		{ calendars: { primary: { busy: [{ start: "bad", end: "bad" }] } } },
+	])("rejects incomplete free/busy coverage", async (body) => {
+		const promise = googleFreeBusy(
+			USER_ID,
+			CONNECTION_ID,
+			{ timeMin: "2026-07-08T00:00:00Z", timeMax: "2026-07-15T00:00:00Z" },
+			{ fetch: async () => jsonResponse(200, body) },
+		);
+		await expect(promise).rejects.toMatchObject({ code: "request_failed" });
+	});
+
 	it("parses busy intervals per calendar", async () => {
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {

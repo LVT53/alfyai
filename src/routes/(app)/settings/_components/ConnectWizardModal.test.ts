@@ -260,7 +260,7 @@ describe("ConnectWizardModal", () => {
 
 			expect(screen.getByLabelText("Files")).toBeChecked();
 			await fireEvent.click(
-				screen.getByRole("button", { name: "Continue to OneDrive" }),
+				screen.getByRole("button", { name: "Continue to Microsoft" }),
 			);
 
 			await waitFor(() => {
@@ -272,11 +272,27 @@ describe("ConnectWizardModal", () => {
 			);
 		});
 
-		it("unchecking the only capability disables Continue", async () => {
+		it("unchecking every capability disables Continue", async () => {
 			render(ConnectWizardModal, baseProps({ provider: "onedrive" }));
 			await fireEvent.click(screen.getByLabelText("Files"));
 			expect(
-				screen.getByRole("button", { name: "Continue to OneDrive" }),
+				screen.getByRole("button", { name: "Continue to Microsoft" }),
+			).toBeDisabled();
+		});
+
+		it("keeps all switches off when reconnecting an account with no enabled services", () => {
+			render(
+				ConnectWizardModal,
+				baseProps({
+					provider: "onedrive",
+					reconnectConnectionId: "conn-1",
+					requestedCapabilities: [],
+				}),
+			);
+			expect(screen.getByLabelText("Files")).not.toBeChecked();
+			expect(screen.getByLabelText("Calendar")).not.toBeChecked();
+			expect(
+				screen.getByRole("button", { name: "Continue to Microsoft" }),
 			).toBeDisabled();
 		});
 
@@ -289,10 +305,10 @@ describe("ConnectWizardModal", () => {
 				baseProps({ provider: "onedrive", isAdmin: true, redirectTo: vi.fn() }),
 			);
 			await fireEvent.click(
-				screen.getByRole("button", { name: "Continue to OneDrive" }),
+				screen.getByRole("button", { name: "Continue to Microsoft" }),
 			);
 			const notice = await screen.findByTestId("wizard-not-set-up");
-			expect(notice).toHaveTextContent(/OneDrive needs an app id and secret/);
+			expect(notice).toHaveTextContent(/Microsoft needs an app id and secret/);
 		});
 	});
 

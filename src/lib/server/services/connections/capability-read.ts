@@ -37,13 +37,21 @@ export type CapabilityConnectionResult<R> =
 export async function withCapabilityConnection<R>(
 	userId: string,
 	capability: Capability,
-	opts: { account?: string | null; forWrite?: boolean },
+	opts: {
+		account?: string | null;
+		forWrite?: boolean;
+		includeUnavailable?: boolean;
+	},
 	fn: (
 		conn: ConnectionPublic,
 		ctx: { ambiguous: boolean; connections: ConnectionPublic[] },
 	) => Promise<R>,
 ): Promise<CapabilityConnectionResult<R>> {
-	const connections = await resolveConnectionsForCapability(userId, capability);
+	const connections = opts.includeUnavailable
+		? await resolveConnectionsForCapability(userId, capability, {
+				includeUnavailable: true,
+			})
+		: await resolveConnectionsForCapability(userId, capability);
 	if (connections.length === 0) return { kind: "not-connected" };
 
 	const ambiguous = needsDisambiguation(connections);

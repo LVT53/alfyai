@@ -8,6 +8,7 @@ import { listConnectionsForUser } from "./store";
 export async function resolveConnectionsForCapability(
 	userId: string,
 	capability: Capability,
+	options?: { includeUnavailable?: boolean },
 ): Promise<ConnectionPublic[]> {
 	const providers = CAPABILITY_META[capability].providers;
 	const connections = await listConnectionsForUser(userId);
@@ -15,7 +16,7 @@ export async function resolveConnectionsForCapability(
 		.filter(
 			(conn) =>
 				providers.includes(conn.provider) &&
-				conn.status === "connected" &&
+				(conn.status === "connected" || options?.includeUnavailable === true) &&
 				conn.capabilities.includes(capability),
 		)
 		.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
@@ -52,7 +53,18 @@ function matchConnectionSelector(
 	const provider = conn.provider.toLowerCase();
 	const label = conn.label.toLowerCase();
 	const accountIdentifier = conn.accountIdentifier.toLowerCase();
-	if (provider === needle || label === needle) return "exact";
+	if (
+		provider === needle ||
+		label === needle ||
+		(provider === "onedrive" &&
+			[
+				"outlook",
+				"microsoft",
+				"outlook calendar",
+				"microsoft outlook",
+			].includes(needle))
+	)
+		return "exact";
 	if (
 		provider.includes(needle) ||
 		label.includes(needle) ||
@@ -75,16 +87,26 @@ export function selectConnection(
 	connections: ConnectionPublic[],
 	selector?: string | null,
 ): ConnectionPublic | null {
+	return matchingConnections(connections, selector)[0] ?? null;
+}
+
+export function matchingConnections(
+	connections: ConnectionPublic[],
+	selector?: string | null,
+): ConnectionPublic[] {
 	const needle = selector?.trim().toLowerCase();
-	if (!needle) return null;
-	const exact = connections.find(
+	if (!needle) return [];
+	const identifiers = connections.filter(
+		(conn) => conn.accountIdentifier.toLowerCase() === needle,
+	);
+	if (identifiers.length) return identifiers;
+	const exact = connections.filter(
 		(conn) => matchConnectionSelector(conn, needle) === "exact",
 	);
-	if (exact) return exact;
-	const partial = connections.find(
+	if (exact.length) return exact;
+	return connections.filter(
 		(conn) => matchConnectionSelector(conn, needle) === "partial",
 	);
-	return partial ?? null;
 }
 
 // The deterministic fallback a tool uses when no `account` selector was

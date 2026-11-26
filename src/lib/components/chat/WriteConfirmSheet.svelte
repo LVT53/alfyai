@@ -16,6 +16,7 @@
 import { onMount } from "svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import type { WriteAnswerState } from "$lib/components/chat/write-card-view";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import { uiLanguage } from "$lib/stores/settings";
 import {
@@ -35,7 +36,7 @@ let {
 }: {
 	writes: PendingWrite[];
 	held?: boolean;
-	actionState?: Record<string, { busy?: boolean; error?: string | null }>;
+	actionState?: Record<string, WriteAnswerState>;
 	onConfirm?: ((id: string) => void | Promise<void>) | undefined;
 	onCancel?: ((id: string) => void | Promise<void>) | undefined;
 } = $props();
@@ -80,6 +81,7 @@ function backOut() {
 		<WriteConfirmActions
 			{view}
 			busy={Boolean(state.busy)}
+			cancelling={state.cancelling ?? false}
 			locked={readingNewQuestion}
 			onApprove={() => onConfirm?.(current.id)}
 			onDecline={() => onCancel?.(current.id)}

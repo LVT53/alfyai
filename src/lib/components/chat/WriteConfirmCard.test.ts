@@ -271,6 +271,59 @@ describe("WriteConfirmCard while it asks", () => {
 		expect(getByTestId("write-confirm-decline")).toBeDisabled();
 	});
 
+	it.each([
+		["calendar.create_event", "Adding event…"],
+		["calendar.update_event", "Saving changes…"],
+		["calendar.delete_event", "Deleting event…"],
+	] as const)("names the change in progress for %s", (kind, progress) => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "google",
+				status: "executing",
+				card: card({ kind, subject: "Dentist" }),
+			}),
+		});
+		expect(
+			screen.getByRole("button", { name: `${progress}: Dentist` }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: "Cancel: Dentist" }),
+		).toBeDisabled();
+	});
+
+	it("shows cancellation on the negative action while the event is still pending", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "google",
+				card: card({ kind: "calendar.delete_event", subject: "Dentist" }),
+			}),
+			busy: true,
+			cancelling: true,
+		});
+		expect(
+			screen.getByRole("button", { name: "Cancelling…: Dentist" }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: "Delete: Dentist" }),
+		).toBeDisabled();
+	});
+
+	it("advises checking Google Calendar before asking for a new proposal after a failure", () => {
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				provider: "google",
+				status: "failed",
+				card: card({ kind: "calendar.create_event", subject: "Dentist" }),
+			}),
+		});
+		expect(
+			screen.getByText(
+				"Check Google Calendar to see whether the change went through. If you still need it, ask again.",
+			),
+		).toBeVisible();
+		expect(screen.queryByTestId("write-confirm-approve")).toBeNull();
+	});
+
 	it("holds its answers while a confirm claimed elsewhere is running", () => {
 		const { getByTestId } = render(WriteConfirmCard, {
 			write: makeWrite({ status: "executing" }),

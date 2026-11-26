@@ -75,6 +75,7 @@ describe("tool reason codes", () => {
 		]);
 		expect(TOOL_REASON_CODES.calendar).toEqual([
 			...CONNECTOR_REASON_CODES,
+			"availability_incomplete",
 			"calendar_edit_consent",
 		]);
 		for (const name of CONNECTOR_TOOL_NAMES) {

@@ -96,7 +96,11 @@ export const TOOL_REASON_CODES = {
 		"memory_off",
 		"memory_unavailable",
 	],
-	calendar: [...CONNECTOR_REASON_CODES, "calendar_edit_consent"],
+	calendar: [
+		...CONNECTOR_REASON_CODES,
+		"availability_incomplete",
+		"calendar_edit_consent",
+	],
 	contacts: CONNECTOR_REASON_CODES,
 	email: CONNECTOR_REASON_CODES,
 	files: CONNECTOR_REASON_CODES,

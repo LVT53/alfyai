@@ -180,6 +180,7 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
+import type { WriteAnswerState } from "$lib/components/chat/write-card-view";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { AskAnswer, AskQuestionDto } from "$lib/shared/ask-user";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
@@ -944,9 +945,7 @@ let skillDraftActionState = $state<
 let instructionSuggestionActionState = $state<
 	Record<string, { busy?: boolean; error?: string | null }>
 >({});
-let writeActionState = $state<
-	Record<string, { busy?: boolean; error?: string | null }>
->({});
+let writeActionState = $state<Record<string, WriteAnswerState>>({});
 let forkingMessageId = $state<string | null>(null);
 let contextCompressionInFlight = $state(false);
 let forkOpening = $state(Boolean(initialForkOrigin));
@@ -4471,10 +4470,7 @@ function handleReviewInstructionSuggestion(payload: {
 // "already_executed"/"cancelled" means the row's true state moved even
 // though THIS call didn't do it, and the card must reflect that rather
 // than get stuck showing a stale "still pending" view under an error).
-function setWriteActionState(
-	writeId: string,
-	state: { busy?: boolean; error?: string | null },
-) {
+function setWriteActionState(writeId: string, state: WriteAnswerState) {
 	writeActionState = { ...writeActionState, [writeId]: state };
 }
 
@@ -4482,6 +4478,9 @@ async function handleConfirmWrite(writeId: string) {
 	setWriteActionState(writeId, { busy: true, error: null });
 	try {
 		await confirmWriteRequest(writeId);
+		pendingWrites = pendingWrites.map((write) =>
+			write.id === writeId ? { ...write, status: "executed" } : write,
+		);
 		setWriteActionState(writeId, { busy: false, error: null });
 	} catch (error) {
 		// A 409 "expired" is not an error the user can do anything about, and
@@ -4496,7 +4495,15 @@ async function handleConfirmWrite(writeId: string) {
 			error.message === "expired";
 		setWriteActionState(writeId, {
 			busy: false,
-			error: expired ? null : get(t)("connections.writeConfirm.confirmError"),
+			error: expired
+				? null
+				: get(t)(
+						error instanceof ApiError &&
+							error.status === 409 &&
+							error.message === "writes_disabled"
+							? "connections.writeConfirm.writesDisabled"
+							: "connections.writeConfirm.confirmError",
+					),
 		});
 	} finally {
 		await refreshPendingWrites();
@@ -4505,9 +4512,12 @@ async function handleConfirmWrite(writeId: string) {
 }
 
 async function handleCancelWrite(writeId: string) {
-	setWriteActionState(writeId, { busy: true, error: null });
+	setWriteActionState(writeId, { busy: true, cancelling: true, error: null });
 	try {
 		await cancelWriteRequest(writeId);
+		pendingWrites = pendingWrites.map((write) =>
+			write.id === writeId ? { ...write, status: "cancelled" } : write,
+		);
 		setWriteActionState(writeId, { busy: false, error: null });
 	} catch {
 		setWriteActionState(writeId, {

@@ -176,8 +176,8 @@ export const PROVIDER_CATALOG: Record<
 		group: "product",
 	},
 	onedrive: {
-		displayName: "OneDrive",
-		capabilities: ["files"],
+		displayName: "Microsoft",
+		capabilities: ["files", "calendar"],
 		connectMethod: "oauth",
 		// Read-only in v1 (see providers/onedrive.ts) — no allow-writes toggle.
 		writable: false,

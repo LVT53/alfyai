@@ -222,6 +222,9 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 			calendar_edit_consent: stop(
 				"toolRows.connector.calendar.calendar_edit_consent",
 			),
+			availability_incomplete: fail(
+				"toolRows.connector.calendar.availability_incomplete",
+			),
 		},
 	},
 	contacts: connectorTable({

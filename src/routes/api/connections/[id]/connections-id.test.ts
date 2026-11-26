@@ -147,6 +147,19 @@ describe("/api/connections/[id]", () => {
 			expect(mockSetEnabledCapabilities).not.toHaveBeenCalled();
 		});
 
+		it("requires Microsoft consent before enabling Outlook on a files-only connection", async () => {
+			mockGetConnection.mockResolvedValue({
+				...googleConnection,
+				provider: "onedrive",
+				capabilities: ["files"],
+				oauthScopes: ["Files.Read"],
+			});
+			const response = await PATCH(
+				makeEvent({ capabilities: ["files", "calendar"] }),
+			);
+			expect(response.status).toBe(400);
+			expect(mockSetEnabledCapabilities).not.toHaveBeenCalled();
+		});
 		it("applies allowed capabilities and returns the updated connection", async () => {
 			const updated = { ...googleConnection, capabilities: ["calendar"] };
 			mockSetEnabledCapabilities.mockResolvedValue(updated);

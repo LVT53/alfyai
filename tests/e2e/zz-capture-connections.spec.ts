@@ -339,7 +339,7 @@ for (const theme of ["light", "dark"] as const) {
 			// page than Google's. The notice has to name the right one.
 			await page.getByTestId("connections-add-onedrive").click();
 			await page.waitForTimeout(250);
-			await page.getByRole("button", { name: /Continue to OneDrive/ }).click();
+			await page.getByRole("button", { name: /Continue to Microsoft/ }).click();
 			await expect(page.getByTestId("wizard-not-set-up")).toBeVisible();
 			await page.waitForTimeout(300);
 			await page.screenshot({

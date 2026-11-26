@@ -86,11 +86,11 @@ describe("connections registry", () => {
 
 	// Task 8 — OneDrive is a second provider under the existing "files"
 	// capability (alongside nextcloud), connected via OAuth like Google.
-	it("registers onedrive as an oauth files provider alongside nextcloud", () => {
+	it("registers Microsoft OAuth for OneDrive files and Outlook calendars", () => {
 		expect(PROVIDER_META.onedrive).toEqual({
-			capabilities: ["files"],
+			capabilities: ["files", "calendar"],
 			connectMethod: "oauth",
-			displayName: "OneDrive",
+			displayName: "Microsoft",
 			group: "product",
 		});
 		expect(CAPABILITY_META.files.providers).toContain("onedrive");
@@ -168,6 +168,7 @@ describe("connections registry", () => {
 			"google",
 			"apple",
 			"caldav",
+			"onedrive",
 		]);
 		expect(CAPABILITY_META.contacts.providers).toEqual([
 			"google",

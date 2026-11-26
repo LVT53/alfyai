@@ -1840,11 +1840,12 @@ const settingsDict = {
 		"admin.system.keys.GOOGLE_OAUTH_CLIENT_SECRET.label": "Google app secret",
 		"admin.system.keys.GOOGLE_OAUTH_CLIENT_SECRET.meaning":
 			"Empty means the Google connector reports “not configured”.",
-		"admin.system.keys.ONEDRIVE_CLIENT_ID.label": "OneDrive app id",
-		"admin.system.keys.ONEDRIVE_CLIENT_ID.meaning": "Same, for OneDrive files.",
-		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.label": "OneDrive app secret",
+		"admin.system.keys.ONEDRIVE_CLIENT_ID.label": "Microsoft app id",
+		"admin.system.keys.ONEDRIVE_CLIENT_ID.meaning":
+			"Used for OneDrive files and Outlook Calendar.",
+		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.label": "Microsoft app secret",
 		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.meaning":
-			"Empty means the OneDrive connector reports “not configured”.",
+			"Empty means the Microsoft connector reports “not configured”.",
 		"admin.system.keys.OWNTRACKS_RECORDER_URL.label": "OwnTracks recorder",
 		"admin.system.keys.OWNTRACKS_RECORDER_URL.meaning":
 			"Location history source.",
@@ -4108,13 +4109,13 @@ const settingsDict = {
 		"admin.system.keys.GOOGLE_OAUTH_CLIENT_SECRET.meaning":
 			"Üresen a Google-kapcsolat „nincs beállítva” állapotot jelez.",
 		"admin.system.keys.ONEDRIVE_CLIENT_ID.label":
-			"OneDrive alkalmazásazonosító",
+			"Microsoft-alkalmazásazonosító",
 		"admin.system.keys.ONEDRIVE_CLIENT_ID.meaning":
-			"Ugyanez, a OneDrive-fájlokhoz.",
+			"A OneDrive-fájlokhoz és az Outlook-naptárhoz.",
 		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.label":
-			"OneDrive alkalmazástitok",
+			"Microsoft-alkalmazástitok",
 		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.meaning":
-			"Üresen a OneDrive-kapcsolat „nincs beállítva” állapotot jelez.",
+			"Üresen a Microsoft-kapcsolat „nincs beállítva” állapotot jelez.",
 		"admin.system.keys.OWNTRACKS_RECORDER_URL.label": "OwnTracks rögzítő",
 		"admin.system.keys.OWNTRACKS_RECORDER_URL.meaning":
 			"A helyelőzmények forrása.",

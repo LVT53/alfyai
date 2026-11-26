@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	resolveConnectionsForCapability: vi.fn(),
 	googleListEvents: vi.fn(),
 	appleListEvents: vi.fn(),
+	caldavListEvents: vi.fn(),
 	imapListRecent: vi.fn(),
 	decideLocalDistillForPrompt: vi.fn(),
 	isConversationIncognito: vi.fn(),
@@ -18,6 +19,9 @@ vi.mock("../connections/providers/google-calendar", () => ({
 }));
 vi.mock("../connections/providers/apple-caldav", () => ({
 	appleListEvents: mocks.appleListEvents,
+}));
+vi.mock("../connections/providers/caldav-tasks", () => ({
+	caldavListEvents: mocks.caldavListEvents,
 }));
 vi.mock("../connections/providers/imap", () => ({
 	imapListRecent: mocks.imapListRecent,
@@ -159,40 +163,45 @@ describe("buildProactiveConnectorContext", () => {
 		expect(result?.block).toContain("HQ conf room");
 	});
 
-	it("dispatches to appleListEvents for an apple provider connection", async () => {
-		mocks.resolveConnectionsForCapability.mockImplementation(
-			async (_userId: string, capability: string) =>
-				capability === "calendar"
-					? [connection({ provider: "apple", id: "conn-apple" })]
-					: [],
-		);
-		mocks.appleListEvents.mockResolvedValue([
-			{
-				id: "evt-2",
-				summary: "Dentist",
-				start: "2026-07-10T09:00:00.000Z",
-				end: "2026-07-10T09:30:00.000Z",
-				htmlLink: "https://example.com/evt-2",
-			},
-		]);
+	it.each(["apple", "caldav"] as const)(
+		"uses the selected %s calendar adapter",
+		async (provider) => {
+			const read =
+				provider === "apple" ? mocks.appleListEvents : mocks.caldavListEvents;
+			mocks.resolveConnectionsForCapability.mockImplementation(
+				async (_userId: string, capability: string) =>
+					capability === "calendar"
+						? [connection({ provider, id: "conn-apple" })]
+						: [],
+			);
+			read.mockResolvedValue([
+				{
+					id: "evt-2",
+					summary: "Dentist",
+					start: "2026-07-10T09:00:00.000Z",
+					end: "2026-07-10T09:30:00.000Z",
+					htmlLink: "https://example.com/evt-2",
+				},
+			]);
 
-		const result = await buildProactiveConnectorContext({
-			...baseParams,
-			message: "What's my schedule tomorrow?",
-			activeCapabilities: new Set(["calendar"]),
-		});
+			const result = await buildProactiveConnectorContext({
+				...baseParams,
+				message: "What's my schedule tomorrow?",
+				activeCapabilities: new Set(["calendar"]),
+			});
 
-		expect(mocks.appleListEvents).toHaveBeenCalledWith(
-			"user-1",
-			"conn-apple",
-			expect.objectContaining({
-				timeMin: expect.any(String),
-				timeMax: expect.any(String),
-			}),
-		);
-		expect(mocks.googleListEvents).not.toHaveBeenCalled();
-		expect(result?.block).toContain("Dentist");
-	});
+			expect(read).toHaveBeenCalledWith(
+				"user-1",
+				"conn-apple",
+				expect.objectContaining({
+					timeMin: expect.any(String),
+					timeMax: expect.any(String),
+				}),
+			);
+			expect(mocks.googleListEvents).not.toHaveBeenCalled();
+			expect(result?.block).toContain("Dentist");
+		},
+	);
 
 	it("silently skips a broken/needs_reauth calendar connector without throwing", async () => {
 		mocks.resolveConnectionsForCapability.mockImplementation(
@@ -264,17 +273,57 @@ describe("buildProactiveConnectorContext", () => {
 				return [];
 			},
 		);
-		mocks.googleListEvents.mockResolvedValue([]);
+		let finishCalendar!: (value: never[]) => void;
+		mocks.googleListEvents.mockImplementation(
+			() =>
+				new Promise<never[]>((resolve) => {
+					finishCalendar = resolve;
+				}),
+		);
 		mocks.imapListRecent.mockResolvedValue([]);
 
-		const result = await buildProactiveConnectorContext({
+		const pending = buildProactiveConnectorContext({
 			...baseParams,
 			message: "What's on my plate today, any unread emails too?",
 			activeCapabilities: new Set(["calendar", "email"]),
 		});
 
+		await vi.waitFor(() => expect(mocks.imapListRecent).toHaveBeenCalledOnce());
+		finishCalendar([]);
+		const result = await pending;
 		expect(result?.block).toContain("Calendar");
 		expect(result?.block).toContain("Recent unread email");
+	});
+	it("keeps the inbox result when the calendar exceeds the five-second briefing budget", async () => {
+		vi.useFakeTimers();
+		try {
+			mocks.resolveConnectionsForCapability.mockImplementation(
+				async (_userId: string, capability: string) => [
+					capability === "calendar"
+						? connection()
+						: connection({
+								id: "mail",
+								provider: "imap",
+								capabilities: ["email"],
+							}),
+				],
+			);
+			mocks.googleListEvents.mockImplementation(() => new Promise(() => {}));
+			mocks.imapListRecent.mockResolvedValue([
+				{ from: "Alex", subject: "Gate change" },
+			]);
+			const pending = buildProactiveConnectorContext({
+				...baseParams,
+				message: "Any meetings or emails today?",
+				activeCapabilities: new Set(["calendar", "email"]),
+			});
+			await vi.advanceTimersByTimeAsync(5000);
+			const result = await pending;
+			expect(result?.block).toContain("Gate change");
+			expect(result?.block).not.toContain("Calendar (next");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

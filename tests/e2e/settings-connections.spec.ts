@@ -256,6 +256,30 @@ test.describe("settings connections tab", () => {
 		).toBeVisible();
 	});
 
+	test("asking Microsoft for Calendar keeps a disabled Files switch off", async ({
+		page,
+	}) => {
+		await login(page);
+		await stubConnections(page, [
+			connection({
+				id: "conn-microsoft",
+				provider: "onedrive",
+				label: "Microsoft",
+				capabilities: [],
+				grantedCapabilities: ["files"],
+			}),
+		]);
+		await openConnectionsTab(page);
+		await page.getByTestId("connection-details-conn-microsoft").click();
+		await page.getByTestId("capability-calendar-ask-again").click();
+		await expect(
+			page.getByRole("checkbox", { name: "Calendar", exact: true }),
+		).toBeChecked();
+		await expect(
+			page.getByRole("checkbox", { name: "Files", exact: true }),
+		).not.toBeChecked();
+	});
+
 	// "Let Alfy write" on an Immich account needs a write key of its own, which
 	// Immich only makes for a signed-in person. The switch therefore asks for the
 	// password once, makes the key, and only then turns writes on.
@@ -358,6 +382,36 @@ test.describe("settings connections tab", () => {
 			await expect(
 				page.getByRole("button", { name: "Continue to Google" }),
 			).toBeVisible();
+		});
+
+		test("lets a Microsoft user connect Outlook Calendar without OneDrive files", async ({
+			page,
+		}) => {
+			const endpoint = "**/api/connections/onedrive/start";
+			await page.route(endpoint, (route) =>
+				route.fulfill({ status: 200, json: { authUrl: "/about" } }),
+			);
+			await page.getByTestId("connections-add-onedrive").click();
+			const dialog = page.getByRole("dialog");
+			const files = dialog.getByRole("checkbox", {
+				name: "Files",
+				exact: true,
+			});
+			const calendar = dialog.getByRole("checkbox", {
+				name: "Calendar",
+				exact: true,
+			});
+			await expect(files).toBeChecked();
+			await expect(calendar).not.toBeChecked();
+			await files.press("Space");
+			await calendar.press("Space");
+			const sent = page.waitForRequest(endpoint);
+			await dialog
+				.getByRole("button", { name: "Continue to Microsoft" })
+				.click();
+			expect((await sent).postDataJSON()).toEqual({
+				capabilities: ["calendar"],
+			});
 		});
 
 		test("asks where the mailbox lives, with no IMAP on the first screen", async ({

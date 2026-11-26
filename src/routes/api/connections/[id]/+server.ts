@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { requireOwnedConnection } from "$lib/server/api/ownership";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
+import { grantedCapabilitiesFor } from "$lib/server/services/connections/granted";
 import {
 	type Capability,
 	PROVIDER_META,
@@ -91,6 +92,15 @@ export const PATCH: RequestHandler = async (event) => {
 				`Unknown capabilities for ${connection.provider}: ${unknown.join(", ")}`,
 				400,
 			);
+		}
+		if (connection.provider === "onedrive") {
+			const granted = new Set<string>(grantedCapabilitiesFor(connection));
+			if (body.capabilities.some((cap) => !granted.has(cap))) {
+				return createJsonErrorResponse(
+					"Reconnect to grant the requested Microsoft permission",
+					400,
+				);
+			}
 		}
 	}
 

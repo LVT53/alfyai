@@ -64,6 +64,7 @@ import type {
 } from "$lib/components/artifacts/video/video-card-view";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { WriteAnswerState } from "$lib/components/chat/write-card-view";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type {
@@ -245,7 +246,7 @@ let {
 				draftId: string;
 		  }) => void | Promise<void>)
 		| undefined;
-	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
+	writeActionState?: Record<string, WriteAnswerState>;
 	onConfirmWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 	onCancelWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 	/** Forwarded to ThinkingBlock's in-chat artifact card (Feature 2). See its own prop doc. */
@@ -1530,6 +1531,7 @@ function sendFollowUp(question: string) {
 						<WriteConfirmCard
 							{write}
 							busy={Boolean(actionState.busy)}
+							cancelling={actionState.cancelling ?? false}
 							error={actionState.error ?? null}
 							onConfirm={onConfirmWrite}
 							onCancel={onCancelWrite}

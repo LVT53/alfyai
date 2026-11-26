@@ -68,7 +68,7 @@ describe("BrandIcon", () => {
 	it("falls back to the Lucide Cloud glyph for onedrive", () => {
 		renderIcon({ provider: "onedrive" });
 
-		const icon = screen.getByRole("img", { name: "OneDrive" });
+		const icon = screen.getByRole("img", { name: "Microsoft" });
 		expect(icon.querySelector("svg")?.getAttribute("class")).toContain(
 			"lucide-cloud",
 		);

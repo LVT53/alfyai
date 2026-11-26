@@ -185,11 +185,14 @@ async function submitCredentials(run: (signal: AbortSignal) => Promise<void>) {
 // --- oauth (Google, OneDrive) -------------------------------------------
 let selectedCapabilities = $state<Set<Capability>>(
 	new Set(
-		initialRequestedCapabilities.length > 0
+		initialRequestedCapabilities.length > 0 ||
+			(initialProvider === "onedrive" && initialReconnectConnectionId)
 			? (initialRequestedCapabilities as Capability[]).filter((capability) =>
 					providerEntry?.capabilities.includes(capability),
 				)
-			: (providerEntry?.capabilities ?? []),
+			: initialProvider === "onedrive"
+				? ["files"]
+				: (providerEntry?.capabilities ?? []),
 	),
 );
 let oauthNotConfigured = $state(false);
