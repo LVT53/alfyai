@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { googleCalendarWriteReviewEnabled } from "$lib/server/env";
 import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
@@ -38,6 +39,7 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import {
 	CONNECTOR_PLACEHOLDER_TITLES,
 	type ConnectorReasonCode,
@@ -254,7 +256,7 @@ function buildPayload(params: {
 	pendingWriteId?: string;
 	preview?: WritePreview;
 	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
-	reason?: ConnectorReasonCode;
+	reason?: ConnectorReasonCode | "calendar_edit_consent";
 }): CalendarToolOutcome {
 	const citations = params.citations ?? [];
 	const events = params.events ?? [];
@@ -751,16 +753,6 @@ function distillCalendarReadOutcome(params: {
 // dispatched by the "google" write-executor (providers/google-calendar.ts's
 // write path) registered in Issue 6.1.
 // ---------------------------------------------------------------------------
-
-// Calendar reads (5.1/5.2) only ever requested calendar.readonly; a write
-// needs the broader calendar.events scope, requested incrementally rather
-// than up front (Phase 7 UI). Until the user reconnects and grants it, every
-// write action degrades to a note — never a pending row.
-const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
-
-function hasCalendarWriteScope(conn: ConnectionPublic): boolean {
-	return conn.oauthScopes.includes(CALENDAR_WRITE_SCOPE);
-}
 
 // True when `event` is part of a recurring series — either it's an expanded
 // instance (recurringEventId points at its master) or it IS the master
@@ -1443,6 +1435,20 @@ async function calendarWriteOutcome(
 		});
 	}
 
+	if (
+		conn.provider === "google" &&
+		!conn.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE)
+	) {
+		const canRequest = googleCalendarWriteReviewEnabled(userId);
+		return buildPayload({
+			success: false,
+			action,
+			message: canRequest
+				? "Google Calendar is read-only. Open your Google account in Settings → Connections, turn on event editing, and grant permission with Google. Then ask again."
+				: "This Google Calendar connection can only read events.",
+			reason: canRequest ? "calendar_edit_consent" : "read_only_account",
+		});
+	}
 	// Hard gate, checked BEFORE any network call — same posture as
 	// executeNextcloudWrite/saveOutcome (4.2/4.3): nothing below this line
 	// runs, and no pending row is created, when writes are disabled.
@@ -1452,19 +1458,6 @@ async function calendarWriteOutcome(
 			action,
 			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
 			reason: "writes_turned_off",
-		});
-	}
-
-	// The write OAuth scope check is Google-only — Apple has no OAuth scope
-	// concept, its app-specific password already grants full CalDAV access,
-	// gated purely by allowWrites above.
-	if (conn.provider === "google" && !hasCalendarWriteScope(conn)) {
-		return buildPayload({
-			success: false,
-			action,
-			message:
-				"I don't have permission to make changes to your Google Calendar yet — please reconnect Google and grant calendar write access, then try again.",
-			reason: "read_only_account",
 		});
 	}
 

@@ -9,6 +9,7 @@ import {
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import { ApiError } from "$lib/client/api/http";
+import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import ConnectionDetailModal from "./ConnectionDetailModal.svelte";
 
 // Redesign R9 — the modal fetches Nextcloud folder suggestions itself (same
@@ -252,6 +253,51 @@ describe("ConnectionDetailModal", () => {
 				within(row).getByRole("switch", { name: "Let Alfy write" }),
 			);
 			expect(onToggleAllowWrites).toHaveBeenCalledWith("conn-1", true);
+		});
+
+		it("requests calendar edit consent for the selected Google connection and leaves the switch off until granted", async () => {
+			const onRequestGoogleCalendarWrites = vi
+				.fn()
+				.mockResolvedValue(undefined);
+			const props = baseProps({ onRequestGoogleCalendarWrites });
+			render(ConnectionDetailModal, props);
+			const control = screen.getByRole("switch", { name: "Let Alfy write" });
+			expect(
+				screen.getByText(/Google will ask for permission to edit events/),
+			).toBeInTheDocument();
+			await fireEvent.click(control);
+			expect(onRequestGoogleCalendarWrites).toHaveBeenCalledWith("conn-1");
+			expect(props.onToggleAllowWrites).not.toHaveBeenCalled();
+			expect(control).toHaveAttribute("aria-checked", "false");
+		});
+
+		it.each([false, true])(
+			"honors previously granted Google Calendar edits with review eligibility %s",
+			async (eligible) => {
+				const request = vi.fn();
+				const props = baseProps({
+					connection: makeConnection({
+						oauthScopes: [GOOGLE_CALENDAR_EVENT_WRITE_SCOPE],
+					}),
+					onRequestGoogleCalendarWrites: eligible ? request : undefined,
+				});
+				render(ConnectionDetailModal, props);
+				expect(
+					screen.queryByText(/Google will ask for permission/),
+				).not.toBeInTheDocument();
+				await fireEvent.click(
+					screen.getByRole("switch", { name: "Let Alfy write" }),
+				);
+				expect(props.onToggleAllowWrites).toHaveBeenCalledWith("conn-1", true);
+				expect(request).not.toHaveBeenCalled();
+			},
+		);
+
+		it("hides the Google Calendar write switch when the account cannot request or use event editing", () => {
+			render(ConnectionDetailModal, baseProps());
+			expect(
+				screen.queryByTestId("behaviour-allow-writes"),
+			).not.toBeInTheDocument();
 		});
 
 		it("hides the writes switch entirely for a read-only provider, and says why", () => {

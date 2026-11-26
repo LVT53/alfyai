@@ -146,6 +146,20 @@ function fileMakerWords(): Record<string, ReasonWords> {
 	);
 }
 
+const calendarWords = connectorTable({
+	notConnected: "toolRows.connector.calendar.not_connected",
+	needsReconnect: "toolRows.connector.calendar.needs_reconnect",
+	noSuchAccount: "toolRows.connector.calendar.no_such_account",
+	accountUnreachable: "toolRows.connector.calendar.account_unreachable",
+	writesTurnedOff: "toolRows.connector.calendar.writes_turned_off",
+	readOnlyAccount: "toolRows.connector.calendar.read_only_account",
+	itemNotFound: "toolRows.connector.calendar.item_not_found",
+	tooLarge: "toolRows.connector.too_large",
+	notSupported: "toolRows.connector.calendar.not_supported",
+	notSetUp: "toolRows.connector.calendar.not_set_up",
+	fallback: "toolRows.connector.calendar.fallback",
+});
+
 export const TOOL_REASON_WORDS: ToolReasonTables = {
 	research_web: {
 		codes: {
@@ -201,19 +215,15 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		},
 		fallback: "toolRows.memory_context.memory_unavailable",
 	},
-	calendar: connectorTable({
-		notConnected: "toolRows.connector.calendar.not_connected",
-		needsReconnect: "toolRows.connector.calendar.needs_reconnect",
-		noSuchAccount: "toolRows.connector.calendar.no_such_account",
-		accountUnreachable: "toolRows.connector.calendar.account_unreachable",
-		writesTurnedOff: "toolRows.connector.calendar.writes_turned_off",
-		readOnlyAccount: "toolRows.connector.calendar.read_only_account",
-		itemNotFound: "toolRows.connector.calendar.item_not_found",
-		tooLarge: "toolRows.connector.too_large",
-		notSupported: "toolRows.connector.calendar.not_supported",
-		notSetUp: "toolRows.connector.calendar.not_set_up",
-		fallback: "toolRows.connector.calendar.fallback",
-	}),
+	calendar: {
+		...calendarWords,
+		codes: {
+			...calendarWords.codes,
+			calendar_edit_consent: stop(
+				"toolRows.connector.calendar.calendar_edit_consent",
+			),
+		},
+	},
 	contacts: connectorTable({
 		notConnected: "toolRows.connector.contacts.not_connected",
 		needsReconnect: "toolRows.connector.contacts.needs_reconnect",

@@ -137,6 +137,8 @@ with the lost phone is the only admin's.
 Configuration is environment-variable first, with selected values optionally overridden later in the
 admin UI. The essentials:
 
+Set `GOOGLE_CALENDAR_WRITE_REVIEW_USER_IDS` to the comma-separated internal AlfyAI user IDs permitted to request Google Calendar event editing for OAuth review. An empty value keeps incremental write consent disabled. Each event change still requires confirmation.
+
 - `SESSION_SECRET` — **required in production**: a server started with `NODE_ENV=production` refuses
   to boot without a real one (`openssl rand -hex 32`). It also derives the encryption keys for stored
   connection and provider credentials and for two-step sign-in secrets, so changing it makes those

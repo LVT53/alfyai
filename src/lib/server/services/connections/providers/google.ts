@@ -6,7 +6,11 @@
 // Google endpoints — nothing here ever talks to live Google in tests.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
-import { config as envConfig } from "$lib/server/env";
+import {
+	config as envConfig,
+	googleCalendarWriteReviewEnabled,
+} from "$lib/server/env";
+import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import { registerConnectionAdapter } from "../adapters";
 import { ConnectionHttpError } from "../provider-http";
 import {
@@ -37,6 +41,10 @@ const STATE_TTL_SECONDS = 10 * 60;
 export type GoogleOAuthErrorCode =
 	| "not_configured"
 	| "invalid_state"
+	| "invalid_write_target"
+	| "write_review_unavailable"
+	| "write_grant_missing"
+	| "wrong_account"
 	| "invalid_grant"
 	| "token_exchange_failed"
 	| "userinfo_failed"
@@ -118,6 +126,7 @@ function requireGoogleCredentials(): {
 export type OAuthStatePayload = {
 	userId: string;
 	capabilities: Capability[];
+	calendarWriteConnectionId?: string;
 	nonce: string;
 	exp: number; // epoch seconds
 };
@@ -139,6 +148,9 @@ function isValidStatePayload(value: unknown): value is OAuthStatePayload {
 	return (
 		typeof candidate.userId === "string" &&
 		candidate.userId.length > 0 &&
+		(candidate.calendarWriteConnectionId === undefined ||
+			(typeof candidate.calendarWriteConnectionId === "string" &&
+				!!candidate.calendarWriteConnectionId)) &&
 		Array.isArray(candidate.capabilities) &&
 		candidate.capabilities.every((c) => typeof c === "string") &&
 		typeof candidate.nonce === "string" &&
@@ -151,11 +163,13 @@ function isValidStatePayload(value: unknown): value is OAuthStatePayload {
 export function signOAuthState(params: {
 	userId: string;
 	capabilities: Capability[];
+	calendarWriteConnectionId?: string;
 }): string {
 	const key = requireSigningKey();
 	const payload: OAuthStatePayload = {
 		userId: params.userId,
 		capabilities: params.capabilities,
+		calendarWriteConnectionId: params.calendarWriteConnectionId,
 		nonce: randomBytes(16).toString("hex"),
 		exp: Math.floor(Date.now() / 1000) + STATE_TTL_SECONDS,
 	};
@@ -221,18 +235,53 @@ export function verifyOAuthState(state: string): OAuthStatePayload {
 // connectStart
 // ---------------------------------------------------------------------------
 
+async function calendarWriteTarget(
+	userId: string,
+	connectionId: string,
+	capabilities: Capability[],
+) {
+	if (!googleCalendarWriteReviewEnabled(userId)) {
+		throw new GoogleOAuthError(
+			"Calendar write consent is unavailable",
+			"write_review_unavailable",
+		);
+	}
+	const connection = await getConnection(userId, connectionId);
+	if (
+		connection?.provider !== "google" ||
+		!connection.capabilities.includes("calendar") ||
+		!capabilities.includes("calendar")
+	) {
+		throw new GoogleOAuthError(
+			"Select an enabled Google Calendar connection",
+			"invalid_write_target",
+		);
+	}
+	return connection;
+}
+
 export async function googleConnectStart(params: {
 	userId: string;
 	origin: string;
 	capabilities: Capability[];
+	calendarWriteConnectionId?: string;
 }): Promise<{ authUrl: string }> {
 	const { clientId } = requireGoogleCredentials();
+	const target = params.calendarWriteConnectionId
+		? await calendarWriteTarget(
+				params.userId,
+				params.calendarWriteConnectionId,
+				params.capabilities,
+			)
+		: null;
 	const state = signOAuthState({
 		userId: params.userId,
 		capabilities: params.capabilities,
+		calendarWriteConnectionId: target?.id,
 	});
 
 	const url = new URL(GOOGLE_AUTH_URL);
+	if (target) url.searchParams.set("login_hint", target.accountIdentifier);
 	url.searchParams.set("client_id", clientId);
 	url.searchParams.set("redirect_uri", redirectUriFor(params.origin));
 	url.searchParams.set("response_type", "code");
@@ -241,7 +290,10 @@ export async function googleConnectStart(params: {
 	url.searchParams.set("include_granted_scopes", "true");
 	url.searchParams.set(
 		"scope",
-		scopesForCapabilities(params.capabilities).join(" "),
+		[
+			...scopesForCapabilities(params.capabilities),
+			...(target ? [GOOGLE_CALENDAR_EVENT_WRITE_SCOPE] : []),
+		].join(" "),
 	);
 	url.searchParams.set("state", state);
 
@@ -311,6 +363,7 @@ function parseStoredSecret(raw: string): StoredGoogleSecret | null {
 async function upsertGoogleConnection(params: {
 	userId: string;
 	email: string;
+	writeTarget?: ConnectionPublic;
 	capabilities: Capability[];
 	refreshToken?: string;
 	accessToken: string;
@@ -318,13 +371,19 @@ async function upsertGoogleConnection(params: {
 	expiresIn: number;
 }): Promise<ConnectionPublic> {
 	const tokenExpiresAt = Math.floor(Date.now() / 1000) + params.expiresIn;
-	const grantedScopes = params.scope.split(/\s+/).filter(Boolean);
-	const existing = await findConnectionByAccount(
-		params.userId,
-		"google",
-		params.email,
-	);
+	const existing =
+		params.writeTarget ??
+		(await findConnectionByAccount(params.userId, "google", params.email));
 
+	const grantedScopes = params.scope
+		.split(/\s+/)
+		.filter(
+			(scope) =>
+				scope &&
+				(scope !== GOOGLE_CALENDAR_EVENT_WRITE_SCOPE ||
+					params.writeTarget ||
+					existing?.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE)),
+		);
 	// Google only returns refresh_token on the first consent (or when
 	// prompt=consent forces re-consent); if it's omitted here, keep whatever
 	// refresh token is already stored rather than overwriting it with null.
@@ -351,17 +410,19 @@ async function upsertGoogleConnection(params: {
 		const mergedScopes = [
 			...new Set([...existing.oauthScopes, ...grantedScopes]),
 		];
-		await setConnectionSecret(
-			params.userId,
-			existing.id,
-			secret,
-			tokenExpiresAt,
-		);
+		// Rotate the credential and its permissions together.
 		const updated = await updateConnection(params.userId, existing.id, {
+			secret,
 			status: "connected",
 			statusDetail: null,
-			capabilities: mergedCapabilities,
-			oauthScopes: mergedScopes,
+			...(params.writeTarget
+				? { allowWrites: true }
+				: { capabilities: mergedCapabilities }),
+			oauthScopes: mergedScopes.filter(
+				(scope) =>
+					scope !== GOOGLE_CALENDAR_EVENT_WRITE_SCOPE ||
+					grantedScopes.includes(scope),
+			),
 			tokenExpiresAt,
 		});
 		if (!updated) {
@@ -427,7 +488,39 @@ export async function googleConnectFinish(
 		);
 	}
 
+	const target = statePayload.calendarWriteConnectionId
+		? await calendarWriteTarget(
+				statePayload.userId,
+				statePayload.calendarWriteConnectionId,
+				statePayload.capabilities,
+			)
+		: undefined;
+	const grantedScopes = tokenBody.scope.split(/\s+/);
+	if (target) {
+		if (
+			target.accountIdentifier.toLowerCase() !==
+			userinfoBody.email.toLowerCase()
+		) {
+			throw new GoogleOAuthError(
+				"Choose the Google account connected to this calendar",
+				"wrong_account",
+			);
+		}
+		if (
+			!grantedScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE) ||
+			!grantedScopes.includes(CAPABILITY_SCOPES.calendar ?? "") ||
+			!target.oauthScopes
+				.filter((scope) => Object.values(CAPABILITY_SCOPES).includes(scope))
+				.every((scope) => grantedScopes.includes(scope))
+		) {
+			throw new GoogleOAuthError(
+				"Google did not grant all required calendar and existing permissions",
+				"write_grant_missing",
+			);
+		}
+	}
 	const connection = await upsertGoogleConnection({
+		writeTarget: target,
 		userId: statePayload.userId,
 		email: userinfoBody.email,
 		capabilities: capabilitiesFromScope(tokenBody.scope),

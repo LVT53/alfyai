@@ -159,6 +159,38 @@ describe("handleCredentialConnect", () => {
 });
 
 describe("handleOAuthConnectStart", () => {
+	it("passes an explicit valid calendar write target only to opted-in providers", async () => {
+		const connectStart = vi
+			.fn()
+			.mockResolvedValue({ authUrl: "https://consent" });
+		const body = {
+			capabilities: ["calendar"],
+			calendarWriteConnectionId: "target",
+		};
+		const opts = {
+			connectStart,
+			errorType: ProviderError,
+			fallbackError: "failed",
+		};
+		await handleOAuthConnectStart({
+			...opts,
+			event: makeEvent(body),
+			acceptsCalendarWriteTarget: true,
+		});
+		expect(connectStart.mock.calls[0][0].calendarWriteConnectionId).toBe(
+			"target",
+		);
+		await handleOAuthConnectStart({ ...opts, event: makeEvent(body) });
+		expect(connectStart.mock.calls[1][0]).not.toHaveProperty(
+			"calendarWriteConnectionId",
+		);
+		const invalid = await handleOAuthConnectStart({
+			...opts,
+			event: makeEvent({ ...body, calendarWriteConnectionId: 1 }),
+			acceptsCalendarWriteTarget: true,
+		});
+		expect(invalid.status).toBe(400);
+	});
 	it("returns 400 when no known capabilities are supplied", async () => {
 		const res = await handleOAuthConnectStart({
 			event: makeEvent({ capabilities: ["bogus"] }),

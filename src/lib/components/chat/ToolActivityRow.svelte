@@ -559,6 +559,10 @@ function handleToggle() {
 	</div>
 {/snippet}
 
+{#snippet openConnections()}
+	<a href="/settings?section=connections">{$t("toolRows.connector.calendar.openConnections")}</a>
+{/snippet}
+
 {#snippet sourceRow(source: { title: string; url: string; status?: string; reason?: string; fromInput?: boolean })}
 	<!-- An address the call was only given is the model's own word (a prompt
 	     injection can put private data in a host): its favicon is a request made on
@@ -825,7 +829,7 @@ function handleToggle() {
 						{/if}
 					</div>
 					{#if action.reason}
-						<p class="act-reason act-action-reason" data-testid="tool-activity-reason">{action.reason}</p>
+						<p class="act-reason act-action-reason" data-testid="tool-activity-reason">{action.reason} {#if action.openConnections}{@render openConnections()}{/if}</p>
 					{/if}
 					{#if action.things}
 						{@render thingList(body.icon, action.things.items, action.things.more)}
@@ -834,7 +838,7 @@ function handleToggle() {
 			{:else if body.kind === 'reason'}
 				<!-- What happened, once, in the person's words: the sentence a reason
 				     code stands for. The row's glyph says whether it broke. -->
-				<p class="act-reason" data-testid="tool-activity-reason">{body.text}</p>
+				<p class="act-reason" data-testid="tool-activity-reason">{body.text} {#if body.openConnections}{@render openConnections()}{/if}</p>
 			{/if}
 		</div>
 	{/if}
