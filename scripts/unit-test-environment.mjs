@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { globSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, normalize, relative } from "node:path";
 import ts from "typescript";
 
@@ -40,6 +40,62 @@ function localModule(root, file, specifier) {
 	);
 }
 
+function withoutParens(node) {
+	while (ts.isParenthesizedExpression(node)) node = node.expression;
+	return node;
+}
+
+function accessName(node) {
+	if (ts.isPropertyAccessExpression(node)) return node.name.text;
+	if (
+		ts.isElementAccessExpression(node) &&
+		ts.isStringLiteralLike(node.argumentExpression)
+	) {
+		return node.argumentExpression.text;
+	}
+}
+
+function importMetaAccess(node, name) {
+	if (accessName(node) !== name) return false;
+	const receiver = withoutParens(node.expression);
+	return (
+		ts.isMetaProperty(receiver) &&
+		receiver.keywordToken === ts.SyntaxKind.ImportKeyword &&
+		receiver.name.text === "meta"
+	);
+}
+
+function relativeGlob(root, file, pattern) {
+	if (pattern.startsWith("$lib/")) return `src/lib/${pattern.slice(5)}`;
+	if (pattern.startsWith("/")) return pattern.slice(1);
+	if (!pattern.startsWith(".")) return null;
+	return join(relative(root, dirname(file)), pattern);
+}
+
+function globDependencies(root, file, globs) {
+	return globs.flatMap((patterns) => {
+		const include = [];
+		const exclude = [];
+		for (const pattern of patterns) {
+			const negative = pattern.startsWith("!");
+			const relative = relativeGlob(
+				root,
+				file,
+				negative ? pattern.slice(1) : pattern,
+			);
+			if (relative) (negative ? exclude : include).push(relative);
+		}
+		if (!include.length) return [];
+		return globSync(include, { cwd: root, exclude, withFileTypes: false })
+			.filter(
+				(path) =>
+					/\.(?:[cm]?[jt]s|svelte)$/.test(path) &&
+					statSync(join(root, path), { throwIfNoEntry: false })?.isFile(),
+			)
+			.map((path) => join(root, path));
+	});
+}
+
 function importSource(node) {
 	if (ts.isImportDeclaration(node)) {
 		const clause = node.importClause;
@@ -78,6 +134,7 @@ function isLocalVariable(reference, name) {
 
 function inspect(file, source) {
 	const imports = new Set();
+	const globs = [];
 	let reason;
 	let testReason;
 	const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
@@ -88,9 +145,24 @@ function inspect(file, source) {
 			if (browserImport.test(specifier.text))
 				reason ??= `import "${specifier.text}"`;
 		}
-		if (ts.isTypeOfExpression(node) && ts.isIdentifier(node.expression)) {
-			const name = node.expression.text;
-			if (browserGlobals.has(name)) reason ??= `typeof ${name}`;
+		if (
+			ts.isCallExpression(node) &&
+			importMetaAccess(node.expression, "glob") &&
+			node.arguments.length
+		) {
+			const input = node.arguments[0];
+			const patterns = ts.isArrayLiteralExpression(input)
+				? input.elements
+				: [input];
+			globs.push(
+				patterns.filter(ts.isStringLiteralLike).map(({ text }) => text),
+			);
+		}
+		if (ts.isTypeOfExpression(node)) {
+			const expression = withoutParens(node.expression);
+			if (ts.isIdentifier(expression) && browserGlobals.has(expression.text)) {
+				reason ??= `typeof ${expression.text}`;
+			}
 		}
 		if (
 			ts.isNewExpression(node) &&
@@ -102,15 +174,14 @@ function inspect(file, source) {
 			ts.isPropertyAccessExpression(node) ||
 			ts.isElementAccessExpression(node)
 		) {
-			const receiver = node.expression.getText(tree);
-			const property = ts.isPropertyAccessExpression(node)
-				? node.name.text
-				: ts.isStringLiteralLike(node.argumentExpression)
-					? node.argumentExpression.text
-					: undefined;
+			const expression = withoutParens(node.expression);
+			const receiver = ts.isIdentifier(expression)
+				? expression.text
+				: undefined;
+			const property = accessName(node);
 			if (receiver === "globalThis" && property && browserGlobals.has(property))
 				reason ??= `globalThis.${property}`;
-			if (property === "SSR" && receiver === "import.meta.env")
+			if (property === "SSR" && importMetaAccess(expression, "env"))
 				reason ??= "import.meta.env.SSR";
 			if (
 				browserGlobals.has(receiver) &&
@@ -126,7 +197,7 @@ function inspect(file, source) {
 		ts.forEachChild(node, visit);
 	}
 	visit(tree);
-	return { imports, reason, testReason };
+	return { imports, globs, reason, testReason };
 }
 
 export function browserEnvironmentViolations(root, testFiles) {
@@ -141,10 +212,11 @@ export function browserEnvironmentViolations(root, testFiles) {
 				const environment = source.match(
 					/@(?:vitest|jest)-environment\s+([\w-]+)\b/,
 				)?.[1];
-				const { imports, reason, testReason } = inspect(file, source);
+				const { imports, globs, reason, testReason } = inspect(file, source);
 				const dependencies = [...imports]
 					.map((specifier) => localModule(root, file, specifier))
 					.filter(Boolean);
+				dependencies.push(...globDependencies(root, file, globs));
 				modules.set(file, { environment, reason, testReason, dependencies });
 			}
 		}

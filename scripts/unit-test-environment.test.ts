@@ -56,6 +56,30 @@ test.each([
 	},
 );
 
+test("follows literal Vite glob imports with negative patterns", () => {
+	expect(
+		scanFixture('import.meta.glob(["./lib/**/*.ts", "!./lib/branch.ts"]);'),
+	).toEqual([
+		{
+			file: "src/entry.test.ts",
+			module: "src/lib/folder/index.ts",
+			reason: "typeof window",
+		},
+	]);
+	expect(
+		scanFixture('import.meta.glob(["./lib/**/*.ts", "!./lib/**/*.ts"]);'),
+	).toEqual([]);
+});
+
+test.each([
+	['export const browser = typeof (window) !== "undefined";', "typeof window"],
+	["export const browser = !import.meta .env.SSR;", "import.meta.env.SSR"],
+])("detects equivalent browser condition %s", (dependency, reason) => {
+	expect(scanFixture('import "$lib/branch";', dependency)).toEqual([
+		{ file: "src/entry.test.ts", module: "src/lib/folder/index.ts", reason },
+	]);
+});
+
 test("leaves a file alone that says jsdom", () => {
 	expect(scanFixture(`${jsdomMarker}\nwindow.alert();`)).toEqual([]);
 });
