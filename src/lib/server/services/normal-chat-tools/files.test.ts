@@ -2656,3 +2656,23 @@ it("opens a Google Drive document by the exact selected account and shows its re
 		api.mockRestore();
 	}
 });
+
+it("requires both Teams identifiers and restricts channel requests to the teams_files capability", async () => {
+	const bad = await runFilesTool(
+		"user-1",
+		{ action: "list", teamId: "team" },
+		LOCAL_MODEL_ID,
+	);
+	expect(bad.modelPayload.success).toBe(false);
+	expect(bad.modelPayload.message).toContain("channelId");
+	resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+	await runFilesTool(
+		"user-1",
+		{ action: "list", teamId: "team", channelId: "chan" },
+		LOCAL_MODEL_ID,
+	);
+	expect(resolveConnectionsForCapabilityMock).toHaveBeenLastCalledWith(
+		"user-1",
+		"teams_files",
+	);
+});

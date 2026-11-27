@@ -4438,6 +4438,15 @@ describe("createNormalChatTools", () => {
 			expect(tools).not.toHaveProperty("files");
 		});
 
+		it("includes file lookup for Teams channel files independently of personal OneDrive", () => {
+			const { tools } = createNormalChatTools({
+				userId: "u",
+				conversationId: "c",
+				turnId: "t",
+				enabledConnectionCapabilities: new Set(["teams_files"]),
+			});
+			expect(tools).toHaveProperty("files");
+		});
 		it("includes the files tool when enabledConnectionCapabilities contains 'files'", () => {
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
@@ -6285,6 +6294,9 @@ describe("make_video is in the catalogue only when an LTX server is configured",
 
 describe("tool description hygiene", () => {
 	const ALL_CONNECTION_CAPABILITIES = [
+		"teams_chat",
+		"teams_channels",
+		"teams_files",
 		"files",
 		"calendar",
 		"email",
@@ -6592,7 +6604,10 @@ describe("tool description hygiene", () => {
 	// Re-measured: 5,639 before (2 under the ceiling) and 5,702 after, 63 tokens
 	// spent (make_image 135 -> 168, make_video 149 -> 179), so the ceiling is
 	// raised to exactly 5,702. No margin.
-	const CATALOGUE_TOKEN_CEILING = 5702;
+	// Work/school Teams adds its chat, channels and reactions tool plus channel-file
+	// routing to the existing files tool. The fully connected catalogue measures
+	// 5,828 tokens. Accounts without Teams keep its tool out of the request.
+	const CATALOGUE_TOKEN_CEILING = 5828;
 
 	function estimateTokens(text: string): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN);
@@ -6689,7 +6704,7 @@ describe("tool description hygiene", () => {
 			"",
 			"Configuration: the fully connected catalogue the budget tests measure - Parallel configured",
 			"(research_web, fetch_url), ORS configured with no coverage label and no timetables loaded",
-			"(map_route), all nine connection capabilities enabled, no degraded-tool hints. A real turn",
+			"(map_route), all connection capabilities enabled, no degraded-tool hints. A real turn",
 			"may send fewer tools (the gated ones above, and memory_context, use_skill and",
 			"suggest_instruction are withheld per conversation), never the same ones in another order.",
 			"----",
@@ -6729,6 +6744,7 @@ describe("tool description hygiene", () => {
 				"run_python",
 				"suggest_instruction",
 				"tasks",
+				"teams",
 				"use_skill",
 			].sort(),
 		);

@@ -54,6 +54,50 @@ it("keeps the folder identity on a OneDrive trash confirmation", () => {
 		),
 	).toMatchObject({ kind: "files.delete", subject: "Work", isFolder: true });
 });
+it("shows the destination, original post and proposed reaction on the Teams card", () => {
+	const result = cardFor(
+		operation({ action: "teams.set_reaction", provider: "onedrive" }),
+		JSON.stringify({
+			destination: "Design / General",
+			original: "Alex · Plan?",
+			reaction: "👍",
+		}),
+	);
+	expect(result).toMatchObject({
+		kind: "teams.set_reaction",
+		subject: "Design / General",
+		facts: [
+			{ key: "teams_original", value: "Alex · Plan?" },
+			{ key: "teams_reaction", value: "👍" },
+		],
+	});
+});
+it("describes the audience of a Teams channel file link", () => {
+	const card = cardFor(
+		operation({
+			action: "files.share_link",
+			provider: "onedrive",
+			target: {
+				path: "/Design.pdf",
+				label: "General",
+				teamsChannel: {
+					teamId: "t",
+					channelId: "c",
+					driveId: "d",
+					folderId: "f",
+				},
+			},
+		}),
+		"{}",
+		[WRITE_WARNING.organizationTeamsLink],
+	);
+	expect(card?.facts).toContainEqual({
+		key: "teams_channel",
+		value: "General · t / c",
+	});
+	expect(card?.risks).toContain("organization_link");
+	expect(card?.risks).not.toContain("public_link");
+});
 describe("buildWriteCard: email", () => {
 	it("shows that Outlook sends meeting cancellations to all attendees on the delete card", () => {
 		const card = cardFor(

@@ -629,6 +629,7 @@ export async function createToolPack(
 			? await isExplicitFilterOnFor(params.userId)
 			: null;
 	const normalChatTools = createNormalChatTools({
+		selectedAttachmentIds: params.attachmentIds,
 		userId: params.userId,
 		conversationId: params.conversationId,
 		turnId,

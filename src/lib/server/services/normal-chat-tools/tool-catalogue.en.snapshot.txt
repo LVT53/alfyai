@@ -9,7 +9,7 @@ same commit and say so in the commit message.
 
 Configuration: the fully connected catalogue the budget tests measure - Parallel configured
 (research_web, fetch_url), ORS configured with no coverage label and no timetables loaded
-(map_route), all nine connection capabilities enabled, no degraded-tool hints. A real turn
+(map_route), all connection capabilities enabled, no degraded-tool hints. A real turn
 may send fewer tools (the gated ones above, and memory_context, use_skill and
 suggest_instruction are withheld per conversation), never the same ones in another order.
 ----
@@ -1090,7 +1090,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "files",
-      "description": "List, search, read, and manage the user's connected file storage (Nextcloud, OneDrive, or Google Drive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path; `stat` reads file or folder metadata. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, require write access for the selected service, and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. Results also appear to the user as file cards automatically (images with a preview), so never paste a file URL into the reply. On Google Drive use the paths returned by list/search to distinguish same-name files. With several accounts connected, pass `account` (provider, label, or email).",
+      "description": "List, search, read, and manage the user's connected file storage (Nextcloud, OneDrive, or Google Drive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path; `stat` reads file or folder metadata. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, require write access for the selected service, and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. Results also appear to the user as file cards automatically (images with a preview), so never paste a file URL into the reply. For Teams channel files pass both teamId and channelId from Teams directory results with paths relative to the channel. To upload an attached file with its original bytes, use save with sourceId (use selected for exactly one current attachment) and omit content. Teams share links are organization-only. On Google Drive use the paths returned by list/search to distinguish same-name files. With several accounts connected, pass `account` (provider, label, or email).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1107,6 +1107,18 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
               "create_folder",
               "share_link"
             ]
+          },
+          "sourceId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "teamId": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "channelId": {
+            "type": "string",
+            "maxLength": 1024
           },
           "query": {
             "type": "string"
@@ -1185,6 +1197,74 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
           },
           "account": {
             "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "teams",
+      "description": "Read work or school Microsoft Teams. List chats, joined teams and channels, read messages and threaded replies. Send a plain-text chat or channel post, reply, or add or remove your own reaction only after confirmation. Use files with teamId and channelId for channel files. Ask which account or channel when unclear. Do not use for email or public web searches.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_chats",
+              "list_teams",
+              "list_channels",
+              "list_messages",
+              "list_replies",
+              "read_message",
+              "send",
+              "reply",
+              "set_reaction",
+              "remove_reaction"
+            ]
+          },
+          "account": {
+            "type": "string",
+            "maxLength": 320
+          },
+          "chatId": {
+            "type": "string",
+            "pattern": "^[\\w:!@.~-]{1,1024}$"
+          },
+          "teamId": {
+            "type": "string",
+            "pattern": "^[\\w:!@.~-]{1,1024}$"
+          },
+          "channelId": {
+            "type": "string",
+            "pattern": "^[\\w:!@.~-]{1,1024}$"
+          },
+          "messageId": {
+            "type": "string",
+            "pattern": "^[\\w:!@.~-]{1,1024}$"
+          },
+          "replyId": {
+            "type": "string",
+            "pattern": "^[\\w:!@.~-]{1,1024}$"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "reaction": {
+            "type": "string",
+            "maxLength": 32,
+            "pattern": "^\\p{Extended_Pictographic}(?:\\p{Emoji_Modifier}|\\uFE0F|\\u200D\\p{Extended_Pictographic})*$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
           }
         },
         "required": [

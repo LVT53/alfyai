@@ -14,6 +14,19 @@ export type WriteTarget = {
 	id?: string;
 	etag?: string;
 	parentId?: string;
+	uploadSource?: {
+		id: string;
+		name: string;
+		size: number;
+		contentType: string;
+		sha256: string;
+	};
+	teamsChannel?: {
+		teamId: string;
+		channelId: string;
+		driveId: string;
+		folderId: string;
+	};
 	// Drive reserves this ID at proposal time so repeat creates cannot duplicate an item.
 	generatedId?: string;
 	isFolder?: boolean;
@@ -64,6 +77,8 @@ export const WRITE_WARNING = {
 		"Could not confirm whether this overwrite is recoverable (Nextcloud version history status unknown).",
 	wholeSeries:
 		"This deletes the ENTIRE recurring series, not a single occurrence.",
+	organizationTeamsLink:
+		"Anyone in your Microsoft organization with this link can view the item.",
 	publicFileLink: "Anyone with this link can view the item without signing in.",
 	oneDriveVersionHistoryUnknown:
 		"Previous versions of this OneDrive file may be unavailable.",

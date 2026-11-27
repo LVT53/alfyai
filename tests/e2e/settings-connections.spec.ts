@@ -548,6 +548,39 @@ test.describe("settings connections tab", () => {
 			});
 		});
 
+		test("asks separately for Teams chat, channels and channel files on a work or school account", async ({
+			page,
+		}) => {
+			const endpoint = "**/api/connections/onedrive/start";
+			await page.route(endpoint, (route) =>
+				route.fulfill({ status: 200, json: { authUrl: "/about" } }),
+			);
+			await page.getByTestId("connections-add-onedrive").click();
+			const dialog = page.getByRole("dialog");
+			await dialog
+				.getByRole("checkbox", { name: "Files", exact: true })
+				.press("Space");
+			for (const name of [
+				"Teams chats",
+				"Teams channels",
+				"Teams channel files",
+			]) {
+				const box = dialog.getByRole("checkbox", { name, exact: true });
+				await expect(box).not.toBeChecked();
+				await box.press("Space");
+			}
+			await dialog
+				.getByRole("checkbox", { name: "Send chat messages and reactions" })
+				.press("Space");
+			const sent = page.waitForRequest(endpoint);
+			await dialog
+				.getByRole("button", { name: "Continue to Microsoft" })
+				.click();
+			expect((await sent).postDataJSON()).toEqual({
+				capabilities: ["teams_chat", "teams_channels", "teams_files"],
+				writePermissions: ["teams_chat"],
+			});
+		});
 		test("lets a Microsoft user connect Outlook Calendar without OneDrive files", async ({
 			page,
 		}) => {

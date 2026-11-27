@@ -18,7 +18,7 @@
  * picture included), and the single card's picture button stands beside its
  * link.
  */
-import { ChevronDown } from "@lucide/svelte";
+import { ChevronDown,Download } from "@lucide/svelte";
 import { tick } from "svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
@@ -52,6 +52,14 @@ const cards = $derived(
 		return webUrl ? [{ ...card, webUrl, previewUrl: null, viewUrl: null }] : [];
 	}),
 );
+
+function teamsDownload(card:ToolCallFileCard):string|undefined {
+ if(card.provider!=="onedrive" || !card.downloadUrl?.startsWith("/api/connections/teams/files/download?"))return;
+ const url=URL.parse(card.downloadUrl,"https://app.invalid");
+ const keys=["connectionId","teamId","channelId","path","itemId","revision"];
+ if(url?.origin!=="https://app.invalid" || url.pathname!=="/api/connections/teams/files/download" || url.hash || [...url.searchParams].length!==keys.length || !keys.every(key=>url.searchParams.get(key)))return;
+ return url.pathname+url.search;
+}
 
 /** The list's id, so the chevron can name what it opens and closes. */
 const listId = $props.id();
@@ -255,6 +263,11 @@ async function closeViewer() {
 }
 </script>
 
+{#snippet download(card:ToolCallFileCard)}
+ {@const href=teamsDownload(card)}
+ {#if href}<a class="fs-download" {href} download aria-label={$t("toolActivity.teamsDownload",{name:card.name})} title={$t("toolActivity.teamsDownload",{name:card.name})}><Download size={16} aria-hidden="true"/></a>{/if}
+{/snippet}
+
 {#if cards.length === 0}
 	<!-- A call that found nothing draws nothing at all: the quiet line would
 	     read "Searched your files · 0 files" over an empty list. -->
@@ -304,6 +317,7 @@ async function closeViewer() {
 			<span class="fs-card-facts">{singleCard.facts}</span>
 			<span class="fs-card-open">{openLabel(card)}</span>
 		</a>
+{@render download(card)}
 	</div>
 {:else}
 	<div class="fs-block" data-testid="files-strip">
@@ -422,6 +436,7 @@ async function closeViewer() {
 							</span>
 							<span class="fs-row-open">{openLabel(row.card)}</span>
 						</a>
+{@render download(row.card)}
 					</li>
 				{/each}
 			</ul>
@@ -439,6 +454,10 @@ async function closeViewer() {
 {/if}
 
 <style>
+ .fs-download { display:inline-flex; flex-shrink:0; align-items:center; justify-content:center; min-width:2.75rem; min-height:2.75rem; color:inherit; }
+ .fs-list-item:has(.fs-download) {display:flex;align-items:center;}
+ .fs-list-item:has(.fs-download) .fs-row {flex:1;min-width:0;}
+
 	/* The single card: one 56px picture or glyph, the name, the facts and the
 	   way to the file. It takes the width it needs and never more — a long name
 	   truncates instead of widening the card. */

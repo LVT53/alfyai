@@ -37,6 +37,7 @@ export type SharedReasonCode = (typeof SHARED_REASON_CODES)[number];
 /** The nine tools that read or change one of the person's accounts. */
 export const CONNECTOR_TOOL_NAMES = [
 	"calendar",
+	"teams",
 	"contacts",
 	"email",
 	"files",
@@ -102,6 +103,7 @@ export const TOOL_REASON_CODES = {
 		"calendar_edit_consent",
 		"online_meeting_notes",
 	],
+	teams: CONNECTOR_REASON_CODES,
 	contacts: CONNECTOR_REASON_CODES,
 	email: CONNECTOR_REASON_CODES,
 	files: CONNECTOR_REASON_CODES,

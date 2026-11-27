@@ -87,6 +87,29 @@ function receivedFacts(
 	];
 }
 
+function teamsCard(
+	op: WriteOperation,
+	content: string,
+): Omit<WriteCard, "risks" | "danger"> | null {
+	const kind = op.action;
+	if (
+		kind !== "teams.send" &&
+		kind !== "teams.reply" &&
+		kind !== "teams.set_reaction" &&
+		kind !== "teams.remove_reaction"
+	)
+		return null;
+	const payload = parseObject(content);
+	return {
+		kind,
+		subject: text(payload?.destination) ?? op.target?.label ?? "",
+		facts: [
+			...fact("teams_original", payload?.original),
+			...fact("teams_reaction", payload?.reaction),
+		],
+		message: text(payload?.body),
+	};
+}
 function emailCard(
 	op: WriteOperation,
 	content: string,
@@ -288,7 +311,15 @@ function filesCard(
 			return {
 				kind: op.destructive ? "files.replace" : "files.save",
 				subject: name,
-				facts: inFolder,
+				facts:
+					op.target?.teamsChannel && op.target.uploadSource
+						? [
+								...fact("upload_source", op.target.uploadSource.name),
+								...fact("upload_bytes", String(op.target.uploadSource.size)),
+								...fact("upload_destination", op.target.label),
+								...inFolder,
+							]
+						: inFolder,
 				message: null,
 			};
 		case "files.delete":
@@ -388,6 +419,7 @@ const RISK_BY_WARNING = new Map<string, WriteCardRisk>([
 	[WRITE_WARNING.noVersionHistory, "replaces_file_for_good"],
 	[WRITE_WARNING.versionHistoryUnknown, "replaces_file_unchecked"],
 	[WRITE_WARNING.publicLink, "public_link"],
+	[WRITE_WARNING.organizationTeamsLink, "organization_link"],
 	[WRITE_WARNING.publicFileLink, "public_link"],
 	[WRITE_WARNING.oneDriveVersionHistoryUnknown, "replaces_file_unchecked"],
 	[WRITE_WARNING.outsideArea, "outside_allowed_folders"],
@@ -444,6 +476,7 @@ export function buildWriteCard(
 	const { op, content } = record;
 	if (!op?.action) return null;
 	const card =
+		teamsCard(op, content) ??
 		emailCard(op, content) ??
 		calendarCard(op, content) ??
 		filesCard(op, content) ??
@@ -451,6 +484,25 @@ export function buildWriteCard(
 	if (!card) return null;
 	return {
 		...card,
+		...(op.action.startsWith("files.") && op.target?.teamsChannel
+			? {
+					facts: [
+						...fact(
+							"teams_channel",
+							[
+								op.target.label,
+								[
+									op.target.teamsChannel.teamId,
+									op.target.teamsChannel.channelId,
+								].join(" / "),
+							]
+								.filter(Boolean)
+								.join(" · "),
+						),
+						...card.facts,
+					],
+				}
+			: {}),
 		...(op.action.startsWith("files.") && op.target?.isFolder
 			? { isFolder: true }
 			: {}),

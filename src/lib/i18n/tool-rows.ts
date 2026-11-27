@@ -13,6 +13,36 @@
 
 const toolRowsDict = {
 	en: {
+		"toolRows.connector.teams.list_chats": "Listed your Teams chats",
+		"toolRows.connector.teams.list_teams": "Listed your teams",
+		"toolRows.connector.teams.list_channels": "Listed the channels",
+		"toolRows.connector.teams.list_messages": "Looked at Teams messages",
+		"toolRows.connector.teams.list_replies": "Looked at replies",
+		"toolRows.connector.teams.read_message": "Read a Teams message",
+		"toolRows.connector.teams.send": "Prepared a Teams message",
+		"toolRows.connector.teams.reply": "Prepared a channel reply",
+		"toolRows.connector.teams.set_reaction": "Prepared a reaction",
+		"toolRows.connector.teams.remove_reaction": "Prepared to remove a reaction",
+		"toolRows.connector.teams.not_connected":
+			"Connect a Teams account to use this.",
+		"toolRows.connector.teams.needs_reconnect":
+			"Teams did not grant access. Check the account permissions.",
+		"toolRows.connector.teams.no_such_account":
+			"Choose the Microsoft account to use.",
+		"toolRows.connector.teams.account_unreachable":
+			"Teams could not complete the request.",
+		"toolRows.connector.teams.writes_turned_off":
+			"Turn on changes for this Teams account.",
+		"toolRows.connector.teams.read_only_account":
+			"This Teams account only allows reading.",
+		"toolRows.connector.teams.item_not_found":
+			"Teams could not find that conversation or message.",
+		"toolRows.connector.teams.not_supported":
+			"This action needs a different Teams destination or message.",
+		"toolRows.connector.teams.not_set_up": "Teams is not set up yet.",
+		"toolRows.connector.teams.fallback":
+			"Teams could not complete this action.",
+		"toolRows.connector.teams.other": "Used Teams",
 		// The three outcomes every tool can have, from the envelope that runs it.
 		"toolRows.shared.stopped": "You stopped this before it finished.",
 		"toolRows.shared.timed_out": "This took too long, so Alfy stopped waiting.",
@@ -518,6 +548,37 @@ const toolRowsDict = {
 		"toolRows.atlas.atlas_v3_no_sections": "Atlas couldn't write the report.",
 	},
 	hu: {
+		"toolRows.connector.teams.list_chats": "Felsorolta a Teams-csevegéseidet",
+		"toolRows.connector.teams.list_teams": "Felsorolta a csapataidat",
+		"toolRows.connector.teams.list_channels": "Felsorolta a csatornákat",
+		"toolRows.connector.teams.list_messages": "Megnézte a Teams-üzeneteket",
+		"toolRows.connector.teams.list_replies": "Megnézte a válaszokat",
+		"toolRows.connector.teams.read_message": "Elolvasott egy Teams-üzenetet",
+		"toolRows.connector.teams.send": "Előkészített egy Teams-üzenetet",
+		"toolRows.connector.teams.reply": "Előkészített egy választ a csatornán",
+		"toolRows.connector.teams.set_reaction": "Előkészített egy reakciót",
+		"toolRows.connector.teams.remove_reaction":
+			"Előkészítette egy reakció eltávolítását",
+		"toolRows.connector.teams.not_connected":
+			"Ehhez csatlakoztass egy Teams-fiókot.",
+		"toolRows.connector.teams.needs_reconnect":
+			"A Teams nem adott hozzáférést. Ellenőrizd a fiók engedélyeit.",
+		"toolRows.connector.teams.no_such_account":
+			"Válaszd ki a használni kívánt Microsoft-fiókot.",
+		"toolRows.connector.teams.account_unreachable":
+			"A Teams nem tudta teljesíteni a kérést.",
+		"toolRows.connector.teams.writes_turned_off":
+			"Engedélyezd a módosításokat ehhez a Teams-fiókhoz.",
+		"toolRows.connector.teams.read_only_account":
+			"Ez a Teams-fiók csak olvasást engedélyez.",
+		"toolRows.connector.teams.item_not_found":
+			"A Teams nem találta a beszélgetést vagy az üzenetet.",
+		"toolRows.connector.teams.not_supported":
+			"Ehhez a művelethez másik Teams-beszélgetést vagy üzenetet kell választani.",
+		"toolRows.connector.teams.not_set_up": "A Teams még nincs beállítva.",
+		"toolRows.connector.teams.fallback":
+			"A Teams nem tudta végrehajtani a műveletet.",
+		"toolRows.connector.teams.other": "Használta a Teamst",
 		"toolRows.shared.stopped": "Ezt leállítottad, mielőtt befejeződött.",
 		"toolRows.shared.timed_out":
 			"Ez túl sokáig tartott, ezért Alfy nem várt tovább.",

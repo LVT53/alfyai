@@ -622,3 +622,27 @@ describe("FilesStrip's stylesheet", () => {
 		expect(more).not.toMatch(/rgba?\(/);
 	});
 });
+
+it("downloads a Teams file only through its authenticated local route", () => {
+	const card = {
+		...documentCard("Slides.pdf", 42),
+		provider: "onedrive" as const,
+	};
+	const url =
+		"/api/connections/teams/files/download?connectionId=one&teamId=t&channelId=c&path=%2FSlides.pdf&itemId=item&revision=rev";
+	const view = render(FilesStrip, {
+		props: { cards: [{ ...card, downloadUrl: url }] },
+	});
+	expect(
+		screen.getByRole("link", { name: "Download Slides.pdf" }),
+	).toHaveAttribute("href", url);
+	view.unmount();
+	render(FilesStrip, {
+		props: {
+			cards: [{ ...card, downloadUrl: "https://external.example/" + url }],
+		},
+	});
+	expect(
+		screen.queryByRole("link", { name: "Download Slides.pdf" }),
+	).toBeNull();
+});

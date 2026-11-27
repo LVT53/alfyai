@@ -174,6 +174,7 @@ describe("the words of an account row", () => {
 		});
 
 		const ACCOUNT_STEMS = {
+			teams: "Teams",
 			calendar: "naptár",
 			contacts: "névjegy",
 			email: "e-mail",
@@ -195,7 +196,7 @@ describe("the words of an account row", () => {
 				...Object.fromEntries(
 					Object.entries(chatDict[language]).filter(
 						([key]) =>
-							/^toolCalls\.(calendar|contacts|email|files|location|media|photos|repos|tasks)$/.test(
+							/^toolCalls\.(teams|calendar|contacts|email|files|location|media|photos|repos|tasks)$/.test(
 								key,
 							) || key === "toolActivity.photosViewed",
 					),
@@ -231,7 +232,7 @@ describe("the words of an account row", () => {
 
 		it("agrees 'not connected' with the account's number: Névjegyek nincsenek, Naptár nincs", () => {
 			const plural = ["contacts", "files", "photos", "repos", "tasks"];
-			const singular = ["calendar", "email", "location", "media"];
+			const singular = ["calendar", "email", "location", "media", "teams"];
 			expect([...plural, ...singular].sort()).toEqual(
 				[...CONNECTOR_TOOL_NAMES].sort(),
 			);

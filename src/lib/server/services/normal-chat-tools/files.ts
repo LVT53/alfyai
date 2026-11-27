@@ -51,6 +51,10 @@ import {
 } from "../connections/providers/google-drive-files";
 import { prepareDriveFileWrite } from "../connections/providers/google-drive-writes";
 import { prepareOneDriveFileWrite } from "../connections/providers/onedrive-file-writes";
+import {
+	openChannelFiles,
+	prepareTeamsFileWrite,
+} from "../connections/providers/teams-channel-files";
 import { matchingConnections } from "../connections/resolve";
 
 import { applyLocalDistillGate } from "./connector-distill";
@@ -73,6 +77,9 @@ export const filesToolInputSchema = z.object({
 		"create_folder",
 		"share_link",
 	]),
+	sourceId: z.string().trim().min(1).max(256).optional(),
+	teamId: z.string().trim().min(1).max(1024).optional(),
+	channelId: z.string().trim().min(1).max(1024).optional(),
 	query: z.string().optional(),
 	path: z.string().optional(),
 	// Destination for "move" (also serves rename — a move where only the final
@@ -93,6 +100,11 @@ export type FilesToolInput = z.infer<typeof filesToolInputSchema>;
 export function sanitizeFilesToolInput(input: FilesToolInput): FilesToolInput {
 	return {
 		action: input.action,
+		...(input.sourceId ? { sourceId: input.sourceId } : {}),
+		...(input.teamId === undefined ? {} : { teamId: input.teamId.trim() }),
+		...(input.channelId === undefined
+			? {}
+			: { channelId: input.channelId.trim() }),
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.path ? { path: input.path.trim() } : {}),
 		...(input.destinationPath
@@ -106,6 +118,7 @@ export function sanitizeFilesToolInput(input: FilesToolInput): FilesToolInput {
 export type FilesCitation = { label: string; path: string; url: string };
 
 export type FilesToolResultItem = {
+	downloadUrl?: string;
 	name: string;
 	path: string;
 	isDir: boolean;
@@ -268,6 +281,7 @@ export function nextcloudWebUiUrl(
 // and stays optional because an older/misbehaving server may not report one;
 // OneDrive leaves it absent.
 export type FileEntry = {
+	downloadUrl?: string;
 	name: string;
 	path: string;
 	isDir: boolean;
@@ -280,6 +294,7 @@ export type FileEntry = {
 };
 
 export type FileContent = {
+	downloadUrl?: string;
 	name?: string;
 	note?: string;
 	bytes: Uint8Array;
@@ -427,6 +442,7 @@ function toResultItems(
 			size: file.size,
 			contentType: file.contentType,
 			mtime: file.mtime,
+			...(file.downloadUrl ? { downloadUrl: file.downloadUrl } : {}),
 			...(file.fileId !== undefined ? { fileId: file.fileId } : {}),
 			...(webUrl !== undefined ? { webUrl } : {}),
 			...(previewUrl !== undefined ? { previewUrl } : {}),
@@ -488,6 +504,7 @@ export function buildFilesCards(
 				name: result.name,
 				path: result.path,
 				size: result.size,
+				...(result.downloadUrl ? { downloadUrl: result.downloadUrl } : {}),
 				mtime: result.mtime,
 				contentType: result.contentType,
 				previewUrl,
@@ -857,6 +874,7 @@ function readOutcome(
 			path,
 			isDir: false,
 			size: file.bytes.byteLength,
+			...(file.downloadUrl ? { downloadUrl: file.downloadUrl } : {}),
 			contentType: file.contentType,
 			mtime: file.mtime ?? null,
 			...(fileId !== undefined ? { fileId } : {}),
@@ -872,6 +890,7 @@ function readOutcome(
 			path,
 			isDir: false,
 			size: file.bytes.byteLength,
+			...(file.downloadUrl ? { downloadUrl: file.downloadUrl } : {}),
 			contentType: file.contentType,
 			mtime: file.mtime ?? null,
 			...(fileId !== undefined ? { fileId } : {}),
@@ -1489,13 +1508,38 @@ export async function runFilesTool(
 	input: FilesToolInput,
 	modelId: string,
 	conversationId?: string,
+	selectedIds: readonly string[] = [],
 ): Promise<FilesToolOutcome> {
 	const notConnectedMessage =
 		"You don't have a Files connection set up yet. Connect your file storage account in Settings to search or read files.";
 
+	const channelRequest =
+		input.teamId !== undefined || input.channelId !== undefined;
+	const ref =
+		input.teamId && input.channelId
+			? { teamId: input.teamId, channelId: input.channelId }
+			: undefined;
+	if (
+		input.sourceId &&
+		(!ref || input.action !== "save" || input.content !== undefined)
+	)
+		return buildPayload({
+			success: false,
+			action: input.action,
+			reason: "request_adjusted",
+			message:
+				"An attached file can be uploaded using save, sourceId, a Teams channel and a destination.",
+		});
+	if (channelRequest && !ref)
+		return buildPayload({
+			action: input.action,
+			success: false,
+			message: "Provide both teamId and channelId from Teams discovery.",
+			reason: "request_adjusted",
+		});
 	const result = await withCapabilityConnection(
 		userId,
-		"files",
+		ref ? "teams_files" : "files",
 		{ account: input.account, forWrite: WRITE_ACTIONS.has(input.action) },
 		async (conn, { ambiguous, connections }): Promise<FilesToolOutcome> => {
 			const matches = input.account
@@ -1503,8 +1547,10 @@ export async function runFilesTool(
 				: connections;
 			if (
 				matches.length > 1 &&
-				matches.some((c) => c.provider === "google") &&
-				(WRITE_ACTIONS.has(input.action) || input.path?.startsWith("/@drive/"))
+				(ref ||
+					(matches.some((c) => c.provider === "google") &&
+						(WRITE_ACTIONS.has(input.action) ||
+							input.path?.startsWith("/@drive/"))))
 			)
 				return buildPayload({
 					success: false,
@@ -1521,31 +1567,36 @@ export async function runFilesTool(
 				if (
 					!(google
 						? googleDriveCanModify(conn)
-						: microsoftCanWrite(conn, "files"))
+						: microsoftCanWrite(conn, ref ? "teams_files" : "files"))
 				)
 					return buildPayload({
 						success: false,
 						action: input.action,
 						message: google
 							? "Google Drive is read-only. Enable file changes for this Google account in Connections."
-							: "OneDrive is read-only. Enable file changes for this Microsoft account in Connections.",
+							: ref
+								? "Teams channel files are read-only. Enable channel file changes in Connections."
+								: "OneDrive is read-only. Enable file changes for this Microsoft account in Connections.",
 						reason: conn.allowWrites
 							? "read_only_account"
 							: "writes_turned_off",
 					});
 				try {
-					const token = google
-						? await googleDriveGetAccessToken(conn)
-						: await onedriveGetAccessTokenForRead(conn);
-					const prepare = google
-						? prepareDriveFileWrite
-						: prepareOneDriveFileWrite;
-					const { op, content, preview } = await prepare(
-						conn.id,
-						conn.writeAllowlist,
-						token,
-						input,
-					);
+					const { op, content, preview } = ref
+						? await prepareTeamsFileWrite(
+								conn,
+								await openChannelFiles(conn, ref),
+								input,
+								selectedIds,
+							)
+						: await (google ? prepareDriveFileWrite : prepareOneDriveFileWrite)(
+								conn.id,
+								conn.writeAllowlist,
+								google
+									? await googleDriveGetAccessToken(conn)
+									: await onedriveGetAccessTokenForRead(conn),
+								input,
+							);
 					const { id } = await createPendingWrite(userId, {
 						connectionId: conn.id,
 						provider: conn.provider,
@@ -1652,11 +1703,13 @@ export async function runFilesTool(
 			}
 
 			try {
-				const secret =
-					conn.provider === "google"
+				const channel = ref ? await openChannelFiles(conn, ref) : undefined;
+				const secret = channel
+					? ""
+					: conn.provider === "google"
 						? await googleDriveGetAccessToken(conn)
 						: await getConnectionSecret(userId, conn.id);
-				if (!secret) {
+				if (secret === null || secret === undefined || (!channel && !secret)) {
 					return buildPayload({
 						success: false,
 						action: input.action,
@@ -1674,7 +1727,9 @@ export async function runFilesTool(
 							reason: "request_adjusted",
 						});
 					}
-					const files = await searchFilesForConn(conn, secret, input.query);
+					const files = channel
+						? await channel.search(input.query)
+						: await searchFilesForConn(conn, secret, input.query);
 					const outcome = searchOutcome(conn, files, ambiguous, connections);
 					return withFileCards(
 						conn,
@@ -1688,7 +1743,9 @@ export async function runFilesTool(
 				// "what's in my <folder>" need; `search` only finds by name and can't
 				// enumerate a folder's contents.
 				if (input.action === "list") {
-					const files = await listFolderForConn(conn, secret, input.path ?? "");
+					const files = channel
+						? await channel.list(input.path ?? "/")
+						: await listFolderForConn(conn, secret, input.path ?? "");
 					const outcome = listOutcome(
 						conn,
 						input.path,
@@ -1710,7 +1767,9 @@ export async function runFilesTool(
 							message: "Provide the file or folder path to inspect.",
 							reason: "request_adjusted",
 						});
-					const entry = await statForConn(conn, secret, input.path);
+					const entry = channel
+						? await channel.stat(input.path)
+						: await statForConn(conn, secret, input.path);
 					if (!entry)
 						return buildPayload({
 							success: false,
@@ -1747,6 +1806,21 @@ export async function runFilesTool(
 				// token here and thread it through both so Microsoft's refresh-token
 				// rotation only fires once per read (see readFileForConn's doc comment).
 				// Left undefined for Nextcloud, which ignores it.
+				if (channel) {
+					const file = await channel.read(input.path);
+					const outcome = readOutcome(
+						conn,
+						input.path,
+						file,
+						undefined,
+						ambiguous,
+						connections,
+					);
+					return withFileCards(
+						conn,
+						await distillFilesReadOutcome({ userId, modelId, input, outcome }),
+					);
+				}
 				if (conn.provider === "google") {
 					const entry = await driveResolve(secret, input.path);
 					if (!entry)

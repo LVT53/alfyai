@@ -3,6 +3,32 @@
 
 const connectionsDict = {
 	en: {
+		"connections.writeConfirm.fact.teamsChannel": "Channel",
+		"connections.capability.teams": "Teams",
+		"connections.writeConfirm.risk.teamsLink":
+			"Anyone in your organization with this link can view the item.",
+		"connections.writeConfirm.note.teamsFailed":
+			"Check the conversation in Teams before trying again. Teams may already have applied the change.",
+		"connections.writeConfirm.question.teams_send": "Send this Teams message?",
+		"connections.writeConfirm.approve.teams_send": "Send message",
+		"connections.writeConfirm.done.teams_send": "Message sent",
+		"connections.writeConfirm.question.teams_reply":
+			"Post this reply in the channel?",
+		"connections.writeConfirm.approve.teams_reply": "Post reply",
+		"connections.writeConfirm.done.teams_reply": "Reply posted",
+		"connections.writeConfirm.question.teams_set_reaction":
+			"Add this reaction?",
+		"connections.writeConfirm.approve.teams_set_reaction": "Add reaction",
+		"connections.writeConfirm.done.teams_set_reaction": "Reaction added",
+		"connections.writeConfirm.question.teams_remove_reaction":
+			"Remove your reaction?",
+		"connections.writeConfirm.approve.teams_remove_reaction": "Remove reaction",
+		"connections.writeConfirm.done.teams_remove_reaction": "Reaction removed",
+		"connections.writeConfirm.fact.uploadSource": "Selected attachment",
+		"connections.writeConfirm.fact.uploadSize": "File size",
+		"connections.writeConfirm.fact.uploadDestination": "Channel destination",
+		"connections.writeConfirm.fact.teamsOriginal": "Message",
+		"connections.writeConfirm.fact.teamsReaction": "Reaction",
 		"connections.actions.connect": "Connect",
 		"connections.actions.disconnect": "Disconnect",
 		"connections.actions.reconnect": "Reconnect",
@@ -25,6 +51,9 @@ const connectionsDict = {
 		"connections.capability.photos": "Photos",
 		"connections.capability.repos": "Repositories",
 		"connections.capability.tasks": "Tasks",
+		"connections.capability.teams_chat": "Teams chats",
+		"connections.capability.teams_channels": "Teams channels",
+		"connections.capability.teams_files": "Teams channel files",
 		"connections.defaultOn.help":
 			"When on, AlfyAI can use this connection automatically without asking each time.",
 		"connections.defaultOn.label": "Default on",
@@ -207,6 +236,11 @@ const connectionsDict = {
 		"connections.microsoft.write.calendar": "Edit calendar events",
 		"connections.microsoft.write.email": "Manage email and drafts",
 		"connections.microsoft.write.send": "Send email",
+		"connections.microsoft.write.teams_chat":
+			"Send chat messages and reactions",
+		"connections.microsoft.write.teams_channels":
+			"Post, reply and react in channels",
+		"connections.microsoft.write.teams_files": "Manage channel files",
 		"connections.oauthReturn.reason.onedrive_oauth_admin_approval":
 			"Your organization requires an administrator to approve these permissions. Ask your IT team for access, then reconnect.",
 		"connections.oauthReturn.reason.onedrive_oauth_wrong_account":
@@ -474,7 +508,7 @@ const connectionsDict = {
 			"Where you are, from your own phone",
 		"connections.provider.github.blurb": "Your repositories and issues",
 		"connections.provider.onedrive.blurb":
-			"OneDrive files, Outlook Calendar, email and contacts",
+			"OneDrive, Outlook and work or school Teams",
 		"connections.provider.caldav.blurb":
 			"Any standards-based calendar or address book",
 		"connections.provider.contacts.blurb": "A CardDAV address book",
@@ -502,6 +536,12 @@ const connectionsDict = {
 		"connections.capabilityAbout.photos": "Read your photo library.",
 		"connections.capabilityAbout.repos": "Read your repositories and issues.",
 		"connections.capabilityAbout.tasks": "Read your task lists.",
+		"connections.capabilityAbout.teams_chat":
+			"Read conversations in your work or school Teams account.",
+		"connections.capabilityAbout.teams_channels":
+			"Read posts and replies in your work or school channels.",
+		"connections.capabilityAbout.teams_files":
+			"Find and download files from your work or school channels.",
 		// Plex calls its library films and shows, not "media".
 		"connections.capability.mediaPlex": "Films and shows",
 
@@ -702,6 +742,35 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.writeConfirm.fact.teamsChannel": "Csatorna",
+		"connections.capability.teams": "Teams",
+		"connections.writeConfirm.risk.teamsLink":
+			"A szervezeteden belül a hivatkozás birtokában bárki megtekintheti az elemet.",
+		"connections.writeConfirm.note.teamsFailed":
+			"Újabb próbálkozás előtt ellenőrizd a beszélgetést a Teamsben. Lehet, hogy a módosítás már megtörtént.",
+		"connections.writeConfirm.question.teams_send":
+			"Elküldöd ezt a Teams-üzenetet?",
+		"connections.writeConfirm.approve.teams_send": "Üzenet küldése",
+		"connections.writeConfirm.done.teams_send": "Üzenet elküldve",
+		"connections.writeConfirm.question.teams_reply":
+			"Közzéteszed ezt a választ a csatornán?",
+		"connections.writeConfirm.approve.teams_reply": "Válasz közzététele",
+		"connections.writeConfirm.done.teams_reply": "Válasz közzétéve",
+		"connections.writeConfirm.question.teams_set_reaction":
+			"Hozzáadod ezt a reakciót?",
+		"connections.writeConfirm.approve.teams_set_reaction": "Reakció hozzáadása",
+		"connections.writeConfirm.done.teams_set_reaction": "Reakció hozzáadva",
+		"connections.writeConfirm.question.teams_remove_reaction":
+			"Eltávolítod a reakciódat?",
+		"connections.writeConfirm.approve.teams_remove_reaction":
+			"Reakció eltávolítása",
+		"connections.writeConfirm.done.teams_remove_reaction":
+			"Reakció eltávolítva",
+		"connections.writeConfirm.fact.uploadSource": "Kiválasztott melléklet",
+		"connections.writeConfirm.fact.uploadSize": "Fájlméret",
+		"connections.writeConfirm.fact.uploadDestination": "Célcsatorna",
+		"connections.writeConfirm.fact.teamsOriginal": "Üzenet",
+		"connections.writeConfirm.fact.teamsReaction": "Reakció",
 		"connections.actions.connect": "Csatlakoztatás",
 		"connections.actions.disconnect": "Leválasztás",
 		"connections.actions.reconnect": "Újracsatlakoztatás",
@@ -724,6 +793,9 @@ const connectionsDict = {
 		"connections.capability.photos": "Fényképek",
 		"connections.capability.repos": "Tárolók",
 		"connections.capability.tasks": "Feladatok",
+		"connections.capability.teams_chat": "Teams-csevegések",
+		"connections.capability.teams_channels": "Teams-csatornák",
+		"connections.capability.teams_files": "Teams-csatornafájlok",
 		"connections.defaultOn.help":
 			"Ha bekapcsolod, az AlfyAI automatikusan használhatja ezt a kapcsolatot, anélkül hogy minden alkalommal rákérdezne.",
 		"connections.defaultOn.label": "Alapértelmezetten bekapcsolva",
@@ -909,6 +981,11 @@ const connectionsDict = {
 		"connections.microsoft.write.calendar": "Naptáresemények szerkesztése",
 		"connections.microsoft.write.email": "Levelek és piszkozatok kezelése",
 		"connections.microsoft.write.send": "Levelek küldése",
+		"connections.microsoft.write.teams_chat":
+			"Csevegőüzenetek és reakciók küldése",
+		"connections.microsoft.write.teams_channels":
+			"Csatornabejegyzések, válaszok és reakciók küldése",
+		"connections.microsoft.write.teams_files": "Csatornafájlok kezelése",
 		"connections.oauthReturn.reason.onedrive_oauth_admin_approval":
 			"A szervezetednél rendszergazdai jóváhagyás szükséges ezekhez az engedélyekhez. Kérj hozzáférést az informatikai csapatodtól, majd csatlakozz újra.",
 		"connections.oauthReturn.reason.onedrive_oauth_wrong_account":
@@ -1159,7 +1236,7 @@ const connectionsDict = {
 		"connections.provider.owntracks.blurb": "Hol vagy — a saját telefonodról",
 		"connections.provider.github.blurb": "A tárolóid és hibajegyeid",
 		"connections.provider.onedrive.blurb":
-			"OneDrive-fájlok, Outlook-naptár, levelek és névjegyek",
+			"OneDrive, Outlook, valamint munkahelyi vagy iskolai Teams",
 		"connections.provider.caldav.blurb":
 			"Bármely szabványos naptár vagy címjegyzék",
 		"connections.provider.contacts.blurb": "Egy CardDAV címjegyzék",
@@ -1184,6 +1261,12 @@ const connectionsDict = {
 		"connections.capabilityAbout.repos":
 			"Elolvassa a tárolóidat és hibajegyeidet.",
 		"connections.capabilityAbout.tasks": "Elolvassa a feladatlistáidat.",
+		"connections.capabilityAbout.teams_chat":
+			"Csevegések olvasása a munkahelyi vagy iskolai Teams-fiókodból.",
+		"connections.capabilityAbout.teams_channels":
+			"Bejegyzések és válaszok olvasása a munkahelyi vagy iskolai csatornáidon.",
+		"connections.capabilityAbout.teams_files":
+			"Fájlok keresése és letöltése a munkahelyi vagy iskolai csatornáidról.",
 		"connections.capability.mediaPlex": "Filmek és sorozatok",
 
 		"connections.locality.headline":

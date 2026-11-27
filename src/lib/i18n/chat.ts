@@ -2,6 +2,7 @@
 
 const chatDict = {
 	en: {
+		"toolCalls.teams": "Teams",
 		"chat.observationUnavailable":
 			"The previous reply’s status is unavailable. Any partial answer is kept.",
 		"chat.output.activity": "Activity",
@@ -1173,6 +1174,7 @@ const chatDict = {
 		// and the chevron's open and closed states.
 		"toolActivity.filesOpenFile": "Open {name} in Nextcloud",
 		"toolActivity.filesShowAll": "Show all {count} files",
+		"toolActivity.teamsDownload": "Download {name}",
 		"toolActivity.filesOpenPicture": "Open {name}, picture {index} of {total}",
 		"toolActivity.filesShowList": "Show the file list",
 		"toolActivity.filesHideList": "Hide the file list",
@@ -1369,6 +1371,7 @@ const chatDict = {
 		"messageProvenance.webSources": "{count} sources",
 	},
 	hu: {
+		"toolCalls.teams": "Teams",
 		"chat.observationUnavailable":
 			"A korábbi válasz állapota nem érhető el. A részleges válasz megmarad.",
 		"chat.output.activity": "Tevékenység",
@@ -2433,6 +2436,7 @@ const chatDict = {
 		// A kompakt sáv (FilesStrip.svelte).
 		"toolActivity.filesOpenFile": "{name} megnyitása a Nextcloudban",
 		"toolActivity.filesShowAll": "Mind a(z) {count} fájl megjelenítése",
+		"toolActivity.teamsDownload": "{name} letöltése",
 		"toolActivity.filesOpenPicture":
 			"{name} megnyitása, {index}. kép ({total} közül)",
 		"toolActivity.filesShowList": "A fájllista megjelenítése",
