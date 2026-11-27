@@ -131,8 +131,8 @@ describe("the guide page", () => {
 			await fireEvent.click(
 				row.getByText(
 					language === "en"
-						? "Set up Bosch eBike Flow in 5 steps"
-						: "A Bosch eBike Flow beállítása 5 lépésben",
+						? "Bosch registration instructions"
+						: "Bosch regisztrációs útmutató",
 				),
 			);
 			const steps = row.getByRole("list");
@@ -148,9 +148,7 @@ describe("the guide page", () => {
 				"href",
 				"https://flow.bosch-ebike.com/data-act",
 			);
-			expect(steps).toHaveTextContent(
-				language === "en" ? "AlfyAI pairing key" : "AlfyAI párosítási kulcs",
-			);
+			expect(steps).toHaveTextContent("Redirect URI");
 			expect(steps).toHaveTextContent(
 				language === "en" ? "Bosch client ID" : "Bosch kliensazonosító",
 			);
@@ -160,7 +158,7 @@ describe("the guide page", () => {
 			expect(steps).toHaveTextContent(
 				language === "en"
 					? "leave the client secret blank"
-					: "titkos kulcsát hagyd üresen",
+					: "titkos kulcsot hagyd üresen",
 			);
 		},
 	);

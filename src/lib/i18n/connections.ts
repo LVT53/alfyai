@@ -3,30 +3,68 @@
 
 const connectionsDict = {
 	en: {
+		"connections.oauthReturn.reason.bosch_oauth_failed":
+			"Bosch could not finish sign-in. Check the client ID and redirect address in your Bosch app.",
+		"connections.oauthReturn.reason.bosch_oauth_invalid_state":
+			"This sign-in expired. Start again from Connections.",
+		"connections.oauthReturn.reason.bosch_oauth_denied":
+			"Bosch sign-in was cancelled.",
+		"connections.wizard.bosch.bikeReminder":
+			"In Bosch Flow, open Manage Access and enable your app for each bike you want to share.",
+		"connections.wizard.bosch.authorizeAgain": "Sign in to Bosch again",
+		"connections.wizard.bosch.saveFail":
+			"Your changes couldn’t be saved. Try again.",
+		"connections.wizard.bosch.submitFail":
+			"Alfy couldn’t start Bosch sign-in. Check the client details and try again.",
+		"connections.wizard.bosch.loadFail":
+			"Alfy couldn’t load your Bosch settings. Try again.",
+		"connections.wizard.bosch.copyFail":
+			"The address is selected. Copy it using your browser.",
+		"connections.wizard.bosch.copied": "Copied",
+		"connections.wizard.bosch.copy": "Copy",
+		"connections.wizard.bosch.migrate": "Set up in AlfyAI",
+		"connections.wizard.bosch.legacy":
+			"Your bike is connected through a private helper. You can move setup into AlfyAI by signing in with your existing Bosch app.",
+		"connections.wizard.bosch.signin": "Sign in with Bosch",
+		"connections.wizard.bosch.allowAll": "Allow all supported data",
+		"connections.wizard.bosch.locationHint": "Recorded coordinates and routes.",
+		"connections.wizard.bosch.location": "Precise ride locations",
+		"connections.wizard.bosch.fitnessHint":
+			"Cadence, rider power and calories.",
+		"connections.wizard.bosch.fitness": "Fitness measurements",
+		"connections.wizard.bosch.detailsHint":
+			"Components, serial numbers, dealer notes and ride statistics.",
+		"connections.wizard.bosch.details": "Bike and service records",
+		"connections.wizard.bosch.base":
+			"Connecting lets Alfy fetch bike names, ride dates and distances when you ask. AlfyAI stores your sign-in securely for future questions.",
+		"connections.wizard.bosch.permissions": "What can Alfy read?",
+		"connections.wizard.bosch.registrationHint":
+			"Create a personal app in the Bosch Partner Portal, or edit your existing one. Enter these addresses in Bosch, then paste the client ID below.",
+		"connections.wizard.bosch.registration": "Register your Bosch app",
+		"connections.wizard.bosch.confidential": "My Bosch app has a client secret",
+		"connections.wizard.bosch.secret": "Client secret",
+		"connections.wizard.bosch.clientId": "Bosch client ID",
+		"connections.wizard.bosch.manage": "Manage bike access",
 		"connections.wizard.bosch.detailConsent":
-			"Existing permission covers bike names and ride summaries. On your private setup page, “Allow all supported data” also shares technical and service records (including serial numbers and dealer addresses), fitness measurements and precise ride coordinates. You can choose the groups individually. Alfy reads details on demand while your service is online. A dealer report or battery test may be unavailable for your bike.",
+			"“Allow all supported data” selects technical and service records, fitness measurements and precise ride coordinates. You can change each permission in Connections.",
 		"connections.wizard.bosch.bikeAccess":
 			"After Bosch sign-in, reopen the Bosch Flow Data Act page. Choose “Manage Access”. Under the bike you want AlfyAI to read, switch on your personal client. Repeat for each bike you want to share, then ask AlfyAI about your rides.",
-		"connections.wizard.bosch.authorize":
-			"Select “Sign in with Bosch”, review the fields in the preview, then choose to save your credentials on this server and allow future cycling questions to fetch those fields.",
-		"connections.wizard.bosch.steps": "Set up Bosch eBike Flow in 5 steps",
+		"connections.wizard.bosch.steps": "Bosch registration instructions",
 		"connections.wizard.bosch.register":
 			"Choose “I am a user”, review “Data processing consent”, then select “Confirm”.",
 		"connections.wizard.bosch.client":
-			"Open “Client application”, give your app a name you’ll recognize and enter these two addresses.",
+			"Under “Client application”, name your app and paste the Login URL and Redirect URI from AlfyAI Connections.",
 		"connections.wizard.bosch.submitClient":
 			"Leave “Confidential client” off (PKCE), select “Submit” and keep your client ID.",
 		"connections.wizard.bosch.enable":
 			"Choose “Bosch Smart System” and sign in with the same SingleKey ID. Find your app, select “Enable service” and review which bike data you are sharing. Bosch then returns you to AlfyAI Settings.",
 		"connections.wizard.bosch.pair":
-			"In AlfyAI, create a pairing key. Open your private rider setup page using the link from your operator. Paste the key into “AlfyAI pairing key” and your public client ID into “Bosch client ID”. With “Confidential client” off, leave the client secret blank.",
+			"Return to Connections, paste your Bosch client ID and select the data you want Alfy to read. If “Confidential client” is off, leave the client secret blank. Choose “Sign in with Bosch”.",
 		"connections.wizard.bosch.hosting":
-			"Using a third-party host? Before pairing, give Bosch advance notice under section 1.1.3 of the individual agreement and confirm your setup meets the credential rules in section 5.8.",
+			"AlfyAI hosts the connection. Bosch’s individual agreement covers advance notice for a third-party host in section 1.1.3 and credential handling in section 5.8.",
 		"connections.capability.cycling": "Cycling",
 		"connections.wizard.bosch.subtitle":
-			"Pair your personal Bosch eBike Flow bridge.",
-		"connections.wizard.bosch.instructions":
-			"Your operator installs a separate service for each rider. If yours is ready, follow the steps below. You don’t need to download or run the bridge.",
+			"Connect your bike using your own Bosch account.",
 		"connections.wizard.bosch.selfHost": "Run the bridge yourself",
 		"connections.wizard.bosch.download": "Download the bridge",
 		"connections.wizard.bosch.code": "AlfyAI pairing key",
@@ -775,31 +813,70 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.oauthReturn.reason.bosch_oauth_failed":
+			"A Bosch-bejelentkezés nem sikerült. Ellenőrizd a Bosch-alkalmazás kliensazonosítóját és átirányítási címét.",
+		"connections.oauthReturn.reason.bosch_oauth_invalid_state":
+			"A bejelentkezés lejárt. Indítsd újra a Kapcsolatok oldalon.",
+		"connections.oauthReturn.reason.bosch_oauth_denied":
+			"A Bosch-bejelentkezés megszakadt.",
+		"connections.wizard.bosch.bikeReminder":
+			"A Bosch Flow Manage Access menüjében kapcsold be az alkalmazást minden megosztani kívánt kerékpárnál.",
+		"connections.wizard.bosch.authorizeAgain": "Új bejelentkezés a Boschnál",
+		"connections.wizard.bosch.saveFail":
+			"Nem sikerült menteni a módosításokat. Próbáld újra.",
+		"connections.wizard.bosch.submitFail":
+			"Nem sikerült elindítani a Bosch-bejelentkezést. Ellenőrizd a kliensadatokat, majd próbáld újra.",
+		"connections.wizard.bosch.loadFail":
+			"Alfy nem tudta betölteni a Bosch-beállításokat. Próbáld újra.",
+		"connections.wizard.bosch.copyFail":
+			"A címet kijelöltük. Másold ki a böngésződben.",
+		"connections.wizard.bosch.copied": "Másolva",
+		"connections.wizard.bosch.copy": "Másolás",
+		"connections.wizard.bosch.migrate": "Beállítás az AlfyAI-ban",
+		"connections.wizard.bosch.legacy":
+			"A kerékpárod egy privát segédprogramon keresztül kapcsolódik. Ha itt szeretnéd kezelni, jelentkezz be a meglévő Bosch-alkalmazásoddal.",
+		"connections.wizard.bosch.signin": "Bejelentkezés a Boschnál",
+		"connections.wizard.bosch.allowAll": "Minden támogatott adat engedélyezése",
+		"connections.wizard.bosch.locationHint":
+			"Rögzített koordináták és útvonalak.",
+		"connections.wizard.bosch.location": "Pontos helyadatok",
+		"connections.wizard.bosch.fitnessHint":
+			"Pedálfordulat, teljesítmény és kalória.",
+		"connections.wizard.bosch.fitness": "Edzésadatok",
+		"connections.wizard.bosch.detailsHint":
+			"Alkatrészek, gyári számok, szervizbejegyzések és útstatisztikák.",
+		"connections.wizard.bosch.details": "Kerékpár- és szervizadatok",
+		"connections.wizard.bosch.base":
+			"Csatlakozás után Alfy kérésre lekérheti a kerékpárok nevét, az utak dátumát és távolságát. Az AlfyAI biztonságosan tárolja a hozzáférést a későbbi kérdéseidhez.",
+		"connections.wizard.bosch.permissions": "Mit olvashat Alfy?",
+		"connections.wizard.bosch.registrationHint":
+			"Hozz létre egy személyes alkalmazást a Bosch Partner Portal felületén, vagy nyisd meg a meglévőt. Add meg a Boschnál az alábbi címeket, majd illeszd be ide a kapott kliensazonosítót.",
+		"connections.wizard.bosch.registration": "Bosch-alkalmazás regisztrálása",
+		"connections.wizard.bosch.confidential":
+			"A Bosch-alkalmazásomhoz titkos kulcs tartozik",
+		"connections.wizard.bosch.secret": "Kliens titkos kulcsa",
+		"connections.wizard.bosch.clientId": "Bosch kliensazonosító",
+		"connections.wizard.bosch.manage": "Kerékpáros hozzáférés kezelése",
 		"connections.wizard.bosch.detailConsent":
-			"A meglévő engedély a kerékpárok nevére és az utak összesítésére vonatkozik. A saját beállítási oldaladon a „Minden támogatott adat engedélyezése” megosztja a műszaki és szervizadatokat (köztük a sorozatszámokat és a szervizcímeket), a teljesítményadataidat és a pontos útvonalat is. Külön is kiválaszthatod a csoportokat. A részleteket Alfy kérdésedre, az elérhető szolgáltatásból kéri le. Nem minden kerékpárhoz érhető el szervizjelentés vagy akkumulátorteszt.",
+			"A „Minden támogatott adat engedélyezése” kiválasztja a műszaki és szervizadatokat, az edzésadatokat és a pontos útvonalat is. Az egyes engedélyeket a Kapcsolatok menüben módosíthatod.",
 		"connections.wizard.bosch.bikeAccess":
 			"A Bosch-bejelentkezés után nyisd meg újra a Bosch Flow Data Act oldalát, és válaszd a „Manage Access” menüt. A megosztani kívánt kerékpár alatt kapcsold be a személyes kliensedet. Ismételd meg minden megosztandó kerékpárnál, majd kérdezz rá az útjaidra az AlfyAI-ban.",
-		"connections.wizard.bosch.authorize":
-			"Válaszd a „Bejelentkezés a Boschnál” gombot, majd nézd át az előnézet mezőit. Engedélyezd a hitelesítő adatok mentését ezen a szerveren és az adatlekérést a későbbi kerékpáros kérdéseidhez.",
-		"connections.wizard.bosch.steps":
-			"A Bosch eBike Flow beállítása 5 lépésben",
+		"connections.wizard.bosch.steps": "Bosch regisztrációs útmutató",
 		"connections.wizard.bosch.register":
 			"Válaszd az „I am a user” lehetőséget, olvasd el a „Data processing consent” nyilatkozatot, majd válaszd a „Confirm” gombot.",
 		"connections.wizard.bosch.client":
-			"Nyisd meg a „Client application” űrlapot, adj az alkalmazásnak egy könnyen felismerhető nevet, és írd be ezt a két címet.",
+			"A „Client application” alatt nevezd el az alkalmazást, és illeszd be a Login URL és a Redirect URI címét az AlfyAI Kapcsolatok oldaláról.",
 		"connections.wizard.bosch.submitClient":
 			"Hagyd kikapcsolva a „Confidential client” beállítást (PKCE), válaszd a „Submit” gombot, és őrizd meg az ügyfélazonosítódat (client ID).",
 		"connections.wizard.bosch.enable":
 			"Válaszd a „Bosch Smart System” lehetőséget, és ugyanazzal a SingleKey ID-val jelentkezz be. A saját alkalmazásod sorában válaszd az „Enable service” lehetőséget, és ellenőrizd, mely adatokat osztod meg. A Bosch ezután visszairányít az AlfyAI beállításaihoz.",
 		"connections.wizard.bosch.pair":
-			"Hozz létre párosítási kulcsot az AlfyAI-ban. Az üzemeltetőtől kapott hivatkozással nyisd meg a saját beállítási oldaladat. A kulcsot az „AlfyAI párosítási kulcs”, a nyilvános kliensazonosítódat a „Bosch kliensazonosító” mezőbe másold. Ha a „Confidential client” ki van kapcsolva, a kliens titkos kulcsát hagyd üresen.",
+			"Térj vissza a Kapcsolatok oldalra, illeszd be a Bosch kliensazonosítót, és válaszd ki, milyen adatokat olvashat Alfy. Ha a „Confidential client” ki van kapcsolva, a titkos kulcsot hagyd üresen. Válaszd a „Bejelentkezés a Boschnál” gombot.",
 		"connections.wizard.bosch.hosting":
-			"Külső üzemeltetőt veszel igénybe? Párosítás előtt értesítsd a Boscht az egyéni megállapodás 1.1.3. pontja szerint, és ellenőrizd, hogy a beállítás megfelel-e az 5.8. pont hozzáférési adatokra vonatkozó feltételeinek.",
+			"A kapcsolatot az AlfyAI üzemelteti. A Bosch egyéni megállapodásának 1.1.3. pontja a külső üzemeltető előzetes bejelentéséről, az 5.8. pont a hitelesítő adatok kezeléséről szól.",
 		"connections.capability.cycling": "Kerékpározás",
 		"connections.wizard.bosch.subtitle":
-			"Párosítsd a saját Bosch eBike Flow-hidadat.",
-		"connections.wizard.bosch.instructions":
-			"Az AlfyAI üzemeltetője minden kerékpároshoz külön szolgáltatást állít be. Ha a tiéd már készen áll, kövesd az alábbi lépéseket. A saját gépeden semmit sem kell telepítened vagy futtatnod.",
+			"Csatlakoztasd a kerékpárodat a saját Bosch-fiókoddal.",
 		"connections.wizard.bosch.selfHost": "A híd futtatása saját gépen",
 		"connections.wizard.bosch.download": "A híd letöltése",
 		"connections.wizard.bosch.code": "AlfyAI párosítási kulcs",

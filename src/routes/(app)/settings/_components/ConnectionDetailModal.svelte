@@ -906,7 +906,7 @@ function capabilityAbout(capability: string): string {
 						onclick={() => onReconnect?.(conn.id)}
 					>
 						<RefreshCw size={13} strokeWidth={2} aria-hidden="true" />
-						{$t('connections.actions.reconnect')}
+						{conn.provider === 'bosch' ? $t('connections.wizard.bosch.manage') : $t('connections.actions.reconnect')}
 					</button>
 				{/if}
 				<span class="detail-foot-spacer"></span>

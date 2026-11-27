@@ -431,9 +431,60 @@ test.describe("settings connections tab", () => {
 			await openConnectionsTab(page);
 		});
 
+		test("sets up Bosch from Connections with a copyable callback and a choice of permissions", async ({
+			page,
+		}) => {
+			const callbackUrl = new URL(
+				"/api/connections/bosch/hosted/callback",
+				page.url(),
+			).href;
+			let start: unknown;
+			await page.route("**/api/connections/bosch/hosted", (route) => {
+				if (route.request().method() === "GET")
+					return route.fulfill({
+						json: { mode: "none", grants: [], callbackUrl },
+					});
+				start = route.request().postDataJSON();
+				return route.fulfill({
+					json: {
+						authUrl: new URL(
+							"/settings?section=connections&connected=bosch",
+							page.url(),
+						).href,
+					},
+				});
+			});
+			await page.getByTestId("connections-add-bosch").click();
+			const dialog = page.getByRole("dialog");
+			await expect(
+				dialog.getByLabel("Redirect URI", { exact: true }),
+			).toHaveValue(callbackUrl);
+			await expect(
+				dialog.getByRole("button", { name: "Sign in with Bosch" }),
+			).toBeDisabled();
+			await dialog.getByLabel("Bosch client ID").fill("example-client");
+			await dialog.getByLabel("Fitness measurements", { exact: true }).check();
+			await dialog.getByRole("button", { name: "Sign in with Bosch" }).click();
+			await expect
+				.poll(() => start)
+				.toEqual({ clientId: "example-client", grants: ["fitness"] });
+			await expect(dialog).not.toBeVisible();
+		});
 		test("pairs one personal Bosch rider service and keeps the pairing code on the setup screen", async ({
 			page,
 		}) => {
+			await page.route("**/api/connections/bosch/hosted", (route) =>
+				route.fulfill({
+					json: {
+						mode: "none",
+						grants: [],
+						callbackUrl: new URL(
+							"/api/connections/bosch/hosted/callback",
+							page.url(),
+						).href,
+					},
+				}),
+			);
 			await page.route("**/api/connections/bosch/start", (route) =>
 				route.fulfill({
 					json: {
@@ -444,7 +495,7 @@ test.describe("settings connections tab", () => {
 			);
 			await page.getByTestId("connections-add-bosch").click();
 			const dialog = page.getByRole("dialog");
-			await expect(dialog).toContainText("separate service for each rider");
+			await expect(dialog.getByLabel("Bosch client ID")).toBeVisible();
 			await waitForMotionToSettle(page);
 			const gaps = await dialog.locator(".wizard-head").evaluate((header) => {
 				const title = header

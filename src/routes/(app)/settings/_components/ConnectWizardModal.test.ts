@@ -10,6 +10,9 @@ vi.mock("$lib/client/api/connections", () => ({
 	pollNextcloudConnect: vi.fn(),
 	startAppleConnect: vi.fn(),
 	startBoschPairing: vi.fn(),
+	fetchHostedBoschSetup: vi.fn(),
+	startHostedBoschSetup: vi.fn(),
+	updateHostedBoschGrants: vi.fn(),
 	startCalDavConnect: vi.fn(),
 	startEmailConnect: vi.fn(),
 	startGitHubConnect: vi.fn(),
@@ -22,6 +25,7 @@ vi.mock("$lib/client/api/connections", () => ({
 }));
 
 import {
+	fetchHostedBoschSetup,
 	fetchOwnTracksDevices,
 	pollNextcloudConnect,
 	startAppleConnect,
@@ -30,11 +34,13 @@ import {
 	startEmailConnect,
 	startGitHubConnect,
 	startGoogleConnect,
+	startHostedBoschSetup,
 	startImmichConnect,
 	startNextcloudConnect,
 	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
+	updateHostedBoschGrants,
 } from "$lib/client/api/connections";
 
 const mockFetchOwnTracksDevices = fetchOwnTracksDevices as ReturnType<
@@ -72,6 +78,11 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 describe("ConnectWizardModal", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.mocked(fetchHostedBoschSetup).mockResolvedValue({
+			mode: "none",
+			grants: [],
+			callbackUrl: "https://ai.example/api/connections/bosch/hosted/callback",
+		});
 		sessionStorage.clear();
 		// See SettingsConnectionsTab.test.ts — jsdom has no Web Animations API,
 		// so reporting reduced motion is what lets a disclosure's outro finish.
@@ -93,40 +104,26 @@ describe("ConnectWizardModal", () => {
 			uiLanguage.set(locale);
 			try {
 				render(ConnectWizardModal, baseProps({ provider: "bosch" }));
-				const summary = screen.getByText(
+				const summary = await screen.findByText(
 					locale === "en"
-						? "Set up Bosch eBike Flow in 5 steps"
-						: "A Bosch eBike Flow beállítása 5 lépésben",
+						? "Bosch registration instructions"
+						: "Bosch regisztrációs útmutató",
 				);
-				const details = summary.closest("details");
-				expect(details).not.toHaveAttribute("open");
 				await fireEvent.click(summary);
-				expect(details).toHaveAttribute("open");
-				expect(screen.getAllByRole("listitem")).toHaveLength(5);
-				expect(
-					screen.getByRole("link", { name: "Bosch Partner Portal" }),
-				).toHaveAttribute("href", "https://portal.bosch-ebike.com/data-act");
-				expect(
-					screen.getByRole("link", { name: "Bosch Flow" }),
-				).toHaveAttribute("href", "https://flow.bosch-ebike.com/data-act");
+				const details = summary.closest("details");
 				for (const label of [
 					"I am a user",
-					"Data processing consent",
-					"Confirm",
-					"Client application",
-					"Login URL",
 					"Redirect URI",
 					"Confidential client",
-					"Submit",
-					"SingleKey ID",
 					"Enable service",
 					"Manage Access",
-					"https://ai.alfydesign.com/settings",
-					"http://127.0.0.1:47831/callback",
 					"1.1.3",
 					"5.8",
 				])
 					expect(details).toHaveTextContent(label);
+				expect(screen.getByLabelText("Redirect URI")).toHaveValue(
+					"https://ai.example/api/connections/bosch/hosted/callback",
+				);
 				expect(startBoschPairing).not.toHaveBeenCalled();
 			} finally {
 				uiLanguage.set("en");
@@ -144,6 +141,7 @@ describe("ConnectWizardModal", () => {
 			ConnectWizardModal,
 			baseProps({ provider: "bosch", onClose, onConnected }),
 		);
+		await fireEvent.click(await screen.findByText("Run the bridge yourself"));
 		expect(screen.getByText("Download the bridge")).toHaveAttribute(
 			"href",
 			"/api/connections/bosch/runner",
@@ -157,6 +155,59 @@ describe("ConnectWizardModal", () => {
 		);
 		expect(onConnected).toHaveBeenCalledOnce();
 		expect(onClose).not.toHaveBeenCalled();
+	});
+	it("requests only explicitly chosen details at sign-in without replacing a paired helper", async () => {
+		vi.mocked(fetchHostedBoschSetup).mockResolvedValue({
+			mode: "helper",
+			grants: [],
+			callbackUrl: "https://ai.example/callback",
+		});
+		vi.mocked(startHostedBoschSetup).mockResolvedValue({
+			authUrl: "https://bosch.example/sign-in",
+		});
+		const redirectTo = vi.fn();
+		render(ConnectWizardModal, baseProps({ provider: "bosch", redirectTo }));
+		await fireEvent.click(
+			await screen.findByRole("button", { name: "Set up in AlfyAI" }),
+		);
+		await fireEvent.input(screen.getByLabelText("Bosch client ID"), {
+			target: { value: "example-client" },
+		});
+		await fireEvent.click(screen.getByLabelText("Fitness measurements"));
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Sign in with Bosch" }),
+		);
+		await waitFor(() =>
+			expect(redirectTo).toHaveBeenCalledWith("https://bosch.example/sign-in"),
+		);
+		expect(vi.mocked(startHostedBoschSetup).mock.calls[0][0]).toEqual({
+			clientId: "example-client",
+			grants: ["fitness"],
+		});
+		expect(startBoschPairing).not.toHaveBeenCalled();
+	});
+	it("saves hosted permissions without requesting another Bosch sign-in", async () => {
+		vi.mocked(fetchHostedBoschSetup).mockResolvedValue({
+			mode: "hosted",
+			grants: ["details"],
+			callbackUrl: "https://ai.example/callback",
+		});
+		const onConnected = vi.fn();
+		render(ConnectWizardModal, baseProps({ provider: "bosch", onConnected }));
+		expect(
+			await screen.findByLabelText("Bike and service records"),
+		).toBeChecked();
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Allow all supported data" }),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(onConnected).toHaveBeenCalled());
+		expect(vi.mocked(updateHostedBoschGrants).mock.calls[0][0].sort()).toEqual([
+			"details",
+			"fitness",
+			"location",
+		]);
+		expect(startHostedBoschSetup).not.toHaveBeenCalled();
 	});
 	it("renders nothing when provider is null", () => {
 		render(ConnectWizardModal, baseProps());

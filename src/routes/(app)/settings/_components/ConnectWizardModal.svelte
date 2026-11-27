@@ -1,5 +1,5 @@
 <script lang="ts">
-import BoschSetupSteps from "$lib/components/guide/BoschSetupSteps.svelte";
+import BoschHostedSetup from "./connections/BoschHostedSetup.svelte";
 // Connections redesign — the connect/reconnect wizard.
 //
 // One chassis, one variant per provider (see wizard-variant.ts, which is
@@ -832,39 +832,40 @@ const providerName = $derived(
 					title={$t('connections.wizard.titleConnect', { provider: providerName })}
 					subtitle={$t('connections.wizard.bosch.subtitle')}
 				/>
-				<p class="wizard-help">{$t('connections.wizard.bosch.instructions')}</p>
-				<BoschSetupSteps />
-				<details class="bosch-setup">
-					<summary>{$t('connections.wizard.bosch.selfHost')}</summary>
-					<a href="/api/connections/bosch/runner" download="alfyai-bosch.mjs">
-						{$t('connections.wizard.bosch.download')}
-					</a>
-					<code>node alfyai-bosch.mjs</code>
-				</details>
-				{#if boschToken}
-					<label class="settings-label" for="bosch-pairing-token">{$t('connections.wizard.bosch.code')}</label>
-					<input
-						id="bosch-pairing-token"
-						class="settings-input"
-						type="text"
-						readonly
-						value={boschToken}
-						autocomplete="off"
-						spellcheck="false"
-						onclick={(event) => event.currentTarget.select()}
-					/>
-					<p class="wizard-help">{$t('connections.wizard.bosch.oneTime')}</p>
-					<div class="wizard-foot">
-						<button type="button" class="btn-primary" onclick={onClose}>{$t('common.close')}</button>
-					</div>
-				{:else}
-					<p class="wizard-help">{$t('connections.wizard.bosch.rotate')}</p>
-					<div class="wizard-foot">
-						<button type="button" class="btn-primary" disabled={submitting} onclick={pairBosch}>
-							{$t('connections.wizard.bosch.create')}
-						</button>
-					</div>
-				{/if}
+				<BoschHostedSetup {redirectTo} onSaved={() => { onConnected(); onClose(); }}>
+					{#snippet legacy()}
+						<div class="bosch-setup">
+							<a href="/api/connections/bosch/runner" download="alfyai-bosch.mjs">
+								{$t('connections.wizard.bosch.download')}
+							</a>
+							<code>node alfyai-bosch.mjs</code>
+						</div>
+						{#if boschToken}
+							<label class="settings-label" for="bosch-pairing-token">{$t('connections.wizard.bosch.code')}</label>
+							<input
+								id="bosch-pairing-token"
+								class="settings-input"
+								type="text"
+								readonly
+								value={boschToken}
+								autocomplete="off"
+								spellcheck="false"
+								onclick={(event) => event.currentTarget.select()}
+							/>
+							<p class="wizard-help">{$t('connections.wizard.bosch.oneTime')}</p>
+							<div class="wizard-foot">
+								<button type="button" class="btn-primary" onclick={onClose}>{$t('common.close')}</button>
+							</div>
+						{:else}
+							<p class="wizard-help">{$t('connections.wizard.bosch.rotate')}</p>
+							<div class="wizard-foot">
+								<button type="button" class="btn-primary" disabled={submitting} onclick={pairBosch}>
+									{$t('connections.wizard.bosch.create')}
+								</button>
+							</div>
+						{/if}
+					{/snippet}
+				</BoschHostedSetup>
 			{:else if variant === 'oauth'}
 				<WizardHeader
 					provider={initialProvider}

@@ -7,6 +7,10 @@
 import type { I18nKey } from "$lib/i18n";
 
 const OAUTH_ERROR_REASON_KEYS: Record<string, I18nKey> = {
+	bosch_oauth_failed: "connections.oauthReturn.reason.bosch_oauth_failed",
+	bosch_oauth_denied: "connections.oauthReturn.reason.bosch_oauth_denied",
+	bosch_oauth_invalid_state:
+		"connections.oauthReturn.reason.bosch_oauth_invalid_state",
 	google_oauth_wrong_account:
 		"connections.oauthReturn.reason.google_oauth_wrong_account",
 	google_oauth_denied: "connections.oauthReturn.reason.google_oauth_denied",
