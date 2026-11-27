@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { messageRecallQuery } from "./recall-query";
+import {
+	messageRecallQuery,
+	shouldPrioritizeRecallMatches,
+} from "./recall-query";
 
 describe("messageRecallQuery", () => {
 	it("keeps a message's words as its query", () => {
@@ -146,5 +149,51 @@ describe("messageRecallQuery", () => {
 		} finally {
 			segment.mockRestore();
 		}
+	});
+});
+
+describe("shouldPrioritizeRecallMatches", () => {
+	it.each([
+		"What do you remember about my work and responsibilities?",
+		"What subjects or exams have I been studying for?",
+		"What do you remember about my regular weekly routines?",
+		"What personal preferences have I told you about?",
+		"Remind me about my piano lessons",
+		"What do you remember about me specifically in relation to my job?",
+		"Mire emlékszel a munkámmal és a feladataimmal kapcsolatban?",
+		"Milyen tantárgyakat tanulok, vagy milyen vizsgákra készülök?",
+		"Mire emlékszel a rendszeres heti szokásaimból?",
+		"Milyen személyes preferenciáimról meséltem neked?",
+		"Hol dolgozom",
+		"Mesélj a zongoraóráimról",
+	])("leads with matches for a named subject: %s", (message) => {
+		expect(shouldPrioritizeRecallMatches(message)).toBe(true);
+	});
+
+	it.each([
+		"",
+		"Sure.",
+		"Yes, do that.",
+		"What about the second one?",
+		"What do you remember about me?",
+		"What else can you tell me about myself?",
+		"Could you please summarize everything you know about my life so far?",
+		"What's in my memory profile?",
+		"Tell me more",
+		"Who am I?",
+		"Can you give me a quick overview of what you know about me from our chats?",
+		"What have I shared with you in previous conversations?",
+		"Okay?",
+		"Is that right?",
+		"Mi mást tudsz még elmondani rólam?",
+		"Össze tudnád foglalni, mit jegyeztél meg rólam?",
+		"Mit tudsz rólam?",
+		"Mire emlékszel velem kapcsolatban?",
+		"Foglalj össze mindent, amit eddig rólam tudsz.",
+		"Mi a helyzet vele?",
+		"I usually play the piano after work.",
+		"Munka után zongorázni szoktam.",
+	])("keeps the core order for broad or non-question turns: %s", (message) => {
+		expect(shouldPrioritizeRecallMatches(message)).toBe(false);
 	});
 });

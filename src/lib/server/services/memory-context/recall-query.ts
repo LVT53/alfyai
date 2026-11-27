@@ -1,5 +1,7 @@
 import { normalizeWhitespace } from "$lib/server/utils/text";
 import { isUntitledConversationTitle } from "$lib/shared/conversation-title";
+import { foldForSearch } from "$lib/shared/workspace-search-text";
+import { tokenizeQuery } from "./query";
 
 /**
  * The fixed search that keeps a core of the person's basics in every chat's
@@ -87,4 +89,32 @@ export function messageRecallQuery(
 				: chatTitle
 			: words;
 	return query ? clipQuery(query) : null;
+}
+
+// The history tokenizer already removes question and function words. These
+// remaining words ask for the profile itself or point back to the prior turn;
+// on their own they give the message search no topic to lead with.
+const PROFILE_QUERY_WORDS = new Set(
+	[
+		"what why whom whose everything anything something nothing else more again overall generally general summary summarize summarise overview profile memory memories personal information details facts life myself person background identity story describe brief briefly so far all yourself recall remind learned learnt told mentioned shared previously already know knows any other about one ones first second third then now give show provide quick past previous chat chats conversation conversations discussed recently right yes ok okay sure",
+		"mit miert mire mik milyen ki kik rolunk rolam vele velem kapcsolatban kapcsolatosan magam magamrol szemelyes eletem eletemrol szemelyemrol tudod tudsz ossze foglalj foglald osszefoglalot osszefoglalnad emlekeid emlek emlekek emlekszel emlekezel emlekeztess altalaban altalanossagban mindent mindazt eddig meg mast is mondani meselj tobbet helyzet masodik harmadik elso azzal errol arrol beszelgettunk beszeltunk amit amire neked es elmondani ossze tudnad foglalni jegyeztel meg rendben korabban beszelgetesek beszelgeteseinkbol",
+	]
+		.join(" ")
+		.split(" "),
+);
+
+const RECALL_QUESTION_START =
+	/^(?:(?:hey|please|hi|kerlek|szia)[\s,]+)*(?:what|where|which|who|when|why|how|whose|am|is|are|was|were|have|has|did|do|does|could|can|would|should|will|remind me|tell me|summari[sz]e|mi|mit|mire|mik|milyen|melyik|melyek|miert|mikor|merre|hogyan|hogy|hol|hova|hany|mennyi|ki|kik|kivel|emlekszel|tudod|meselj|mondd|mondj|emlekeztess)\b/u;
+
+/** Use the original message: a borrowed conversation title does not turn a
+ * generic follow-up into a new question about a specific subject. */
+export function shouldPrioritizeRecallMatches(rawMessage: string): boolean {
+	const message = normalizeWhitespace(rawMessage);
+	if (!message || message.length > MAX_QUERY_CHARS) return false;
+	const folded = foldForSearch(message);
+	if (!RECALL_QUESTION_START.test(folded) && !folded.endsWith("?"))
+		return false;
+	return tokenizeQuery(message).some(
+		(term) => !PROFILE_QUERY_WORDS.has(foldForSearch(term)),
+	);
 }
