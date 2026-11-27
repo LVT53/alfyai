@@ -42,7 +42,7 @@ import {
 	type ConnectionPublic,
 } from "$lib/client/api/connections";
 import {
-	getProviderCatalogEntry,
+	providerDisplayName,
 	type ConnectionProvider,
 } from "$lib/client/connections/provider-catalog";
 import { reconcileConversationSnapshot } from "$lib/stores/conversations";
@@ -414,7 +414,7 @@ function showConnectionsNotice(notice: {
 	const message =
 		notice.type === "success"
 			? get(t)("connections.oauthReturn.success", {
-					provider: getProviderCatalogEntry(notice.provider ?? "").displayName,
+					provider: providerDisplayName(notice.provider ?? "", get(t)),
 				})
 			: get(t)("connections.oauthReturn.error", {
 					reason: get(t)(

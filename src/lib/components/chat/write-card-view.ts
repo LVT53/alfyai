@@ -3,7 +3,7 @@
 // happening (`write.card`), and this turns it into words in the reader's
 // language. Text the server wrote in English (`write.preview`) is shown only for
 // a write it could not read, which is the fallback and not the card.
-import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
+import { providerDisplayName } from "$lib/client/connections/provider-catalog";
 import type { I18nKey } from "$lib/i18n";
 import type {
 	PendingWrite,
@@ -339,7 +339,7 @@ export function buildWriteCardView(
 	t: Translate,
 	language: string,
 ): WriteCardView {
-	const provider = getProviderCatalogEntry(write.provider).displayName;
+	const provider = providerDisplayName(write.provider, t);
 	// An email address tells a person which of their accounts this is. A
 	// server's host name tells them nothing the mark has not.
 	const qualifier = write.account?.includes("@")
@@ -466,9 +466,7 @@ export function buildSettledWriteItem(
 		verb,
 		object: view.subject,
 		meta:
-			write.status === "failed"
-				? ""
-				: getProviderCatalogEntry(write.provider).displayName,
+			write.status === "failed" ? "" : providerDisplayName(write.provider, t),
 		summaryLabel: `${verb} ${view.subject}`.trim(),
 		pinned: true,
 		alwaysOpen: false,

@@ -25,7 +25,10 @@ import {
 	type NextcloudFolderSuggestion,
 } from "$lib/client/api/connections";
 import { ApiError } from "$lib/client/api/http";
-import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
+import {
+	getProviderCatalogEntry,
+	providerDisplayName,
+} from "$lib/client/connections/provider-catalog";
 import {
 	connectionStatusGrammar,
 	deniedCapabilitiesOf,
@@ -468,12 +471,13 @@ function capabilityAbout(capability: string): string {
 {#if connection}
 	{@const conn = connection}
 	{@const entry = getProviderCatalogEntry(conn.provider, gmailPilotEnabled)}
-	{@const grammar = connectionStatusGrammar(conn, formatters)}
+	{@const name = providerDisplayName(conn.provider, $t)}
+	{@const grammar = connectionStatusGrammar(conn, formatters, name)}
 	{@const granted = grantedCapabilitiesOf(conn, gmailPilotEnabled)}
 	{@const denied = deniedCapabilitiesOf(conn, gmailPilotEnabled)}
 	{@const isOAuth = entry.connectMethod === 'oauth'}
 	<DialogShell
-		title={entry.displayName}
+		title={name}
 		onClose={onClose}
 		maxWidthClass="max-w-[30rem]"
 		zIndexClass="z-[100]"
@@ -485,7 +489,7 @@ function capabilityAbout(capability: string): string {
 					<BrandIcon provider={conn.provider} size={19} ariaHidden />
 				</span>
 				<span class="detail-identity">
-					<span class="detail-name">{entry.displayName}</span>
+					<span class="detail-name">{name}</span>
 					{#if conn.provider === "owntracks" || conn.accountIdentifier}
 						<span class="detail-account">{conn.provider === "owntracks" ? conn.label : conn.accountIdentifier}</span>
 					{/if}
@@ -505,20 +509,20 @@ function capabilityAbout(capability: string): string {
 							{#if conn.status === 'needs_reauth'}
 								{conn.statusChangedAt
 									? $t('connections.detail.signInBanner', {
-											provider: entry.displayName,
+											provider: name,
 											when: formatters.date(conn.statusChangedAt),
 										})
 									: $t('connections.detail.signInBannerNoDate', {
-											provider: entry.displayName,
+											provider: name,
 										})}
 							{:else if conn.status === 'error'}
 								{conn.statusChangedAt
 									? $t('connections.detail.unreachableBanner', {
-											provider: entry.displayName,
+											provider: name,
 											when: formatters.dateTime(conn.statusChangedAt),
 										})
 									: $t('connections.detail.unreachableBannerNoDate', {
-											provider: entry.displayName,
+											provider: name,
 										})}
 							{:else}
 								{$t('connections.detail.turnedOffBanner')}
@@ -610,7 +614,7 @@ function capabilityAbout(capability: string): string {
 					{/each}
 					{#if !entry.writable}
 						<p class="detail-note">
-							{$t('connections.detail.readOnlyNote', { provider: entry.displayName })}
+							{$t('connections.detail.readOnlyNote', { provider: name })}
 						</p>
 					{/if}
 				</section>
@@ -621,10 +625,10 @@ function capabilityAbout(capability: string): string {
 				<BehaviourRow
 					label={$t('connections.detail.useWithoutAsking')}
 					description={$t('connections.detail.useWithoutAskingSub', {
-						provider: entry.displayName,
+						provider: name,
 					})}
 					help={$t('connections.detail.useWithoutAskingHelp', {
-						provider: entry.displayName,
+						provider: name,
 					})}
 					checked={conn.defaultOn}
 					busy={isPending('defaultOn')}
@@ -872,7 +876,7 @@ function capabilityAbout(capability: string): string {
 				>
 					<Unplug size={14} strokeWidth={2} aria-hidden="true" />
 					{$t('connections.actions.disconnectProvider', {
-						provider: entry.displayName,
+						provider: name,
 					})}
 				</button>
 				<!-- Reconnect is reachable from every connection, not only broken
@@ -902,15 +906,15 @@ function capabilityAbout(capability: string): string {
 			.map((capability) => capabilityLabel(conn.provider, capability))
 			.join(', ')}
 		<ConfirmDialog
-			title={$t('connections.disconnectConfirm.title', { provider: entry.displayName })}
+			title={$t('connections.disconnectConfirm.title', { provider: name })}
 			message={`${
 				lostCapabilities
 					? $t('connections.disconnectConfirm.body', {
 							what: lostCapabilities,
-							provider: entry.displayName,
+							provider: name,
 						})
 					: $t('connections.disconnectConfirm.bodyNoCapabilities', {
-							provider: entry.displayName,
+							provider: name,
 						})
 			}${
 				conn.allowWrites && conn.writeAllowlist.length > 0

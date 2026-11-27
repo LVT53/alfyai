@@ -5,8 +5,19 @@ import {
 	isKnownProvider,
 	PROVIDER_CATALOG,
 	PROVIDER_LIST,
+	providerDisplayName,
 } from "./provider-catalog";
 
+it("names connector entries independently from the email capability", () => {
+	expect(PROVIDER_CATALOG.imap.displayName).toBe("Other email");
+	expect(PROVIDER_CATALOG.imap.capabilities).toEqual(["email"]);
+	expect(PROVIDER_CATALOG.apple.displayName).toBe("Apple");
+	expect(
+		providerDisplayName("imap", (key) =>
+			key === "connections.provider.imap.name" ? "Egyéb e-mail" : "",
+		),
+	).toBe("Egyéb e-mail");
+});
 describe("groupConnectableProviders", () => {
 	it("splits connectable providers into product and custom groups", () => {
 		const { product, custom } = groupConnectableProviders();

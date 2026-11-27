@@ -99,7 +99,7 @@ export const PROVIDER_CATALOG: Record<
 		group: "product",
 	},
 	imap: {
-		displayName: "Email",
+		displayName: "Other email",
 		capabilities: ["email"],
 		connectMethod: "app-password",
 		writable: true,
@@ -119,7 +119,7 @@ export const PROVIDER_CATALOG: Record<
 		group: "product",
 	},
 	apple: {
-		displayName: "Apple iCloud",
+		displayName: "Apple",
 		capabilities: ["calendar", "contacts", "email"],
 		connectMethod: "app-password",
 		writable: true,
@@ -269,4 +269,13 @@ export function getProviderCatalogEntry(
 		connectable: false,
 		group: "custom",
 	};
+}
+
+export function providerDisplayName(
+	provider: string,
+	translate: (key: "connections.provider.imap.name") => string,
+): string {
+	return provider === "imap"
+		? translate("connections.provider.imap.name")
+		: getProviderCatalogEntry(provider).displayName;
 }

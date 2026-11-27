@@ -15,7 +15,7 @@ import {
 	connectionStatusGrammar,
 	type GrammarFormatters,
 } from "$lib/client/connections/status-grammar";
-import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
+import { providerDisplayName } from "$lib/client/connections/provider-catalog";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import { t } from "$lib/i18n";
 import CapabilityChip from "./CapabilityChip.svelte";
@@ -35,7 +35,7 @@ let {
 	onRecover: (id: string) => void;
 } = $props();
 
-const entry = $derived(getProviderCatalogEntry(connection.provider));
+const name = $derived(providerDisplayName(connection.provider, $t));
 const account = $derived(
 	connection.provider === "owntracks"
 		? connection.label
@@ -43,13 +43,13 @@ const account = $derived(
 );
 const detailsLabel = $derived(
 	[
-		`${$t("connections.actions.details")} — ${entry.displayName}`,
+		`${$t("connections.actions.details")} — ${name}`,
 		connection.provider === "owntracks" ? account : "",
 	]
 		.filter(Boolean)
 		.join(" · "),
 );
-const grammar = $derived(connectionStatusGrammar(connection, formatters));
+const grammar = $derived(connectionStatusGrammar(connection, formatters, name));
 const chips = $derived(capabilityChipsOf(connection, gmailPilotEnabled));
 </script>
 
@@ -64,7 +64,7 @@ const chips = $derived(capabilityChipsOf(connection, gmailPilotEnabled));
 			<BrandIcon provider={connection.provider} size={17} ariaHidden />
 		</span>
 		<span class="connection-title">
-			<span class="connection-name">{entry.displayName}</span>
+			<span class="connection-name">{name}</span>
 			{#if account}
 				<span class="connection-account">{account}</span>
 			{/if}

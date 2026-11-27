@@ -10,7 +10,7 @@
 import { Check } from "@lucide/svelte";
 import {
 	type ConnectionProvider,
-	getProviderCatalogEntry,
+	providerDisplayName,
 	groupConnectableProviders,
 } from "$lib/client/connections/provider-catalog";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
@@ -38,14 +38,14 @@ function blurbFor(provider: ConnectionProvider): string {
 </script>
 
 {#snippet providerCard(provider: ConnectionProvider)}
-	{@const entry = getProviderCatalogEntry(provider)}
+	{@const name = providerDisplayName(provider, $t)}
 	{@const already = connectedProviders.has(provider)}
 	<button
 		type="button"
 		class="provider-card"
 		class:connected={already}
 		data-testid={`connections-add-${provider}`}
-		aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
+		aria-label={`${$t('connections.actions.connect')} ${name}`}
 		onclick={() => onStartConnect(provider)}
 	>
 		<span class="provider-mark">
@@ -53,7 +53,7 @@ function blurbFor(provider: ConnectionProvider): string {
 		</span>
 		<span class="provider-text">
 			<span class="provider-name">
-				{entry.displayName}
+				{name}
 				{#if already}
 					<span
 						class="provider-check"

@@ -123,8 +123,8 @@ export function connectionStatusGrammar(
 		statusChangedAt?: number | null;
 	},
 	formatters: GrammarFormatters,
+	provider = getProviderCatalogEntry(conn.provider).displayName,
 ): ConnectionStatusGrammar {
-	const provider = getProviderCatalogEntry(conn.provider).displayName;
 	const technicalDetail = conn.statusDetail?.trim() || null;
 
 	switch (conn.status) {

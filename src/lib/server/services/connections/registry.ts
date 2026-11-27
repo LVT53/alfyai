@@ -67,7 +67,7 @@ export const PROVIDER_META: Record<
 	imap: {
 		capabilities: ["email"],
 		connectMethod: "app-password",
-		displayName: "Email",
+		displayName: "Other email",
 		group: "product",
 	},
 	google: {
@@ -79,7 +79,7 @@ export const PROVIDER_META: Record<
 	apple: {
 		capabilities: ["calendar", "contacts", "email"],
 		connectMethod: "app-password",
-		displayName: "Apple iCloud",
+		displayName: "Apple",
 		group: "product",
 	},
 	plex: {

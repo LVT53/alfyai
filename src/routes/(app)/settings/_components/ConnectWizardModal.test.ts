@@ -1044,7 +1044,7 @@ describe("ConnectWizardModal", () => {
 
 			expect(screen.getByText("Where is your mailbox?")).toBeInTheDocument();
 			expect(screen.getByText("Alfy Email")).toBeInTheDocument();
-			expect(screen.getByText("Gmail")).toBeInTheDocument();
+			expect(screen.queryByText("Gmail")).not.toBeInTheDocument();
 			expect(screen.getByText("Somewhere else")).toBeInTheDocument();
 			expect(screen.queryByText(/IMAP/)).not.toBeInTheDocument();
 
@@ -1120,23 +1120,35 @@ describe("ConnectWizardModal", () => {
 			expect(screen.queryByText("hunter2")).not.toBeInTheDocument();
 		});
 
-		it("shows the Gmail help and derives imap.gmail.com/smtp.gmail.com", async () => {
+		it("reconnects an existing Gmail IMAP account with its saved settings", async () => {
 			mockStartEmailConnect.mockResolvedValue({
 				connection: { id: "conn-gmail", provider: "imap" },
 			});
 			const onConnected = vi.fn();
-
-			render(ConnectWizardModal, baseProps({ provider: "imap", onConnected }));
-
-			await fireEvent.click(screen.getByText("Gmail"));
-			expect(
-				screen.getByText(/Settings → Forwarding and POP\/IMAP/),
-			).toBeInTheDocument();
-			expect(screen.getByText(/myaccount\.google\.com/)).toBeInTheDocument();
-
-			await fireEvent.input(screen.getByLabelText("Gmail address"), {
-				target: { value: "me@gmail.com" },
-			});
+			render(
+				ConnectWizardModal,
+				baseProps({
+					provider: "imap",
+					reconnectConnectionId: "conn-gmail",
+					reconnectConnection: {
+						id: "conn-gmail",
+						provider: "imap",
+						accountIdentifier: "me@gmail.com",
+						config: {
+							imapHost: "imap.gmail.com",
+							imapPort: 993,
+							imapSecure: true,
+							smtpHost: "smtp.gmail.com",
+							smtpPort: 587,
+						},
+					},
+					onConnected,
+				}),
+			);
+			expect(screen.queryByText("Where is your mailbox?")).toBeNull();
+			expect(screen.getByLabelText("Email address")).toHaveValue(
+				"me@gmail.com",
+			);
 			await fireEvent.input(screen.getByLabelText("App password"), {
 				target: { value: "abcd efgh ijkl mnop" },
 			});

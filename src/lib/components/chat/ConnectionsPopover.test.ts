@@ -72,7 +72,8 @@ describe("ConnectionsPopover", () => {
 			}),
 		);
 		const row = screen.getByTestId("connections-popover-account-mail");
-		expect(within(row).getByText("Email")).toBeInTheDocument();
+		expect(within(row).getByText("Other email")).toBeInTheDocument();
+		expect(within(row).getByText("· Email")).toBeInTheDocument();
 		await fireEvent.click(within(row).getByRole("switch"));
 		expect(onToggleAccount).toHaveBeenCalledWith("mail");
 	});

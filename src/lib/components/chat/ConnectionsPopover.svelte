@@ -12,7 +12,7 @@ import { AlertTriangle } from "@lucide/svelte";
 import { onMount } from "svelte";
 import { fade, fly } from "svelte/transition";
 import type { ActiveCapabilitiesConnection } from "$lib/client/api/connections";
-import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
+import { providerDisplayName } from "$lib/client/connections/provider-catalog";
 import {
 	isAccountOn,
 	isReady,
@@ -160,18 +160,18 @@ onMount(() => {
 	{#if ready.length > 0}
 		<div class="account-list">
 			{#each ready as conn (conn.id)}
-				{@const entry = getProviderCatalogEntry(conn.provider)}
+				{@const name = providerDisplayName(conn.provider, $t)}
 				<div class="account-row" data-testid={`connections-popover-account-${conn.id}`}>
 					<span class="account-mark">
 						<BrandIcon provider={conn.provider} size={13} ariaHidden />
 					</span>
 					<span class="account-text">
-						<span class="account-name">{entry.displayName}</span>
+						<span class="account-name">{name}</span>
 						<span class="account-caps">· {capabilityList(conn)}</span>
 					</span>
 					<Toggle
 						checked={isAccountOn(conn, flippedIds)}
-						ariaLabel={entry.displayName}
+						ariaLabel={name}
 						onChange={() => onToggleAccount(conn.id)}
 					/>
 				</div>
@@ -186,7 +186,7 @@ onMount(() => {
 			</span>
 			<span class="attention-text">
 				{$t('connections.chat.needsAttention', {
-					provider: getProviderCatalogEntry(attention[0].provider).displayName,
+					provider: providerDisplayName(attention[0].provider, $t),
 				})}
 			</span>
 			<button type="button" class="attention-manage" onclick={onManage}>

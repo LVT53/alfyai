@@ -44,6 +44,7 @@ import {
 	type Capability,
 	type ConnectionProvider,
 	getProviderCatalogEntry,
+	providerDisplayName,
 } from "$lib/client/connections/provider-catalog";
 import { makeGrammarFormatters } from "$lib/client/connections/status-grammar";
 import {
@@ -629,30 +630,6 @@ const submitAlfyEmail = (event: Event) => {
 	);
 };
 
-let gmailAddress = $state("");
-let gmailAppPassword = $state("");
-let gmailShowPassword = $state(false);
-
-const submitGmailEmail = (event: Event) => {
-	event.preventDefault();
-	const email = gmailAddress.trim();
-	if (!email || !gmailAppPassword) return;
-	return submitCredentials((signal) =>
-		startEmailConnect(
-			{
-				email,
-				imapHost: "imap.gmail.com",
-				imapPort: 993,
-				imapSecure: true,
-				password: gmailAppPassword,
-				smtpHost: "smtp.gmail.com",
-				smtpPort: 587,
-			},
-			signal,
-		).then(() => undefined),
-	);
-};
-
 let emailAddress = $state(initialReconnectConnection?.accountIdentifier ?? "");
 let imapHost = $state(reconnectConfigString("imapHost"));
 let imapPort = $state<number | "">(reconnectConfigNumber("imapPort") ?? 993);
@@ -750,7 +727,9 @@ onMount(() => {
 	if (variant === "owntracks") void loadOwnTracksDevices();
 });
 
-const providerName = $derived(providerEntry?.displayName ?? "");
+const providerName = $derived(
+	initialProvider ? providerDisplayName(initialProvider, $t) : "",
+);
 </script>
 
 {#snippet errorBlock()}
@@ -1330,7 +1309,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 			{:else if variant === 'apple' || (variant === 'mail' && emailStep === 'icloud')}
 				<WizardHeader
 					provider="apple"
-					title={$t('connections.wizard.titleConnect', { provider: 'Apple iCloud' })}
+					title={$t('connections.wizard.titleConnect', { provider: 'Apple' })}
 					subtitle={$t('connections.wizard.apple.subtitle')}
 				/>
 				{#if submitting}
@@ -1479,13 +1458,6 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 								<span class="path-sub">{$t('connections.wizard.email.path.alfy.description2')}</span>
 							</span>
 						</button>
-						<button type="button" class="path-option" onclick={() => chooseEmailPath('gmail')}>
-							<span class="path-mark"><BrandIcon provider="gmail" size={14} ariaHidden /></span>
-							<span class="path-copy">
-								<span class="path-name">{$t('connections.wizard.email.path.gmail.name')}</span>
-								<span class="path-sub">{$t('connections.wizard.email.path.gmail.description2')}</span>
-							</span>
-						</button>
 						<button type="button" class="path-option" onclick={() => chooseEmailPath('icloud')}>
 							<span class="path-mark"><BrandIcon provider="apple" size={14} ariaHidden /></span>
 							<span class="path-name">iCloud Mail</span>
@@ -1538,43 +1510,6 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 								type="submit"
 								class="btn-primary w-full whitespace-nowrap sm:w-auto"
 								disabled={!alfyEmail.trim() || !alfyDomain || !alfyPassword}
-							>
-								{$t('connections.actions.connect')}
-							</button>
-						</div>
-					</form>
-				{:else if emailStep === 'gmail'}
-					<form onsubmit={submitGmailEmail}>
-						<WizardHeader
-							provider="gmail"
-							title={$t('connections.wizard.email.path.gmail.name')}
-							subtitle={$t('connections.wizard.email.path.gmail.description2')}
-						/>
-						<div class="mb-3">
-							<label class="settings-label" for="wizard-gmail-address">
-								{$t('connections.wizard.email.gmail.emailLabel')}
-							</label>
-							<input id="wizard-gmail-address" type="email" class="settings-input" bind:value={gmailAddress} />
-						</div>
-						<PasswordField
-							id="wizard-gmail-app-password"
-							label={$t('connections.wizard.email.passwordLabel')}
-							bind:value={gmailAppPassword}
-							bind:shown={gmailShowPassword}
-							autocomplete="off"
-						/>
-						<p class="wizard-field-help">{$t('connections.wizard.email.gmail.help1')}</p>
-						<p class="wizard-field-help">{$t('connections.wizard.email.gmail.help2')}</p>
-						{@render errorBlock()}
-						<div class="wizard-foot">
-							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>
-								{$t('connections.wizard.back')}
-							</button>
-							<span class="wizard-foot-spacer"></span>
-							<button
-								type="submit"
-								class="btn-primary w-full whitespace-nowrap sm:w-auto"
-								disabled={!gmailAddress.trim() || !gmailAppPassword}
 							>
 								{$t('connections.actions.connect')}
 							</button>

@@ -572,6 +572,7 @@ test.describe("settings connections tab", () => {
 			await page.getByTestId("connections-add-imap").click();
 			await expect(page.getByText("Where is your mailbox?")).toBeVisible();
 			await expect(page.getByText("Somewhere else")).toBeVisible();
+			await expect(page.getByRole("button", { name: /Gmail/ })).toHaveCount(0);
 			await expect(page.getByText("Other (IMAP)")).toHaveCount(0);
 
 			await page.getByText("Somewhere else").click();

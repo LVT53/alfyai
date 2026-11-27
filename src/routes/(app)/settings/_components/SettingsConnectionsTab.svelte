@@ -24,7 +24,7 @@ import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
 	type Capability,
 	type ConnectionProvider,
-	getProviderCatalogEntry,
+	providerDisplayName,
 } from "$lib/client/connections/provider-catalog";
 import {
 	missingFromGrant,
@@ -172,7 +172,7 @@ async function runChange(
 
 function providerNameOf(id: string): string {
 	const conn = connections.find((item) => item.id === id);
-	return conn ? getProviderCatalogEntry(conn.provider).displayName : id;
+	return conn ? providerDisplayName(conn.provider, $t) : id;
 }
 
 function capabilityName(capability: string): string {
@@ -281,7 +281,7 @@ $effect(() => {
 		if (missing.length === 0) continue;
 		partialGrant = {
 			connectionId: conn.id,
-			provider: getProviderCatalogEntry(conn.provider).displayName,
+			provider: providerDisplayName(conn.provider, $t),
 			allowed: granted.filter((capability) => requested.includes(capability)),
 			missing,
 		};
