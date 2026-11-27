@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+	getCanonicalMimeForExtension,
+	getContentTypeForFile,
+} from "$lib/shared/file-types";
 import type { ConnectionPublic } from "../store";
 import { gmailGetAccessToken } from "./gmail";
 import {
@@ -30,6 +34,8 @@ const label = z.object({
 	name: z.string(),
 	type: z.enum(["system", "user"]),
 });
+const plainMime = getCanonicalMimeForExtension("txt");
+const htmlMime = getCanonicalMimeForExtension("html");
 const partBase = z.object({
 	mimeType: z.string().optional(),
 	filename: z.string().optional(),
@@ -164,20 +170,23 @@ async function content(conn: ConnectionPublic, m: Message, opts?: Options) {
 		if (
 			p.filename ||
 			(p.body?.attachmentId &&
-				p.mimeType !== "text/plain" &&
-				p.mimeType !== "text/html") ||
+				p.mimeType !== plainMime &&
+				p.mimeType !== htmlMime) ||
 			/^attachment\b/i.test(disposition)
 		) {
 			attachments.push({
 				filename: p.filename || "Attachment",
-				contentType: p.mimeType ?? "application/octet-stream",
+				contentType: getContentTypeForFile(
+					p.filename ?? "",
+					p.mimeType ?? null,
+				),
 				size: p.body?.size,
 			});
 			return;
 		}
 		if (
 			p.body?.attachmentId &&
-			(p.mimeType === "text/plain" || p.mimeType === "text/html")
+			(p.mimeType === plainMime || p.mimeType === htmlMime)
 		) {
 			if ((p.body.size ?? Infinity) > 750000)
 				throw bad("The Gmail message body is too large to read completely");
@@ -198,10 +207,7 @@ async function content(conn: ConnectionPublic, m: Message, opts?: Options) {
 			p.body = { data: bytes.data, size: bytes.size };
 		}
 
-		if (
-			p.body?.data &&
-			(p.mimeType === "text/plain" || p.mimeType === "text/html")
-		) {
+		if (p.body?.data && (p.mimeType === plainMime || p.mimeType === htmlMime)) {
 			const charset =
 				/charset\s*=\s*["']?([^;"'\s]+)/i.exec(h(p, "Content-Type"))?.[1] ??
 				"utf-8";
@@ -213,7 +219,7 @@ async function content(conn: ConnectionPublic, m: Message, opts?: Options) {
 			} catch {
 				throw bad("Unsupported message character set");
 			}
-			if (p.mimeType === "text/plain") plain.push(decoded);
+			if (p.mimeType === plainMime) plain.push(decoded);
 			else html.push(stripMailHtml(decoded));
 		}
 		for (const child of p.parts ?? []) await walk(child);
@@ -471,7 +477,7 @@ export async function gmailDraftSnapshot(
 					name: a.filename,
 					size: a.size ?? 0,
 				})),
-				plainText: m.payload.mimeType === "text/plain" && !r.attachments.length,
+				plainText: m.payload.mimeType === plainMime && !r.attachments.length,
 			};
 		}
 		if (!page.nextPageToken || seen.has(page.nextPageToken)) break;
