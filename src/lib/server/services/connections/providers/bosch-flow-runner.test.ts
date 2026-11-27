@@ -134,6 +134,9 @@ it("blocks foreign host/origin and requires exact consent before a summary reach
 	for (const grant of ["details", "fitness", "location"])
 		all.append("grant", grant);
 	expect((await request("/enable", "POST", all)).status).toBe(303);
+	expect(await (await request("/")).text()).toContain(
+		"All supported data is enabled.",
+	);
 	await session.pollOnce();
 	const poll = fetch.mock.calls.at(-1);
 	expect(new Headers(poll?.[1]?.headers).get("X-Bosch-Grants")).toBe(
@@ -298,6 +301,16 @@ it("keeps old on-demand approvals summary-only until the rider selects individua
 		await runner.handle(new Request(origin, { headers: { host, cookie } }))
 	).text();
 	const csrf = /name="csrf" value="([^"]+)"/.exec(page)?.[1] ?? "";
+	const getPage = async (language = "en") =>
+		(
+			await runner.handle(
+				new Request(origin, {
+					headers: { host, cookie, "accept-language": language },
+				}),
+			)
+		).text();
+	expect(page).toContain("Only bike names and ride summaries are enabled.");
+	expect(page).not.toContain("Permissions saved.");
 	expect(page).toContain('action="/permissions"');
 	expect(page).not.toMatch(/name="grant"[^>]*checked/);
 	await runner.pollOnce();
@@ -342,12 +355,31 @@ it("keeps old on-demand approvals summary-only until the rider selects individua
 	).toBe(303);
 	await runner.pollOnce();
 	expect(headers().get("X-Bosch-Grants")).toBe("details,fitness,location");
+	expect(await getPage()).toMatch(
+		/role="status"[^>]*>.*Permissions saved.*All supported data is enabled/s,
+	);
+	expect(await getPage()).not.toContain("Permissions saved.");
+	expect(await getPage("hu")).toContain(
+		"Minden támogatott adat engedélyezve van.",
+	);
 	expect((await set("unsupported")).status).toBe(400);
+	expect(await getPage()).not.toContain("Permissions saved.");
 	expect((await set("details")).status).toBe(303);
+	expect(await getPage()).toContain(
+		"Selected data is enabled: Bike and service details.",
+	);
 	expect(persist).toHaveBeenLastCalledWith({
 		...saved,
 		dataGrants: ["details"],
 	});
+	persist.mockRejectedValueOnce(new Error("simulated persistence failure"));
+	expect((await set("")).status).toBeGreaterThanOrEqual(400);
+	const failedPage = await getPage();
+	expect(failedPage).toContain(
+		"Selected data is enabled: Bike and service details.",
+	);
+	expect(failedPage).not.toContain("Permissions saved.");
+
 	await runner.pollOnce();
 	expect(headers().get("X-Bosch-Grants")).toBe("details");
 	expect((await set("")).status).toBe(303);

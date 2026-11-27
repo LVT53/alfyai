@@ -31,15 +31,24 @@ it("boots a standalone private helper, rotates its setup link on restart and sig
 	const port = addr.port;
 	await writeFile(script, bytes);
 	let stdout = "";
+	const syntheticPoll = join(dir, "synthetic-poll.mjs");
+	await writeFile(
+		syntheticPoll,
+		'globalThis.fetch = async (url) => String(url) === "https://ai.alfydesign.com/api/connections/bosch/poll" ? Response.json({ requestId: null }) : new Response(null, {status: 503});',
+	);
 	function start() {
-		const child = execFile(process.execPath, [script, "--service"], {
-			env: {
-				...process.env,
-				ALFYAI_BOSCH_STATE_DIR: dir,
-				ALFYAI_BOSCH_PORT: String(port),
-				ALFYAI_BOSCH_BROWSER_PORT: String(port),
+		const child = execFile(
+			process.execPath,
+			["--import", syntheticPoll, script, "--service"],
+			{
+				env: {
+					...process.env,
+					ALFYAI_BOSCH_STATE_DIR: dir,
+					ALFYAI_BOSCH_PORT: String(port),
+					ALFYAI_BOSCH_BROWSER_PORT: String(port),
+				},
 			},
-		});
+		);
 		child.stdout?.on("data", (chunk) => {
 			stdout += chunk;
 		});
@@ -152,6 +161,37 @@ it("boots a standalone private helper, rotates its setup link on restart and sig
 				/^[\w-]{43}$/,
 			);
 			expect(external[0].searchParams.has("client_secret")).toBe(false);
+			// A previously paired rider can upgrade and see confirmation in the
+			// actual distributed executable, then reopen it to view the saved grant.
+			const priorLink = await readFile(join(dir, "setup-url"), "utf8");
+			const stopped = once(child, "exit");
+			child.kill("SIGTERM");
+			await stopped;
+			await writeFile(
+				join(dir, "credentials.json"),
+				JSON.stringify({
+					client: { clientId: "synthetic" },
+					pairing,
+					refreshToken: "synthetic",
+					onDemand: true,
+				}),
+				{ mode: 0o600 },
+			);
+			child = start();
+			await tab.goto((await setupLink(priorLink)).trim());
+			const status = tab.getByRole("status");
+			expect(await status.textContent()).toBe(
+				"Only bike names and ride summaries are enabled.",
+			);
+			await Promise.all([
+				tab.waitForNavigation(),
+				tab.getByRole("button", { name: "Allow all supported data" }).click(),
+			]);
+			expect(await status.textContent()).toBe(
+				"Permissions saved. All supported data is enabled.",
+			);
+			await tab.reload();
+			expect(await status.textContent()).toBe("All supported data is enabled.");
 		} finally {
 			await browser.close();
 		}

@@ -101,6 +101,7 @@ export function createBoschRunner(options: Options = {}) {
 	} | null = null;
 	let prepared: { snapshot: Snapshot; review: string; pairing: string } | null =
 		null;
+	let permissionsSaved = false;
 	let busy = false,
 		completed = false;
 	const redirect = (url: string, extra: Record<string, string> = {}) =>
@@ -140,7 +141,9 @@ export function createBoschRunner(options: Options = {}) {
 				.find((p) => p.startsWith("alfybosch="))
 				?.slice(10) ?? null;
 		if (!same(cookie, browserSession)) return message(403, word.launch);
-		if (req.method === "GET" && u.pathname === "/")
+		if (req.method === "GET" && u.pathname === "/") {
+			const confirmed = permissionsSaved;
+			permissionsSaved = false;
 			return new Response(
 				runnerPage({
 					hu,
@@ -150,6 +153,7 @@ export function createBoschRunner(options: Options = {}) {
 					completed,
 					canSave: !!options.persist,
 					demand: demand.enabled(),
+					permissionsSaved: confirmed,
 					dataGrants,
 					approval: approvedReview,
 					service: !!options.service,
@@ -161,6 +165,7 @@ export function createBoschRunner(options: Options = {}) {
 					},
 				},
 			);
+		}
 		if (
 			req.method !== "POST" &&
 			!(req.method === "GET" && u.pathname === "/callback")
@@ -308,6 +313,7 @@ export function createBoschRunner(options: Options = {}) {
 					saved = next;
 				}
 				dataGrants = selected;
+				permissionsSaved = true;
 				demand.start();
 				approvedReview = null;
 				prepared = null;
@@ -326,6 +332,7 @@ export function createBoschRunner(options: Options = {}) {
 						saved = next;
 					}
 					dataGrants = selected;
+					permissionsSaved = true;
 				} finally {
 					demand.start();
 				}

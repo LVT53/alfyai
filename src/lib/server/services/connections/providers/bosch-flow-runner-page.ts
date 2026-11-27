@@ -1,6 +1,15 @@
 import type { BoschDetailGrant } from "./bosch-flow-details";
 export const runnerWords = {
 	en: {
+		confirmed: "Permissions saved.",
+		allEnabled: "All supported data is enabled.",
+		summaryEnabled: "Only bike names and ride summaries are enabled.",
+		selectedEnabled: "Selected data is enabled: ",
+		groupNames: {
+			details: "Bike and service details",
+			fitness: "Fitness measurements",
+			location: "Precise ride locations",
+		},
 		permissions: "Access for future cycling questions",
 		fullScope:
 			"Allow AlfyAI to read your Bosch bike and service records, component identifiers, dealer notes, ride statistics, fitness measurements and precise ride locations when you ask.",
@@ -59,6 +68,15 @@ export const runnerWords = {
 		stop: "Press Ctrl+C in the terminal to close this local helper.",
 	},
 	hu: {
+		confirmed: "Az engedélyek mentve.",
+		allEnabled: "Minden támogatott adat engedélyezve van.",
+		summaryEnabled: "Csak a kerékpárok neve és az utak összesítése érhető el.",
+		selectedEnabled: "Engedélyezett adatok: ",
+		groupNames: {
+			details: "Kerékpár- és szervizadatok",
+			fitness: "Erőnléti mérések",
+			location: "Pontos útvonalak",
+		},
 		permissions: "Hozzáférés a későbbi kerékpáros kérdésekhez",
 		fullScope:
 			"Az AlfyAI a kérdéseidhez lekérheti a Bosch kerékpár és a szerviz adatait, az alkatrészazonosítókat, a szerviz megjegyzéseit, a túrastatisztikákat, a teljesítményadatokat és a túrák pontos helyadatait.",
@@ -135,6 +153,7 @@ type Data = {
 	completed: boolean;
 	canSave: boolean;
 	demand: boolean;
+	permissionsSaved: boolean;
 	dataGrants: BoschDetailGrant[];
 	approval: string | null;
 	service: boolean;
@@ -183,9 +202,18 @@ export function runnerPage(d: Data) {
 		d.demand || d.approval
 			? `<section><h2>${w.permissions}</h2><p>${w.fullScope}</p>${!d.demand && d.service ? `<p>${w.saveService}</p>` : ""}${form(path, reviewInput + allFields + button(w.allowAll))}<details><summary>${w.choose}</summary>${form(path, `${reviewInput}<p>${w.permissionsHint}</p>${checkboxes}${button(w.savePermissions, true)}`)}</details></section>`
 			: "";
+	const accessState =
+		d.dataGrants.length === 3
+			? w.allEnabled
+			: d.dataGrants.length === 0
+				? w.summaryEnabled
+				: w.selectedEnabled +
+					d.dataGrants.map((grant) => w.groupNames[grant]).join(", ") +
+					".";
+	const accessFeedback = `<p role="status" class="access-state">${d.permissionsSaved ? `<strong>${w.confirmed}</strong> ` : ""}${accessState}</p>`;
 	const demandControl =
 		permissions +
 		(d.demand ? form("/stop", button(w.stopDemand, true)) : onceActions);
 
-	return `<!doctype html><html lang="${d.hu ? "hu" : "en"}"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${w.title} · AlfyAI</title><style>:root{color-scheme:light dark;font:16px/1.5 system-ui}body{margin:0}main{max-width:36rem;margin:7vh auto;padding:1.5rem}header{border-bottom:1px solid #8887;padding-bottom:1rem}h1{font-size:clamp(2rem,5vw,2.8rem);line-height:1.08}p{margin:1rem 0}label{display:block;margin:1rem 0}input:not([type=checkbox]){box-sizing:border-box;width:100%;padding:.65rem;border:1px solid #888;border-radius:.4rem;font:inherit}.check{display:flex;gap:.6rem;align-items:start}button{font:inherit;font-weight:600;padding:.65rem 1rem;margin:.3rem 0;border:0;border-radius:.45rem;background:#245b42;color:white;cursor:pointer}.secondary{background:transparent;border:1px solid #888;color:inherit}pre{max-height:40vh;overflow:auto;padding:1rem;border:1px solid #8886}footer{margin:2rem 0;color:GrayText;font-size:.9rem}</style><main><header><strong>AlfyAI</strong> / Bosch eBike Flow</header>${d.demand ? `<h1>${w.title}</h1><p>${w.enabled}</p>` : screen}${demandControl}<footer>${w.stop}</footer></main></html>`;
+	return `<!doctype html><html lang="${d.hu ? "hu" : "en"}"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${w.title} · AlfyAI</title><style>:root{color-scheme:light dark;font:16px/1.5 system-ui}body{margin:0}main{max-width:36rem;margin:7vh auto;padding:1.5rem}header{border-bottom:1px solid #8887;padding-bottom:1rem}h1{font-size:clamp(2rem,5vw,2.8rem);line-height:1.08}p{margin:1rem 0}label{display:block;margin:1rem 0}input:not([type=checkbox]){box-sizing:border-box;width:100%;padding:.65rem;border:1px solid #888;border-radius:.4rem;font:inherit}.check{display:flex;gap:.6rem;align-items:start}button{font:inherit;font-weight:600;padding:.65rem 1rem;margin:.3rem 0;border:0;border-radius:.45rem;background:#245b42;color:white;cursor:pointer}.secondary{background:transparent;border:1px solid #888;color:inherit}.access-state{border-inline-start:3px solid #4b946c;padding:.5rem .8rem}pre{max-height:40vh;overflow:auto;padding:1rem;border:1px solid #8886}footer{margin:2rem 0;color:GrayText;font-size:.9rem}</style><main><header><strong>AlfyAI</strong> / Bosch eBike Flow</header>${d.demand ? `<h1>${w.title}</h1><p>${w.enabled}</p>${accessFeedback}` : screen}${demandControl}<footer>${w.stop}</footer></main></html>`;
 }
