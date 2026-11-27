@@ -78,12 +78,33 @@ export function historyToolCallId(
 	return `hist_${message.id ?? "msg"}_${index}`;
 }
 
+// A stored digest may have been generated directly from a raw local read.
+// Preserve only status and counts with known units, never arbitrary provider text.
+export function connectorStatus(digest: HistoryToolDigest): HistoryToolDigest {
+	const { ok, summary } = digest;
+
+	const count =
+		/^Found [0-9]{1,9} (?:events?|mails?|messages?|files?|folders?|photos?|contacts?|rides?|bikes?|results?)\.$/.test(
+			summary,
+		);
+	return {
+		ok,
+		summary: ok ? (count ? summary : "Completed.") : "The tool call failed.",
+	};
+}
+
 export function buildHistoryToolDigest(
 	segment: Pick<
 		ToolCallEntry,
 		"status" | "outputSummary" | "candidates" | "resultDigest" | "metadata"
 	>,
 ): HistoryToolDigest {
+	if (segment.metadata?.rawLocalOnly === true) {
+		return connectorStatus({
+			ok: segment.status === "done",
+			summary: segment.outputSummary ?? "",
+		});
+	}
 	if (segment.status !== "done") {
 		return {
 			ok: false,

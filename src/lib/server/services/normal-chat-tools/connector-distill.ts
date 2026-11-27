@@ -6,6 +6,7 @@ import {
 import {
 	isInsideToolCall,
 	markCallLocallyDistilled,
+	markRawLocalOnly,
 	withReasonCode,
 } from "./shared";
 
@@ -39,10 +40,12 @@ async function decide(
 	params: DistillQuestion,
 	marksCall: boolean,
 ): Promise<LocalDistillDecision> {
-	const shouldDistill =
-		(await hasLocalDistillEnabled(params.userId)) &&
-		(await isCloudModel(params.modelId));
-	if (!shouldDistill) return { shouldDistill: false };
+	if (!(await hasLocalDistillEnabled(params.userId)))
+		return { shouldDistill: false };
+	if (!(await isCloudModel(params.modelId))) {
+		if (marksCall) markRawLocalOnly();
+		return { shouldDistill: false };
+	}
 
 	// Fail closed, and before the local model reads anything: a summary asked for
 	// with no tool call to carry the mark would later count as a tool's own words.

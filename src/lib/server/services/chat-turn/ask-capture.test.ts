@@ -879,7 +879,7 @@ describe("buildAskResumeContinuation", () => {
 // keeps local. A resume's original messages are the captured ones, so each
 // attempt's messages are gated from them here.
 describe("gateCapturedConnectorResults", () => {
-	it("gives an attempt off the person's box each raw connector result as its digest when they keep connector data local", () => {
+	it("keeps only known counts from raw connector results when resuming on a cloud model", () => {
 		// both connector results are raw this time: the mail is not a summary
 		const mailDigest = {
 			ok: true,
@@ -897,15 +897,14 @@ describe("gateCapturedConnectorResults", () => {
 
 		const sent = gate(messages, CLOUD);
 
-		// the raw calendar and mail results are their digests, as a later turn
-		// would see them
+		// Keep the counts, including the calendar and mail units.
 		expect(resultOutput(sent, "call-cal")).toEqual({
 			type: "json",
-			value: CALENDAR_DIGEST,
+			value: { ok: true, summary: "Found 1 event." },
 		});
 		expect(resultOutput(sent, "call-mail")).toEqual({
 			type: "json",
-			value: mailDigest,
+			value: { ok: true, summary: "Found 1 mail." },
 		});
 		const text = JSON.stringify(sent);
 		expect(text).not.toContain("Dr. Kovacs");
@@ -982,7 +981,7 @@ describe("gateCapturedConnectorResults", () => {
 		// the calendar's raw result is the one that changed
 		expect(resultOutput(cloud, "call-cal")).toEqual({
 			type: "json",
-			value: CALENDAR_DIGEST,
+			value: { ok: true, summary: "Found 1 event." },
 		});
 	});
 
@@ -1215,11 +1214,11 @@ describe("gateCapturedConnectorResults", () => {
 
 			expect(resultOutput(gate(resumeMessages(), CLOUD), "call-cal")).toEqual({
 				type: "json",
-				value: CALENDAR_DIGEST,
+				value: { ok: true, summary: "Found 1 event." },
 			});
 		});
 
-		it("leaves a result alone that already is a digest, the way the history's tool results are, and a second pass changes nothing", () => {
+		it("filters a raw local history digest once and leaves the safe projection stable", () => {
 			const history: ModelMessage[] = [
 				{
 					role: "tool",
@@ -1238,12 +1237,15 @@ describe("gateCapturedConnectorResults", () => {
 				keepConnectorDataLocal: true,
 			});
 
-			expect(gate(history, CLOUD)).toBe(history);
+			expect(resultOutput(gate(history, CLOUD), "hist-1")).toEqual({
+				type: "json",
+				value: { ok: true, summary: "Found 1 event." },
+			});
 			const once = gate(resumeMessages(), CLOUD);
 			expect(gate(once, CLOUD)).toBe(once);
 		});
 
-		it("takes a digest with every key a digest has for a digest, and leaves it alone", () => {
+		it("removes private source URLs and details from full history digests", () => {
 			// ok, summary, detail and sources: the whole of HistoryToolDigest
 			const full: ModelMessage[] = [
 				{
@@ -1269,7 +1271,7 @@ describe("gateCapturedConnectorResults", () => {
 				"sources",
 				"summary",
 			]);
-			expect(gate(full, CLOUD)).toBe(full);
+			expect(JSON.stringify(gate(full, CLOUD))).not.toContain("Dentist");
 		});
 
 		it("does not take a connector's payload for a digest because it has an ok and a summary among its fields", () => {
@@ -1386,13 +1388,13 @@ describe("gateCapturedConnectorResults", () => {
 						toolCallId: "call-0",
 						toolName: "calendar",
 						localDistilled: false,
-						digest: { ok: true, summary: "First read." },
+						digest: { ok: true, summary: "Found 1 file." },
 					},
 					{
 						toolCallId: "call-0",
 						toolName: "calendar",
 						localDistilled: false,
-						digest: { ok: true, summary: "Second read." },
+						digest: { ok: true, summary: "Found 2 files." },
 					},
 				],
 				keepConnectorDataLocal: true,
@@ -1412,8 +1414,8 @@ describe("gateCapturedConnectorResults", () => {
 					),
 				);
 			expect(summaries).toEqual([
-				JSON.stringify({ ok: true, summary: "First read." }),
-				JSON.stringify({ ok: true, summary: "Second read." }),
+				JSON.stringify({ ok: true, summary: "Found 1 file." }),
+				JSON.stringify({ ok: true, summary: "Found 2 files." }),
 			]);
 			expect(JSON.stringify(sent)).not.toContain("raw");
 		});
@@ -1425,7 +1427,7 @@ describe("gateCapturedConnectorResults", () => {
 						toolCallId: "call-0",
 						toolName: "calendar",
 						localDistilled: false,
-						digest: { ok: true, summary: "First read." },
+						digest: { ok: true, summary: "Found 1 file." },
 					},
 				],
 				keepConnectorDataLocal: true,
@@ -1439,7 +1441,7 @@ describe("gateCapturedConnectorResults", () => {
 
 			// no row of its own: it goes as the one row there is, never raw
 			expect(JSON.stringify(sent)).not.toContain("raw");
-			expect(JSON.stringify(sent)).toContain("First read.");
+			expect(JSON.stringify(sent)).toContain("Found 1 file.");
 		});
 	});
 
@@ -1454,7 +1456,7 @@ describe("gateCapturedConnectorResults", () => {
 		expect(gate(messages, HOME)).toEqual(messages);
 		expect(resultOutput(gate(messages, CLOUD), "call-cal")).toEqual({
 			type: "json",
-			value: CALENDAR_DIGEST,
+			value: { ok: true, summary: "Found 1 event." },
 		});
 		expect(gate(messages, HOME)).toEqual(messages);
 	});

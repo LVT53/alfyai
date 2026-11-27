@@ -14,6 +14,7 @@ import {
 import type { AskCapturedResult, AskResumeCapture } from "./ask-questions";
 import {
 	buildHistoryToolDigest,
+	connectorStatus,
 	flattenedAskLines,
 	flattenedToolLine,
 	type HistoryToolDigest,
@@ -350,13 +351,13 @@ function isExactDigest(value: unknown): value is HistoryToolDigest {
  * reuse an id from one response to the next. When the person keeps connector data
  * local and the attempt's provider does not run locally, a connector result goes
  * as follows.
- * - Already a digest (the history's own tool results are): it stays.
+ * - A history digest can carry private text and sources. Keep only a known status or count.
  * - The rows for its call id and tool cover every such result in the list (as many
  *   rows as results, not counting digests) and every row says a local model
  *   summarised it: it stays, a cloud run having been handed that summary too. A
  *   row cannot vouch for a result it was not made for, so with fewer rows than
  *   results, a summary row and a raw result under the same id are not both left.
- * - Otherwise it is sent as the digest of the row that is its own, the nth row of
+ * - Otherwise it is sent as a status or count from the row that is its own, the nth row of
  *   that id and tool for the nth such result (the rows come in the order of the
  *   results), else of any such row that is not a summary.
  * - No row has its id and tool: it is sent as a note that its details stay on the
@@ -421,7 +422,7 @@ function isDigestOutput(output: ToolOutput): boolean {
 /**
  * How many results the gate has to place under each call id and tool: the
  * connector results of the list that are not already digests (a digest needs no
- * row, and cannot leak).
+ * row; its text is separately filtered).
  */
 function countResultsToPlace(
 	messages: readonly ModelMessage[],
@@ -512,7 +513,20 @@ function gatedOutput(
 	part: ToolResultPart,
 	{ rowsByKey, counts, nth }: GateState,
 ): ToolOutput | null {
-	if (isDigestOutput(part.output)) return null;
+	if (part.output.type === "json" && isExactDigest(part.output.value)) {
+		const original = part.output.value;
+		const safe =
+			original.summary === WITHHELD_CONNECTOR_DIGEST.summary
+				? WITHHELD_CONNECTOR_DIGEST
+				: connectorStatus(original);
+		if (
+			Object.keys(original).length === 2 &&
+			original.ok === safe.ok &&
+			original.summary === safe.summary
+		)
+			return null;
+		return { type: "json", value: safe };
+	}
 	const key = resultKey(part.toolCallId, part.toolName);
 	const index = nth.get(key) ?? 0;
 	nth.set(key, index + 1);
@@ -528,7 +542,7 @@ function gatedOutput(
 			: rows.find((candidate) => !candidate.localDistilled);
 	return {
 		type: "json",
-		value: row ? row.digest : { ...WITHHELD_CONNECTOR_DIGEST },
+		value: row ? connectorStatus(row.digest) : { ...WITHHELD_CONNECTOR_DIGEST },
 	};
 }
 

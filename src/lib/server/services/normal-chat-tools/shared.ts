@@ -484,7 +484,16 @@ export function recordSchemaFailure<TPayload extends object>(
 // connector path added outside the envelope would have passed every test). The
 // one summary that is not a tool's result, the proactive block spliced into the
 // prompt, asks for itself without a mark (`decideLocalDistillForPrompt`).
-const callInProgress = new AsyncLocalStorage<{ localDistilled: boolean }>();
+const callInProgress = new AsyncLocalStorage<{
+	localDistilled: boolean;
+	rawLocalOnly: boolean;
+}>();
+
+/** A local model received raw protected data. Later history can replay only its status. */
+export function markRawLocalOnly(): void {
+	const call = callInProgress.getStore();
+	if (call) call.rawLocalOnly = true;
+}
 
 /** True while a tool call runs in this async context: what a summary is asked for inside. */
 export function isInsideToolCall(): boolean {
@@ -929,7 +938,7 @@ export async function executeToolWithEnvelope<
 					params.options.abortSignal?.removeEventListener("abort", onAbort);
 			}
 		});
-		const call = { localDistilled: false };
+		const call = { localDistilled: false, rawLocalOnly: false };
 		ran = true;
 		const result = await Promise.race([
 			callInProgress.run(call, () => params.run(runSignal)),
@@ -939,6 +948,8 @@ export async function executeToolWithEnvelope<
 			removeAbortListener?.();
 		});
 		resultEntry = result.entry;
+		if (call.rawLocalOnly)
+			result.entry.metadata = { ...result.entry.metadata, rawLocalOnly: true };
 		if (grant) {
 			if (call.localDistilled)
 				result.entry.metadata = {

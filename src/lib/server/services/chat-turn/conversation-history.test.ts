@@ -1023,7 +1023,22 @@ describe("buildHistoryModelMessages", () => {
 });
 
 describe("digest and text rendering", () => {
-	it.each([{ localDistilled: true }, { reasonCode: "details_withheld" }])(
+	it("keeps raw local reads out of persisted model history, including file bodies and bike names", () => {
+		expect(
+			buildHistoryToolDigest({
+				status: "done",
+				metadata: { rawLocalOnly: true },
+				outputSummary: "Private bike",
+				resultDigest: "Original file text",
+				candidates: [{ id: "r1", title: "private ride", sourceType: "tool" }],
+			}),
+		).toEqual({ ok: true, summary: "Completed." });
+	});
+
+	it.each<Record<string, string | boolean>>([
+		{ localDistilled: true },
+		{ reasonCode: "details_withheld" },
+	])(
 		"keeps original private source cards out of protected tool history",
 		(metadata) => {
 			expect(

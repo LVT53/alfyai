@@ -102,6 +102,15 @@ describe("decideLocalDistill", () => {
 		expect(metadata).not.toHaveProperty("localDistilled");
 	});
 
+	it("marks raw protected reads on a local model for safe history replay", async () => {
+		mocks.isCloudModel.mockResolvedValue(false);
+		const metadata = await inToolCall(async () => {
+			await decideLocalDistill(params);
+		});
+		expect(metadata).toMatchObject({ rawLocalOnly: true });
+		expect(mocks.distillConnectorPayload).not.toHaveBeenCalled();
+	});
+
 	it("refuses outside a tool call, and the local model is never asked", async () => {
 		await expect(decideLocalDistill(params)).rejects.toThrow(
 			/outside a tool call/,
