@@ -61,9 +61,11 @@ describe("tool reason codes", () => {
 		}
 	});
 
-	it("keeps the shared account reasons and the Calendar-specific reasons", () => {
+	it("keeps the shared account reasons and the Calendar and cycling reasons", () => {
 		expect(CONNECTOR_TOOL_NAMES).toEqual([
 			"calendar",
+			"cycling",
+			"teams",
 			"contacts",
 			"email",
 			"files",
@@ -79,8 +81,12 @@ describe("tool reason codes", () => {
 			"calendar_edit_consent",
 			"online_meeting_notes",
 		]);
+		expect(TOOL_REASON_CODES.cycling).toEqual([
+			...CONNECTOR_REASON_CODES,
+			"cached_rider_data",
+		]);
 		for (const name of CONNECTOR_TOOL_NAMES) {
-			if (name !== "calendar")
+			if (name !== "calendar" && name !== "cycling")
 				expect(TOOL_REASON_CODES[name]).toBe(CONNECTOR_REASON_CODES);
 		}
 	});
