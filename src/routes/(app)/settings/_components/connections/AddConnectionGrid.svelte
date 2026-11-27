@@ -19,16 +19,24 @@ import { t } from "$lib/i18n";
 let {
 	connectedProviders,
 	gmailPilotEnabled = false,
+	drivePilotEnabled = false,
 	onStartConnect,
 }: {
 	connectedProviders: Set<string>;
 	gmailPilotEnabled?: boolean;
+	drivePilotEnabled?: boolean;
 	onStartConnect: (provider: ConnectionProvider) => void;
 } = $props();
 
 const groups = $derived(groupConnectableProviders());
 
 function blurbFor(provider: ConnectionProvider): string {
+	if (provider === "google" && drivePilotEnabled)
+		return $t(
+			gmailPilotEnabled
+				? "connections.google.gmailDriveBlurb"
+				: "connections.google.driveBlurb",
+		);
 	if (provider === "google" && gmailPilotEnabled)
 		return $t("connections.google.gmailBlurb");
 	return $t(

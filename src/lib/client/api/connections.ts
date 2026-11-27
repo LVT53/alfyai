@@ -178,17 +178,22 @@ export async function startGoogleConnect(
 	capabilities: string[],
 	calendarWriteConnectionId?: string,
 	requestCalendarEditing?: boolean,
-	gmail?: { googleConnectionId?: string; requestGmailEditing?: boolean },
+	options?: {
+		googleConnectionId?: string;
+		requestGmailEditing?: boolean;
+		requestDriveEditing?: boolean;
+	},
 ): Promise<OAuthConnectStartResponse> {
 	return postJson<OAuthConnectStartResponse>(
 		"/api/connections/google/start",
 		{
 			capabilities,
 			...(requestCalendarEditing ? { requestCalendarEditing: true } : {}),
-			...(gmail?.googleConnectionId
-				? { googleConnectionId: gmail.googleConnectionId }
+			...(options?.googleConnectionId
+				? { googleConnectionId: options.googleConnectionId }
 				: {}),
-			...(gmail?.requestGmailEditing ? { requestGmailEditing: true } : {}),
+			...(options?.requestDriveEditing ? { requestDriveEditing: true } : {}),
+			...(options?.requestGmailEditing ? { requestGmailEditing: true } : {}),
 			...(calendarWriteConnectionId ? { calendarWriteConnectionId } : {}),
 		},
 		"Failed to start Google connect",

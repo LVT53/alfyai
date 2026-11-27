@@ -32,10 +32,26 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import type { ToolCallFilesData } from "$lib/server/services/messages-types";
 import { getEntryByMimeType, resolveEntry } from "$lib/shared/file-types";
 import { isSeeableImage } from "$lib/shared/file-types/seeable-image";
+import { googleDriveDocumentUrl } from "$lib/shared/google-drive-links";
 import { microsoftCanWrite } from "$lib/shared/microsoft-permissions";
 import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
 import { FILE_CARD_LIMIT } from "$lib/utils/tool-calls";
+import {
+	googleDriveCanModify,
+	googleDriveGetAccessToken,
+} from "../connections/providers/google-drive-auth";
+import {
+	DriveFilesError,
+	driveEntry,
+	driveFolderMime,
+	driveList,
+	driveRead,
+	driveResolve,
+	driveSearch,
+} from "../connections/providers/google-drive-files";
+import { prepareDriveFileWrite } from "../connections/providers/google-drive-writes";
 import { prepareOneDriveFileWrite } from "../connections/providers/onedrive-file-writes";
+import { matchingConnections } from "../connections/resolve";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import {
@@ -264,6 +280,8 @@ export type FileEntry = {
 };
 
 export type FileContent = {
+	name?: string;
+	note?: string;
 	bytes: Uint8Array;
 	etag: string | null;
 	contentType: string | null;
@@ -276,6 +294,7 @@ function listFolderForConn(
 	secret: string,
 	path: string,
 ): Promise<FileEntry[]> {
+	if (conn.provider === "google") return driveList(secret, path || "/");
 	if (conn.provider === "onedrive") {
 		return onedriveListFolder(conn, secret, path);
 	}
@@ -287,6 +306,7 @@ function searchFilesForConn(
 	secret: string,
 	query: string,
 ): Promise<FileEntry[]> {
+	if (conn.provider === "google") return driveSearch(secret, query);
 	if (conn.provider === "onedrive") {
 		return onedriveSearch(conn, secret, query);
 	}
@@ -314,12 +334,16 @@ function readFileForConn(
 	return nextcloudReadFile(conn, secret, path);
 }
 
-function statForConn(
+async function statForConn(
 	conn: ConnectionPublic,
 	secret: string,
 	path: string,
 	accessToken?: string,
 ): Promise<FileEntry | null> {
+	if (conn.provider === "google") {
+		const f = await driveResolve(secret, path);
+		return f ? driveEntry(f) : null;
+	}
 	if (conn.provider === "onedrive") {
 		return onedriveStat(conn, secret, path, { accessToken });
 	}
@@ -337,6 +361,7 @@ function webUrlForConn(
 	fileId: number | undefined,
 	webUrl?: string | null,
 ): string {
+	if (conn.provider === "google") return googleDriveDocumentUrl(webUrl) ?? "";
 	if (conn.provider === "onedrive") {
 		return onedriveWebUrl({ webUrl: webUrl ?? null });
 	}
@@ -423,11 +448,16 @@ export function buildFilesCards(
 	conn: ConnectionPublic,
 	results: FilesToolResultItem[],
 ): ToolCallFilesData | null {
-	if (conn.provider !== "nextcloud" && conn.provider !== "onedrive")
+	if (
+		conn.provider !== "nextcloud" &&
+		conn.provider !== "onedrive" &&
+		conn.provider !== "google"
+	)
 		return null;
 	const files = results.filter(
 		(result) =>
 			!result.isDir &&
+			(conn.provider !== "google" || !!googleDriveDocumentUrl(result.webUrl)) &&
 			(conn.provider !== "onedrive" ||
 				(!!result.webUrl && result.webUrl !== "https://onedrive.live.com/")),
 	);
@@ -452,8 +482,8 @@ export function buildFilesCards(
 							FILE_VIEW_SIZE,
 						) ?? null);
 			return {
-				...(conn.provider === "onedrive"
-					? { provider: "onedrive" as const }
+				...(conn.provider === "onedrive" || conn.provider === "google"
+					? { provider: conn.provider }
 					: {}),
 				name: result.name,
 				path: result.path,
@@ -537,6 +567,19 @@ function mapAdapterError(err: unknown): {
 	message: string;
 	code: ConnectorReasonCode;
 } {
+	if (err instanceof DriveFilesError) {
+		const reasons = {
+			invalid_path: "request_adjusted",
+			not_found: "item_not_found",
+			needs_reauth: "needs_reconnect",
+			not_supported: "not_supported",
+			too_large: "too_large",
+			request_failed: "account_unreachable",
+			item_changed: "request_adjusted",
+			destination_exists: "request_adjusted",
+		} as const;
+		return { message: err.message, code: reasons[err.code] };
+	}
 	const code = connectorReasonForAdapterError(err);
 	if (err instanceof NextcloudFilesError) {
 		switch (err.code) {
@@ -787,7 +830,7 @@ function readOutcome(
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
-	const label = fileLabel(path);
+	const label = file.name ?? fileLabel(path);
 	const webUrl = webUrlForConn(conn, path, fileId, file.webUrl);
 	const previewUrl = previewUrlForConn(
 		conn,
@@ -842,7 +885,12 @@ function readOutcome(
 	return buildPayload({
 		success: true,
 		action: "read",
-		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		message: withAmbiguityPrefix(
+			file.note ? `${message} ${file.note}` : message,
+			ambiguous,
+			conn,
+			connections,
+		),
 		results: [result],
 		citations: [citation],
 	});
@@ -1443,27 +1491,56 @@ export async function runFilesTool(
 	conversationId?: string,
 ): Promise<FilesToolOutcome> {
 	const notConnectedMessage =
-		"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.";
+		"You don't have a Files connection set up yet. Connect your file storage account in Settings to search or read files.";
 
 	const result = await withCapabilityConnection(
 		userId,
 		"files",
 		{ account: input.account, forWrite: WRITE_ACTIONS.has(input.action) },
 		async (conn, { ambiguous, connections }): Promise<FilesToolOutcome> => {
-			if (WRITE_ACTIONS.has(input.action) && conn.provider === "onedrive") {
-				if (!microsoftCanWrite(conn, "files"))
+			const matches = input.account
+				? matchingConnections(connections, input.account)
+				: connections;
+			if (
+				matches.length > 1 &&
+				matches.some((c) => c.provider === "google") &&
+				(WRITE_ACTIONS.has(input.action) || input.path?.startsWith("/@drive/"))
+			)
+				return buildPayload({
+					success: false,
+					action: input.action,
+					reason: "request_adjusted",
+					message:
+						"Choose the individual file storage account by its account email.",
+				});
+			if (
+				WRITE_ACTIONS.has(input.action) &&
+				(conn.provider === "onedrive" || conn.provider === "google")
+			) {
+				const google = conn.provider === "google";
+				if (
+					!(google
+						? googleDriveCanModify(conn)
+						: microsoftCanWrite(conn, "files"))
+				)
 					return buildPayload({
 						success: false,
 						action: input.action,
-						message:
-							"OneDrive is read-only. Enable file changes for this Microsoft account in Connections.",
+						message: google
+							? "Google Drive is read-only. Enable file changes for this Google account in Connections."
+							: "OneDrive is read-only. Enable file changes for this Microsoft account in Connections.",
 						reason: conn.allowWrites
 							? "read_only_account"
 							: "writes_turned_off",
 					});
 				try {
-					const token = await onedriveGetAccessTokenForRead(conn);
-					const { op, content, preview } = await prepareOneDriveFileWrite(
+					const token = google
+						? await googleDriveGetAccessToken(conn)
+						: await onedriveGetAccessTokenForRead(conn);
+					const prepare = google
+						? prepareDriveFileWrite
+						: prepareOneDriveFileWrite;
+					const { op, content, preview } = await prepare(
 						conn.id,
 						conn.writeAllowlist,
 						token,
@@ -1574,17 +1651,20 @@ export async function runFilesTool(
 				);
 			}
 
-			const secret = await getConnectionSecret(userId, conn.id);
-			if (!secret) {
-				return buildPayload({
-					success: false,
-					action: input.action,
-					message: `Your ${conn.label} connection is missing its stored credentials. Please reconnect it in Settings.`,
-					reason: "needs_reconnect",
-				});
-			}
-
 			try {
+				const secret =
+					conn.provider === "google"
+						? await googleDriveGetAccessToken(conn)
+						: await getConnectionSecret(userId, conn.id);
+				if (!secret) {
+					return buildPayload({
+						success: false,
+						action: input.action,
+						message: `Your ${conn.label} connection is missing its stored credentials. Please reconnect it in Settings.`,
+						reason: "needs_reconnect",
+					});
+				}
+
 				if (input.action === "search") {
 					if (!input.query) {
 						return buildPayload({
@@ -1667,6 +1747,29 @@ export async function runFilesTool(
 				// token here and thread it through both so Microsoft's refresh-token
 				// rotation only fires once per read (see readFileForConn's doc comment).
 				// Left undefined for Nextcloud, which ignores it.
+				if (conn.provider === "google") {
+					const entry = await driveResolve(secret, input.path);
+					if (!entry)
+						throw new DriveFilesError("Drive item not found.", "not_found");
+					if (entry.mimeType === driveFolderMime)
+						throw new DriveFilesError(
+							"This is a Drive folder. List it to see its contents.",
+							"invalid_path",
+						);
+					const file = await driveRead(secret, input.path, {}, entry);
+					const outcome = readOutcome(
+						conn,
+						input.path,
+						file,
+						undefined,
+						ambiguous,
+						connections,
+					);
+					return withFileCards(
+						conn,
+						await distillFilesReadOutcome({ userId, modelId, input, outcome }),
+					);
+				}
 				const accessToken =
 					conn.provider === "onedrive"
 						? await onedriveGetAccessTokenForRead(conn)

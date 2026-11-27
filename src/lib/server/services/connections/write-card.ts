@@ -273,12 +273,15 @@ function filesCard(
 ): Omit<WriteCard, "risks" | "danger"> | null {
 	const path = text(op.target?.path);
 	if (!path) return null;
-	const name = fileName(path);
+	const drive = op.provider === "google";
+	const name = (drive && text(op.target?.label)) || fileName(path);
+	const itemId = (value: string) =>
+		drive ? /^\/@drive\/([A-Za-z0-9_-]+)$/.exec(value)?.[1] : undefined;
 	// The card names the file and says where it is. A whole path is a thing to
 	// read twice, and most of it says what the next line already said.
-	const inFolder: WriteCardFact[] = [
-		{ key: "folder", value: parentFolder(path) },
-	];
+	const inFolder = itemId(path)
+		? fact("drive_item", itemId(path))
+		: fact("folder", parentFolder(path));
 
 	switch (op.action) {
 		case "files.put":
@@ -310,23 +313,33 @@ function filesCard(
 				message: null,
 			};
 		case "files.move": {
-			const fromPath = text(parseObject(content)?.fromPath);
+			const data = parseObject(content);
+			const fromPath = text(data?.fromPath);
 			if (!fromPath) return null;
-			const fromName = fileName(fromPath);
-			const fromFolder = parentFolder(fromPath);
-			const toFolder = parentFolder(path);
-			const moved = fromFolder !== toFolder;
+			const fromName = (drive && text(data?.fromName)) || fileName(fromPath);
+			const toName = (drive && text(data?.toName)) || name;
+			const fromFolder =
+				(drive && text(data?.fromFolder)) ||
+				(itemId(fromPath) ? null : parentFolder(fromPath));
+			const toFolder =
+				(drive && text(data?.toFolder)) ||
+				(itemId(path) ? null : parentFolder(path));
+			const moved =
+				drive && typeof data?.isMove === "boolean"
+					? data.isMove
+					: fromFolder !== toFolder;
 			return {
 				kind: moved ? "files.move" : "files.rename",
 				subject: fromName,
 				facts: [
-					...(fromName !== name
-						? [{ key: "new_name" as const, value: name }]
-						: []),
-					{
-						key: "folder",
-						value: moved ? `${fromFolder} → ${toFolder}` : toFolder,
-					},
+					...fact("new_name", fromName === toName ? null : toName),
+					...fact(
+						"folder",
+						moved && fromFolder && toFolder
+							? `${fromFolder} → ${toFolder}`
+							: toFolder,
+					),
+					...fact("drive_item", itemId(fromPath)),
 				],
 				message: null,
 			};
@@ -375,7 +388,7 @@ const RISK_BY_WARNING = new Map<string, WriteCardRisk>([
 	[WRITE_WARNING.noVersionHistory, "replaces_file_for_good"],
 	[WRITE_WARNING.versionHistoryUnknown, "replaces_file_unchecked"],
 	[WRITE_WARNING.publicLink, "public_link"],
-	[WRITE_WARNING.publicOneDriveLink, "public_link"],
+	[WRITE_WARNING.publicFileLink, "public_link"],
 	[WRITE_WARNING.oneDriveVersionHistoryUnknown, "replaces_file_unchecked"],
 	[WRITE_WARNING.outsideArea, "outside_allowed_folders"],
 ]);
@@ -389,6 +402,13 @@ function risksOf(
 		return risk ? [risk] : [];
 	});
 
+	if (
+		op.provider === "google" &&
+		op.action === "files.put" &&
+		op.destructive &&
+		!op.reversible
+	)
+		risks.unshift("replaces_file_unchecked");
 	if (op.action.startsWith("calendar.")) {
 		const payload = parseObject(record.content);
 		const wholeSeries =

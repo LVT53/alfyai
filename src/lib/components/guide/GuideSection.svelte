@@ -24,15 +24,25 @@ let {
 	section,
 	now,
 	gmailPilotEnabled = false,
+	drivePilotEnabled = false,
 }: {
 	section: GuideSectionId;
 	now: Date;
 	gmailPilotEnabled?: boolean;
+	drivePilotEnabled?: boolean;
 } = $props();
 
 let lit = $state<string | null>(null);
 let rows = $state<HTMLElement | null>(null);
 
+const connectionHelp = $derived(
+	[
+		gmailPilotEnabled && $t("guide.connectedAccounts.gmail"),
+		drivePilotEnabled && $t("guide.connectedAccounts.drive"),
+	]
+		.filter(Boolean)
+		.join(" "),
+);
 const entries = $derived(guideEntriesFor(section));
 
 function putOutLight(event: MouseEvent) {
@@ -59,7 +69,7 @@ function putOutLight(event: MouseEvent) {
 	</div>
 	<ul class="guide-band__rows" bind:this={rows}>
 		{#each entries as entry (entry.id)}
-			<GuideRow {entry} {now} extraLine={gmailPilotEnabled && entry.id === 'connectedAccounts' ? $t('guide.connectedAccounts.gmail') : undefined} onLight={(spot) => (lit = spot)} />
+			<GuideRow {entry} {now} extraLine={entry.id === 'connectedAccounts' ? connectionHelp : undefined} onLight={(spot) => (lit = spot)} />
 		{/each}
 	</ul>
 </section>

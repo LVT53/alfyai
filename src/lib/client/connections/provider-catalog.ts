@@ -110,7 +110,7 @@ export const PROVIDER_CATALOG: Record<
 	},
 	google: {
 		displayName: "Google",
-		capabilities: ["calendar", "contacts", "email"],
+		capabilities: ["calendar", "contacts", "email", "files"],
 		connectMethod: "oauth",
 		writable: true,
 		pathBasedWrites: false,
@@ -248,12 +248,17 @@ export function isKnownProvider(
 export function getProviderCatalogEntry(
 	provider: string,
 	gmailPilotEnabled = false,
+	drivePilotEnabled = false,
 ): ProviderCatalogEntry {
-	if (provider === "google" && !gmailPilotEnabled) {
+	if (provider === "google") {
 		const entry = PROVIDER_CATALOG.google;
 		return {
 			...entry,
-			capabilities: entry.capabilities.filter((cap) => cap !== "email"),
+			capabilities: entry.capabilities.filter(
+				(cap) =>
+					(cap !== "email" || gmailPilotEnabled) &&
+					(cap !== "files" || drivePilotEnabled),
+			),
 		};
 	}
 	if (isKnownProvider(provider)) {

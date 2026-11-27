@@ -247,6 +247,42 @@ describe("ConnectWizardModal", () => {
 		});
 	});
 
+	it("offers Drive independently from Gmail and scopes a management upgrade to the selected Google account", async () => {
+		mockStartGoogleConnect.mockResolvedValue({ authUrl: "/google" });
+		render(
+			ConnectWizardModal,
+			baseProps({
+				provider: "google",
+				drivePilotEnabled: true,
+				reconnectConnectionId: "drive-work",
+				requestedCapabilities: ["calendar"],
+				redirectTo: vi.fn(),
+			}),
+		);
+		expect(screen.queryByLabelText("Gmail")).toBeNull();
+		const files = screen.getByRole("checkbox", { name: "Google Drive" });
+		expect(files).not.toBeChecked();
+		expect(
+			screen.queryByRole("checkbox", {
+				name: "Request Google Drive management",
+			}),
+		).toBeNull();
+		await fireEvent.click(files);
+		const manage = screen.getByRole("checkbox", {
+			name: "Request Google Drive management",
+		});
+		expect(manage).not.toBeChecked();
+		await fireEvent.click(manage);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Continue to Google" }),
+		);
+		expect(mockStartGoogleConnect).toHaveBeenCalledWith(
+			["calendar", "files"],
+			undefined,
+			undefined,
+			{ googleConnectionId: "drive-work", requestDriveEditing: true },
+		);
+	});
 	it("requires separate explicit choices for Gmail reading and management in the pilot", async () => {
 		mockStartGoogleConnect.mockResolvedValue({ authUrl: "/google" });
 		render(

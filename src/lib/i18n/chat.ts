@@ -1164,6 +1164,8 @@ const chatDict = {
 		// The way from the compact strip's single card and its list rows to the
 		// file itself (FilesStrip.svelte).
 		"toolActivity.filesOpen": "Open in Nextcloud",
+		"toolActivity.filesOpenDrive": "Open in Google Drive",
+		"toolActivity.filesOpenFileDrive": "Open {name} in Google Drive",
 		"toolActivity.filesOpenOneDrive": "Open in OneDrive",
 		"toolActivity.filesOpenFileOneDrive": "Open {name} in OneDrive",
 		// The compact strip (FilesStrip.svelte): a picture tile's name at the
@@ -2424,6 +2426,8 @@ const chatDict = {
 		"toolActivity.expandActivity": "Mutasd, mi történt",
 		// A kompakt sáv kártyájáról és listasorairól a fájlra magára.
 		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",
+		"toolActivity.filesOpenDrive": "Megnyitás a Google Drive-ban",
+		"toolActivity.filesOpenFileDrive": "{name} megnyitása a Google Drive-ban",
 		"toolActivity.filesOpenOneDrive": "Megnyitás a OneDrive-ban",
 		"toolActivity.filesOpenFileOneDrive": "{name} megnyitása a OneDrive-ban",
 		// A kompakt sáv (FilesStrip.svelte).

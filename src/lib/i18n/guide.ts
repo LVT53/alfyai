@@ -139,6 +139,8 @@ const guideDict = {
 		"guide.entry.useADocument.name": "Use a document in a chat",
 		"guide.entry.useADocument.line":
 			"Pick a file from your Library and ask about it.",
+		"guide.connectedAccounts.drive":
+			"Choose Google Drive in your Google connection to find and read files. Request management and turn on writes to make confirmed changes or share a file with anyone who has the link.",
 		"guide.connectedAccounts.gmail":
 			"Choose Gmail in the Google connection to search your mail and read threads. You can also request Gmail management, then turn on writes and confirm each change in chat.",
 		"guide.entry.connectedAccounts.name": "Connected accounts",
@@ -319,6 +321,8 @@ const guideDict = {
 		"guide.entry.useADocument.name": "Dokumentum a beszélgetésben",
 		"guide.entry.useADocument.line":
 			"Válassz egy fájlt a Könyvtáradból, és kérdezz róla.",
+		"guide.connectedAccounts.drive":
+			"A Google-kapcsolatban a Google Drive kiválasztásával fájlokat kereshetsz és olvashatsz. Kezelési engedéllyel és az írás bekapcsolásával jóváhagyhatod a módosításokat, vagy linkkel bárkivel megoszthatsz egy fájlt.",
 		"guide.connectedAccounts.gmail":
 			"A Google-kapcsolatban a Gmail kiválasztásával leveleket kereshetsz és levélváltásokat olvashatsz. Ha kezelési engedélyt is kérsz és bekapcsolod az írást, minden módosítást a csevegésben hagysz jóvá.",
 		"guide.entry.connectedAccounts.name": "Csatlakoztatott fiókok",

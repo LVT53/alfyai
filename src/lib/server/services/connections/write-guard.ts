@@ -14,6 +14,8 @@ export type WriteTarget = {
 	id?: string;
 	etag?: string;
 	parentId?: string;
+	// Drive reserves this ID at proposal time so repeat creates cannot duplicate an item.
+	generatedId?: string;
 	isFolder?: boolean;
 	label?: string;
 	// Populated by the caller from resolveWriteTarget's result when the
@@ -62,8 +64,7 @@ export const WRITE_WARNING = {
 		"Could not confirm whether this overwrite is recoverable (Nextcloud version history status unknown).",
 	wholeSeries:
 		"This deletes the ENTIRE recurring series, not a single occurrence.",
-	publicOneDriveLink:
-		"Anyone with this link can view the item without signing in.",
+	publicFileLink: "Anyone with this link can view the item without signing in.",
 	oneDriveVersionHistoryUnknown:
 		"Previous versions of this OneDrive file may be unavailable.",
 	publicLink:

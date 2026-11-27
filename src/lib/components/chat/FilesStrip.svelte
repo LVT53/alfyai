@@ -22,6 +22,7 @@ import { ChevronDown } from "@lucide/svelte";
 import { tick } from "svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
+import { googleDriveDocumentUrl } from "$lib/shared/google-drive-links";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
 import {
 	type AttachmentFileType,
@@ -41,7 +42,16 @@ import {
 } from "./image-lightbox-loader";
 import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
-let { cards }: { cards: ToolCallFileCard[] } = $props();
+let { cards: storedCards }: { cards: ToolCallFileCard[] } = $props();
+// Drive supplies click-through links only. Historical cards are revalidated
+// here too, before their contents become an href or an automatic image load.
+const cards = $derived(
+	storedCards.flatMap((card) => {
+		if (card.provider !== "google") return [card];
+		const webUrl = googleDriveDocumentUrl(card.webUrl);
+		return webUrl ? [{ ...card, webUrl, previewUrl: null, viewUrl: null }] : [];
+	}),
+);
 
 /** The list's id, so the chevron can name what it opens and closes. */
 const listId = $props.id();
@@ -119,6 +129,20 @@ type StripTileView =
 			hidden: number;
 	  };
 
+function openLabel(card: ToolCallFileCard, named = false) {
+	if (card.provider === "google")
+		return named
+			? $t("toolActivity.filesOpenFileDrive", { name: card.name })
+			: $t("toolActivity.filesOpenDrive");
+	if (card.provider === "onedrive")
+		return named
+			? $t("toolActivity.filesOpenFileOneDrive", { name: card.name })
+			: $t("toolActivity.filesOpenOneDrive");
+	return named
+		? $t("toolActivity.filesOpenFile", { name: card.name })
+		: $t("toolActivity.filesOpen");
+}
+
 const slots = $derived(narrow ? STRIP_SLOTS_NARROW : STRIP_SLOTS_WIDE);
 const pictures = $derived(stripPictureCards(cards));
 
@@ -142,12 +166,7 @@ const tileViews = $derived.by((): StripTileView[] =>
 				return {
 					kind: "document",
 					key: JSON.stringify([tile.card.webUrl, tile.card.path]),
-					label: $t(
-						tile.card.provider === "onedrive"
-							? "toolActivity.filesOpenFileOneDrive"
-							: "toolActivity.filesOpenFile",
-						{ name: tile.card.name },
-					),
+					label: openLabel(tile.card, true),
 					fileType,
 					webUrl: tile.card.webUrl,
 					ext: fileExtension(tile.card.name),
@@ -283,7 +302,7 @@ async function closeViewer() {
 		>
 			<span class="fs-card-name" title={card.name}>{card.name}</span>
 			<span class="fs-card-facts">{singleCard.facts}</span>
-			<span class="fs-card-open">{$t(card.provider === "onedrive" ? "toolActivity.filesOpenOneDrive" : "toolActivity.filesOpen")}</span>
+			<span class="fs-card-open">{openLabel(card)}</span>
 		</a>
 	</div>
 {:else}
@@ -401,7 +420,7 @@ async function closeViewer() {
 								>
 								<span class="fs-row-facts">{row.facts}</span>
 							</span>
-							<span class="fs-row-open">{$t(row.card.provider === "onedrive" ? "toolActivity.filesOpenOneDrive" : "toolActivity.filesOpen")}</span>
+							<span class="fs-row-open">{openLabel(row.card)}</span>
 						</a>
 					</li>
 				{/each}

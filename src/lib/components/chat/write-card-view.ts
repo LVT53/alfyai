@@ -199,6 +199,10 @@ const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
 		when: { quiet: false },
 		where: { quiet: true },
 		folder: { quiet: true },
+		drive_item: {
+			label: "connections.writeConfirm.fact.driveItem",
+			quiet: true,
+		},
 		new_name: { label: "connections.writeConfirm.fact.newName", quiet: false },
 		new_when: { label: "connections.writeConfirm.fact.newTime", quiet: false },
 		new_where: {

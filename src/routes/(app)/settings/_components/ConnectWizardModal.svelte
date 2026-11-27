@@ -76,6 +76,7 @@ let {
 	isAdmin = false,
 	canRequestGoogleCalendarEditing = false,
 	gmailPilotEnabled = false,
+	drivePilotEnabled = false,
 	onOpenAdminIntegrations,
 	onClose,
 	onConnected,
@@ -99,6 +100,7 @@ let {
 	isAdmin?: boolean;
 	canRequestGoogleCalendarEditing?: boolean;
 	gmailPilotEnabled?: boolean;
+	drivePilotEnabled?: boolean;
 	onOpenAdminIntegrations?: () => void;
 	onClose: () => void;
 	onConnected: () => void;
@@ -119,7 +121,13 @@ const initialRequestedCapabilities = untrack(() => requestedCapabilities);
 let visible = $state(false);
 
 const providerEntry = initialProvider
-	? untrack(() => getProviderCatalogEntry(initialProvider, gmailPilotEnabled))
+	? untrack(() =>
+			getProviderCatalogEntry(
+				initialProvider,
+				gmailPilotEnabled,
+				drivePilotEnabled,
+			),
+		)
 	: null;
 const isReconnect = !!initialReconnectConnectionId;
 const variant = connectWizardVariant(initialProvider);
@@ -207,7 +215,9 @@ let selectedCapabilities = $state<Set<Capability>>(
 							(initialReconnectConnection?.capabilities as
 								| Capability[]
 								| undefined) ??
-							providerEntry?.capabilities.filter((cap) => cap !== "email") ??
+							providerEntry?.capabilities.filter(
+								(cap) => cap !== "email" && cap !== "files",
+							) ??
 							[]
 						).filter((cap) => providerEntry?.capabilities.includes(cap))
 					: (providerEntry?.capabilities ?? []),
@@ -235,6 +245,7 @@ function toggleMicrosoftWrite(permission: MicrosoftWritePermission) {
 }
 let requestCalendarEditing = $state(false);
 let requestGmailEditing = $state(false);
+let requestDriveEditing = $state(false);
 let oauthNotConfigured = $state(false);
 
 function toggleCapability(capability: Capability) {
@@ -243,6 +254,7 @@ function toggleCapability(capability: Capability) {
 		next.delete(capability);
 		if (capability === "calendar") requestCalendarEditing = false;
 		if (capability === "email") requestGmailEditing = false;
+		if (capability === "files") requestDriveEditing = false;
 		selectedWrites = new Set(
 			[...selectedWrites].filter(
 				(permission) => microsoftWriteCapability(permission) !== capability,
@@ -260,11 +272,13 @@ function startGoogleOAuth(requested: Capability[]) {
 		requestCalendarEditing;
 	const gmailEditing =
 		gmailPilotEnabled && requested.includes("email") && requestGmailEditing;
-	if (
-		gmailPilotEnabled &&
-		requested.includes("email") &&
-		(gmailEditing || initialReconnectConnectionId)
-	) {
+	const driveEditing =
+		drivePilotEnabled && requested.includes("files") && requestDriveEditing;
+	const accountTarget =
+		initialReconnectConnectionId &&
+		((gmailPilotEnabled && requested.includes("email")) ||
+			(drivePilotEnabled && requested.includes("files")));
+	if (driveEditing || gmailEditing || accountTarget) {
 		return startGoogleConnect(
 			requested,
 			undefined,
@@ -274,6 +288,7 @@ function startGoogleOAuth(requested: Capability[]) {
 					? { googleConnectionId: initialReconnectConnectionId }
 					: {}),
 				...(gmailEditing ? { requestGmailEditing: true } : {}),
+				...(driveEditing ? { requestDriveEditing: true } : {}),
 			},
 		);
 	}
@@ -817,7 +832,7 @@ const providerName = $derived(
 						<legend class="sr-only">{$t('connections.capabilities.label')}</legend>
 						{#each providerEntry.capabilities as capability (capability)}
 							{@const checked = selectedCapabilities.has(capability)}
-							{@const capabilityName = initialProvider === 'google' && capability === 'email' ? 'Gmail' : $t(
+							{@const capabilityName = initialProvider === 'google' && capability === 'email' ? 'Gmail' : initialProvider === 'google' && capability === 'files' ? 'Google Drive' : $t(
 								`connections.capability.${capability}` as Parameters<typeof $t>[0],
 							)}
 							<label class="capability-choice">
@@ -839,7 +854,7 @@ const providerName = $derived(
 								<span class="capability-copy">
 									<span class="capability-name">{capabilityName}</span>
 									<span class="capability-about">
-										{initialProvider === 'google' && capability === 'email' ? $t('connections.google.gmailReadAbout') : $t(`connections.capabilityAbout.${capability}` as Parameters<typeof $t>[0])}
+										{initialProvider === 'google' && capability === 'email' ? $t('connections.google.gmailReadAbout') : initialProvider === 'google' && capability === 'files' ? $t('connections.google.driveReadAbout') : $t(`connections.capabilityAbout.${capability}` as Parameters<typeof $t>[0])}
 									</span>
 								</span>
 							</label>
@@ -860,6 +875,13 @@ const providerName = $derived(
 							<input type="checkbox" class="sr-only" bind:checked={requestGmailEditing} aria-label={$t('connections.google.gmailManage')} />
 							<span class="capability-box" class:checked={requestGmailEditing} aria-hidden="true">{#if requestGmailEditing}<Check size={12} strokeWidth={3} />{/if}</span>
 							<span class="capability-copy"><span class="capability-name">{$t('connections.google.gmailManage')}</span><span class="capability-about">{$t('connections.google.gmailManageAbout')}</span></span>
+						</label>
+					{/if}
+					{#if initialProvider === 'google' && drivePilotEnabled && selectedCapabilities.has('files')}
+						<label class="capability-choice">
+							<input type="checkbox" class="sr-only" bind:checked={requestDriveEditing} aria-label={$t('connections.google.driveManage')} />
+							<span class="capability-box" class:checked={requestDriveEditing} aria-hidden="true">{#if requestDriveEditing}<Check size={12} strokeWidth={3} />{/if}</span>
+							<span class="capability-copy"><span class="capability-name">{$t('connections.google.driveManage')}</span><span class="capability-about">{$t('connections.google.driveManageAbout')}</span></span>
 						</label>
 					{/if}
 					{#if initialProvider === 'onedrive' && microsoftWriteChoices.some(permission => selectedCapabilities.has(microsoftWriteCapability(permission)))}

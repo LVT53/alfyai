@@ -69,6 +69,7 @@ export type WriteCardFactKey =
 	| "when"
 	| "where"
 	| "folder"
+	| "drive_item"
 	| "new_name"
 	| "new_when"
 	| "new_where"

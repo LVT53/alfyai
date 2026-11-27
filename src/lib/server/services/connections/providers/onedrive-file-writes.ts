@@ -179,7 +179,7 @@ export async function prepareOneDriveFileWrite(
 	};
 	const preview = buildWritePreview(op);
 	if (input.action === "share_link")
-		preview.warnings.unshift(WRITE_WARNING.publicOneDriveLink);
+		preview.warnings.unshift(WRITE_WARNING.publicFileLink);
 	if (saving && source)
 		preview.warnings.push(WRITE_WARNING.oneDriveVersionHistoryUnknown);
 	return { op, content, preview };

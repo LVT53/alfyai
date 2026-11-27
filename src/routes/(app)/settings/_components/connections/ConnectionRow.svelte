@@ -25,12 +25,14 @@ let {
 	connection,
 	formatters,
 	gmailPilotEnabled = false,
+	drivePilotEnabled = false,
 	onOpenDetail,
 	onRecover,
 }: {
 	connection: ConnectionPublic;
 	formatters: GrammarFormatters;
 	gmailPilotEnabled?: boolean;
+	drivePilotEnabled?: boolean;
 	onOpenDetail: (id: string) => void;
 	onRecover: (id: string) => void;
 } = $props();
@@ -50,7 +52,9 @@ const detailsLabel = $derived(
 		.join(" · "),
 );
 const grammar = $derived(connectionStatusGrammar(connection, formatters, name));
-const chips = $derived(capabilityChipsOf(connection, gmailPilotEnabled));
+const chips = $derived(
+	capabilityChipsOf(connection, gmailPilotEnabled, drivePilotEnabled),
+);
 </script>
 
 <div class="connection-row" data-testid={`connection-row-${connection.id}`}>

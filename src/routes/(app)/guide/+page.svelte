@@ -38,7 +38,7 @@ export const snapshot: Snapshot<number> = {
 				</h1>
 			</div>
 
-			<GuidePage gmailPilotEnabled={data.gmailPilotEnabled} />
+			<GuidePage gmailPilotEnabled={data.gmailPilotEnabled} drivePilotEnabled={data.drivePilotEnabled} />
 		</div>
 	</div>
 </div>

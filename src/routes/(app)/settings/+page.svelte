@@ -94,6 +94,7 @@ import type { PageProps } from "./$types";
 interface SettingsPageData {
 	googleCalendarWriteReviewEnabled?: boolean;
 	gmailPilotEnabled?: boolean;
+	drivePilotEnabled?: boolean;
 	/** The Read aloud card's voices (null while read aloud is off). */
 	readAloudVoices?: ReadAloudVoiceSettings | null;
 	userSettings: {
@@ -1086,7 +1087,8 @@ function askAgainForCapability(connectionId: string, capability: string) {
 		target.provider === "onedrive" ||
 		target.provider === "apple" ||
 		(target.provider === "google" &&
-			(data as SettingsPageData).gmailPilotEnabled)
+			((data as SettingsPageData).gmailPilotEnabled ||
+				(data as SettingsPageData).drivePilotEnabled))
 			? target.capabilities
 			: (target.grantedCapabilities ?? []);
 	wizardRequestedCapabilities = [...new Set([...alreadySelected, capability])];
@@ -1416,6 +1418,7 @@ $effect(() => {
 				onToggleCapability={toggleConnectionCapability}
 				onToggleAllowWrites={toggleConnectionAllowWrites}
 				gmailPilotEnabled={(data as SettingsPageData).gmailPilotEnabled ?? false}
+				drivePilotEnabled={(data as SettingsPageData).drivePilotEnabled ?? false}
 				onRequestGoogleCalendarWrites={(data as SettingsPageData).googleCalendarWriteReviewEnabled ? requestGoogleCalendarWrites : undefined}
 				onEnableImmichWrites={enableConnectionWriteKey}
 				onToggleDefaultOn={toggleConnectionDefaultOn}
@@ -1440,6 +1443,7 @@ $effect(() => {
 				{reconnectConnectionId}
 				reconnectConnection={reconnectConnectionRecord}
 				gmailPilotEnabled={(data as SettingsPageData).gmailPilotEnabled ?? false}
+				drivePilotEnabled={(data as SettingsPageData).drivePilotEnabled ?? false}
 				canRequestGoogleCalendarEditing={(data as SettingsPageData).googleCalendarWriteReviewEnabled ?? false}
 				requestedCapabilities={wizardRequestedCapabilities}
 				{isAdmin}

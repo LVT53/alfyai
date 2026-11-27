@@ -183,6 +183,13 @@ const connectionsDict = {
 			"This request didn't match your session. Please try again.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"Google couldn't complete the connection. Please try again.",
+		"connections.google.driveBlurb": "Drive, Calendar and Contacts",
+		"connections.google.gmailDriveBlurb": "Gmail, Drive, Calendar and Contacts",
+		"connections.google.driveReadAbout":
+			"Find and read files in this Google Drive account.",
+		"connections.google.driveManage": "Request Google Drive management",
+		"connections.google.driveManageAbout":
+			"Create, edit, move, trash or share files. Each change needs your confirmation in chat.",
 		"connections.google.gmailBlurb": "Gmail, Calendar and Contacts",
 		"connections.google.gmailManage": "Request Gmail management",
 		"connections.google.gmailManageAbout":
@@ -370,6 +377,7 @@ const connectionsDict = {
 		"connections.writeConfirm.fact.bcc": "Bcc",
 		"connections.writeConfirm.fact.attachments": "Attachment",
 		"connections.writeConfirm.fact.from": "From",
+		"connections.writeConfirm.fact.driveItem": "Drive item ID",
 		"connections.writeConfirm.fact.newName": "New name",
 		"connections.writeConfirm.fact.newTime": "New time",
 		"connections.writeConfirm.fact.newPlace": "New place",
@@ -876,6 +884,13 @@ const connectionsDict = {
 			"Ez a kérés nem egyezett a munkameneteddel. Kérjük, próbáld újra.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"A Google nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
+		"connections.google.driveBlurb": "Drive, Naptár és Névjegyek",
+		"connections.google.gmailDriveBlurb": "Gmail, Drive, Naptár és Névjegyek",
+		"connections.google.driveReadAbout":
+			"Fájlok keresése és olvasása ebben a Google Drive-fiókban.",
+		"connections.google.driveManage": "Google Drive-kezelési engedély kérése",
+		"connections.google.driveManageAbout":
+			"Fájlok létrehozása, szerkesztése, áthelyezése, kukába helyezése és megosztása. Minden módosítást a csevegésben hagysz jóvá.",
 		"connections.google.gmailBlurb": "Gmail, Naptár és Névjegyek",
 		"connections.google.gmailManage": "Gmail-kezelési engedély kérése",
 		"connections.google.gmailManageAbout":
@@ -1063,6 +1078,7 @@ const connectionsDict = {
 		"connections.writeConfirm.fact.bcc": "Titkos másolat",
 		"connections.writeConfirm.fact.attachments": "Melléklet",
 		"connections.writeConfirm.fact.from": "Feladó",
+		"connections.writeConfirm.fact.driveItem": "Drive-elem azonosítója",
 		"connections.writeConfirm.fact.newName": "Új név",
 		"connections.writeConfirm.fact.newTime": "Új időpont",
 		"connections.writeConfirm.fact.newPlace": "Új helyszín",

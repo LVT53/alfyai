@@ -548,6 +548,38 @@ describe("buildWriteCard: files", () => {
 		expect(card?.message?.endsWith("…")).toBe(true);
 	});
 
+	it("names Drive items from the proposal, preserving their stable identity when folder paths are unavailable", () => {
+		const target = { path: "/@drive/item123", label: "Schedule.pdf" };
+		expect(
+			cardFor(
+				operation({ provider: "google", action: "files.share_link", target }),
+				"",
+				[WRITE_WARNING.publicFileLink],
+			),
+		).toMatchObject({
+			subject: "Schedule.pdf",
+			risks: ["public_link"],
+			facts: [{ key: "drive_item", value: "item123" }],
+		});
+		expect(
+			cardFor(
+				operation({ provider: "google", action: "files.move", target }),
+				JSON.stringify({
+					fromPath: target.path,
+					fromName: "Draft.pdf",
+					toName: "Schedule.pdf",
+					isMove: false,
+				}),
+			),
+		).toMatchObject({
+			kind: "files.rename",
+			subject: "Draft.pdf",
+			facts: [
+				{ key: "new_name", value: "Schedule.pdf" },
+				{ key: "drive_item", value: "item123" },
+			],
+		});
+	});
 	it("reads a move between folders as a move", () => {
 		const card = cardFor(
 			operation({

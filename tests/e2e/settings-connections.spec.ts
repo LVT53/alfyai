@@ -361,7 +361,7 @@ test.describe("settings connections tab", () => {
 		]);
 	});
 
-	test("offers native Gmail only to the pilot and requests only the chosen access", async ({
+	test("keeps Google Drive and Gmail as separate choices in the pilot", async ({
 		page,
 	}) => {
 		const { db } = await import("../../src/lib/server/db");
@@ -385,6 +385,17 @@ test.describe("settings connections tab", () => {
 				name: "Gmail",
 				exact: true,
 			});
+			const drive = dialog.getByRole("checkbox", {
+				name: "Google Drive",
+				exact: true,
+			});
+			await expect(drive).not.toBeChecked();
+			await drive.press("Space");
+			const manageDrive = dialog.getByRole("checkbox", {
+				name: "Request Google Drive management",
+			});
+			await expect(manageDrive).not.toBeChecked();
+			await manageDrive.press("Space");
 			await expect(gmail).not.toBeChecked();
 			await gmail.press("Space");
 			await dialog
@@ -405,8 +416,9 @@ test.describe("settings connections tab", () => {
 			const sent = page.waitForRequest(endpoint);
 			await dialog.getByRole("button", { name: "Continue to Google" }).click();
 			expect((await sent).postDataJSON()).toEqual({
-				capabilities: ["email"],
+				capabilities: ["files", "email"],
 				requestGmailEditing: true,
+				requestDriveEditing: true,
 			});
 		} finally {
 			await db.delete(users).where(eq(users.id, E2E_GMAIL_PILOT_ID));
