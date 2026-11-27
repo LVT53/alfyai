@@ -1,3 +1,8 @@
+import type {
+	BoschHostedGrant,
+	BoschHostedSetup,
+	BoschHostedStart,
+} from "$lib/shared/bosch-hosted";
 import { requestJson, requestVoid } from "./http";
 
 // Client-side mirror of the server ConnectionPublic DTO
@@ -409,6 +414,44 @@ export async function fetchNextcloudFolders(
 		"Failed to list Nextcloud folders",
 	);
 	return folders;
+}
+
+const boschHostedPath = "/api/connections/bosch/hosted";
+
+export function fetchHostedBoschSetup(signal?: AbortSignal) {
+	return requestJson<BoschHostedSetup>(
+		boschHostedPath,
+		{ signal },
+		"Could not load Bosch setup",
+	);
+}
+
+export function startHostedBoschSetup(
+	params: BoschHostedStart,
+	signal?: AbortSignal,
+) {
+	return postJson<OAuthConnectStartResponse>(
+		boschHostedPath,
+		params,
+		"Could not start Bosch sign-in",
+		signal,
+	);
+}
+
+export function updateHostedBoschGrants(
+	grants: BoschHostedGrant[],
+	signal?: AbortSignal,
+) {
+	return requestVoid(
+		boschHostedPath,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ grants }),
+			signal,
+		},
+		"Could not save Bosch permissions",
+	);
 }
 
 export function startBoschPairing(signal?: AbortSignal) {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	enableImmichWrites,
 	fetchActiveCapabilities,
+	fetchHostedBoschSetup,
 	fetchNextcloudFolders,
 	fetchOwnTracksDevices,
 	pollNextcloudConnect,
@@ -10,11 +11,13 @@ import {
 	startEmailConnect,
 	startGitHubConnect,
 	startGoogleConnect,
+	startHostedBoschSetup,
 	startImmichConnect,
 	startNextcloudConnect,
 	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
+	updateHostedBoschGrants,
 } from "./connections";
 
 afterEach(() => {
@@ -504,5 +507,57 @@ describe("fetchOwnTracksDevices / startOwnTracksConnect", () => {
 			}),
 		);
 		expect(result).toEqual({ connection });
+	});
+});
+
+describe("hosted Bosch setup", () => {
+	it("loads the callback, submits personal client details in a JSON body, and saves permissions", async () => {
+		const path = "/api/connections/bosch/hosted";
+		const setup = {
+			mode: "none",
+			grants: [],
+			callbackUrl: "https://app.example/api/connections/bosch/hosted/callback",
+		};
+		const signedIn = { authUrl: "https://bosch.example/login" };
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse(setup))
+			.mockResolvedValueOnce(jsonResponse(signedIn))
+			.mockResolvedValueOnce(new Response(null, { status: 204 }));
+		vi.stubGlobal("fetch", fetcher);
+		const controller = new AbortController();
+		const start = {
+			clientId: "rider",
+			clientSecret: "test-secret",
+			grants: ["fitness" as const],
+		};
+		expect(await fetchHostedBoschSetup(controller.signal)).toEqual(setup);
+		expect(await startHostedBoschSetup(start, controller.signal)).toEqual(
+			signedIn,
+		);
+		await updateHostedBoschGrants([], controller.signal);
+		expect(fetcher).toHaveBeenNthCalledWith(
+			1,
+			path,
+			expect.objectContaining({ signal: controller.signal }),
+		);
+		expect(fetcher).toHaveBeenNthCalledWith(
+			2,
+			path,
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify(start),
+				signal: controller.signal,
+			}),
+		);
+		expect(fetcher).toHaveBeenNthCalledWith(
+			3,
+			path,
+			expect.objectContaining({
+				method: "PATCH",
+				body: JSON.stringify({ grants: [] }),
+				signal: controller.signal,
+			}),
+		);
 	});
 });
