@@ -637,9 +637,9 @@ function capabilityAbout(capability: string): string {
 				<p class="detail-eyebrow">{$t('connections.detail.howItBehaves')}</p>
 				<BehaviourRow
 					label={$t('connections.detail.useWithoutAsking')}
-					description={$t('connections.detail.useWithoutAskingSub', {
-						provider: name,
-					})}
+					description={conn.provider === 'bosch'
+						? $t('connections.wizard.bosch.chatChoice')
+						: $t('connections.detail.useWithoutAskingSub', {provider: name})}
 					help={$t('connections.detail.useWithoutAskingHelp', {
 						provider: name,
 					})}

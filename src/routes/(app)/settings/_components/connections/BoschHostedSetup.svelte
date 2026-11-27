@@ -180,6 +180,9 @@ async function submit(event: SubmitEvent) {
 		</div>
 	</form>
 {/if}
+{#if setup}
+	<p class="chat-access">{$t("connections.wizard.bosch.chatAccess")}</p>
+{/if}
 {#if setup && setup.mode !== "hosted"}
 	<details class="legacy">
 		<summary>{$t("connections.wizard.bosch.selfHost")}</summary>
@@ -203,6 +206,7 @@ async function submit(event: SubmitEvent) {
 	.check { font-size:.875rem; cursor:pointer; }
 	.grant p { margin-inline-start:1.5rem; }
 	.portal { text-decoration:underline; text-underline-offset:.15em; font-size:.875rem; }
+	.chat-access { margin-block-start:var(--space-md); }
 	.legacy { margin-top:var(--space-lg); border-top:1px solid var(--border-default); padding-top:var(--space-md); font-size:.875rem; }
 	summary { cursor:pointer; color:var(--text-secondary); }
 </style>

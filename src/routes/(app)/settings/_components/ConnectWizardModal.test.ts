@@ -247,6 +247,13 @@ describe("ConnectWizardModal", () => {
 					vi.mocked(updateHostedBoschGrants).mock.calls[0][0].sort(),
 				).toEqual(["details", "fitness", "location"]);
 				expect(startHostedBoschSetup).not.toHaveBeenCalled();
+				expect(
+					screen.getByText(
+						locale === "en"
+							? /open the plug beside the message box.*Use it without asking/
+							: /dugó ikonra.*Használhatja rákérdezés nélkül/,
+					),
+				).toBeInTheDocument();
 				expect(get(toasts)).toContainEqual(
 					expect.objectContaining({
 						type: "success",

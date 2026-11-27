@@ -3,6 +3,10 @@
 
 const connectionsDict = {
 	en: {
+		"connections.wizard.bosch.chatAccess":
+			"For this chat, open the plug beside the message box and turn on Bosch eBike Flow. To use Bosch by default, open its account in Settings → Connections and turn on “Use it without asking”.",
+		"connections.wizard.bosch.chatChoice":
+			"For this chat, open the plug beside the message box and turn Bosch eBike Flow on or off.",
 		"connections.wizard.bosch.saved": "Bosch permissions saved.",
 		"connections.oauthReturn.reason.bosch_oauth_failed":
 			"Bosch could not finish sign-in. Check the client ID and redirect address in your Bosch app.",
@@ -814,6 +818,10 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.wizard.bosch.chatAccess":
+			"Ebben a beszélgetésben az üzenetmező melletti dugó ikonra kattintva kapcsolhatod be a Bosch eBike Flow-t. Ha alapértelmezésként is szeretnéd használni, a Beállítások → Kapcsolatok alatt nyisd meg a Bosch-fiókot, és kapcsold be a „Használhatja rákérdezés nélkül” lehetőséget.",
+		"connections.wizard.bosch.chatChoice":
+			"Ebben a beszélgetésben az üzenetmező melletti dugó ikonra kattintva kapcsolhatod be vagy ki a Bosch eBike Flow-t.",
 		"connections.wizard.bosch.saved": "A Bosch-engedélyek mentve.",
 		"connections.oauthReturn.reason.bosch_oauth_failed":
 			"A Bosch-bejelentkezés nem sikerült. Ellenőrizd a Bosch-alkalmazás kliensazonosítóját és átirányítási címét.",
