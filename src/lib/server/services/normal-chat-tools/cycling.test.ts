@@ -132,5 +132,5 @@ it("hides raw personal ride data when a cloud model receives a local summary", a
 	expect(out.modelPayload.message).toContain("cached");
 	expect(out.modelPayload.message).toContain("One bike.");
 	expect(JSON.stringify(out.modelPayload)).not.toContain("Private bike");
-	expect(out.candidates[0].title).toBe("Private bike");
+	expect(out.candidates).toEqual([]);
 });

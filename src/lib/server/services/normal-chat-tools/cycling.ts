@@ -173,7 +173,7 @@ export async function runCyclingTool(
 			candidates,
 		};
 		const redact = (message: string) => ({
-			...outcome,
+			candidates: [],
 			modelPayload: {
 				...base,
 				success: true,

@@ -1023,6 +1023,32 @@ describe("buildHistoryModelMessages", () => {
 });
 
 describe("digest and text rendering", () => {
+	it.each([{ localDistilled: true }, { reasonCode: "details_withheld" }])(
+		"keeps original private source cards out of protected tool history",
+		(metadata) => {
+			expect(
+				buildHistoryToolDigest({
+					status: "done",
+					metadata,
+					outputSummary: "Read the connection.",
+					resultDigest: "Privacy-filtered result.",
+					candidates: [
+						{
+							id: "private",
+							title: "Private bike",
+							sourceType: "tool",
+							url: "https://example.com/private",
+						},
+					],
+				}),
+			).toEqual({
+				ok: true,
+				summary: "Read the connection.",
+				detail: "Privacy-filtered result.",
+			});
+		},
+	);
+
 	it("builds a compact digest from legacy rows without resultDigest", () => {
 		expect(
 			buildHistoryToolDigest({

@@ -81,7 +81,7 @@ export function historyToolCallId(
 export function buildHistoryToolDigest(
 	segment: Pick<
 		ToolCallEntry,
-		"status" | "outputSummary" | "candidates" | "resultDigest"
+		"status" | "outputSummary" | "candidates" | "resultDigest" | "metadata"
 	>,
 ): HistoryToolDigest {
 	if (segment.status !== "done") {
@@ -93,7 +93,11 @@ export function buildHistoryToolDigest(
 					: "The tool call was interrupted before it completed.",
 		};
 	}
-	const sources = (segment.candidates ?? [])
+	// Source cards can contain the original private titles and URLs.
+	const protectedSources =
+		segment.metadata?.localDistilled === true ||
+		segment.metadata?.reasonCode === "details_withheld";
+	const sources = (protectedSources ? [] : (segment.candidates ?? []))
 		.slice(0, MAX_DIGEST_SOURCES)
 		.map((candidate) => ({
 			title: candidate.title,
