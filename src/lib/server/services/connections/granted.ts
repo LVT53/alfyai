@@ -17,6 +17,7 @@
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import {
 	isMicrosoftReadCapability,
+	isTeamsCapability,
 	microsoftReadGranted,
 } from "$lib/shared/microsoft-permissions";
 import {
@@ -61,6 +62,8 @@ export function grantedCapabilitiesFor(conn: GrantSource): Capability[] {
 		return catalogue.filter(
 			(c) =>
 				isMicrosoftReadCapability(c) &&
+				(!isTeamsCapability(c) ||
+					conn.config.microsoftOrganizationAccount === true) &&
 				microsoftReadGranted(conn.oauthScopes, c),
 		);
 	}

@@ -74,6 +74,9 @@ describe("connections registry", () => {
 				"photos",
 				"repos",
 				"tasks",
+				"teams_chat",
+				"teams_channels",
+				"teams_files",
 			].sort(),
 		);
 	});
@@ -88,7 +91,15 @@ describe("connections registry", () => {
 	// capability (alongside nextcloud), connected via OAuth like Google.
 	it("registers Microsoft OAuth for OneDrive files and Outlook calendars", () => {
 		expect(PROVIDER_META.onedrive).toEqual({
-			capabilities: ["files", "calendar", "email", "contacts"],
+			capabilities: [
+				"files",
+				"calendar",
+				"email",
+				"contacts",
+				"teams_chat",
+				"teams_channels",
+				"teams_files",
+			],
 			connectMethod: "oauth",
 			displayName: "Microsoft",
 			group: "product",

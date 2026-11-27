@@ -171,6 +171,12 @@ reads (the context target, the compaction threshold, the output budget) shows th
 was built to, not the configured one. A window that cannot hold the catalogue is still refused
 before any provider request.
 
+### Microsoft Teams
+
+Use the existing Microsoft OAuth client and callback. Users choose Teams chats, channel messages and channel files separately. Selecting any Teams service uses Microsoft’s organizational sign-in endpoint. Personal accounts can still use Outlook and OneDrive through the existing sign-in flow.
+
+Request delegated `Chat.Read` for chats. For channels, request `Team.ReadBasic.All`, `Channel.ReadBasic.All` and `ChannelMessage.Read.All`. Channel files require both discovery scopes plus `Files.Read.All`. Users can separately opt in to `ChatMessage.Send`, `ChannelMessage.Send` and `Files.ReadWrite.All` for the corresponding changes. Work or school administrators may have to approve the permissions under their tenant policy.
+
 ### Google Drive pilot
 
 Set `DRIVE_TEST_USER_IDS` to the AlfyAI user IDs permitted to connect Google Drive and enable the Drive API in the existing Google OAuth project. Users can request read access or separately opt in to manage their Drive files. Writes also require local permission and confirmation.

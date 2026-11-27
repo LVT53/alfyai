@@ -15,7 +15,10 @@ export type Capability =
 	| "media"
 	| "contacts"
 	| "repos"
-	| "tasks";
+	| "tasks"
+	| "teams_chat"
+	| "teams_channels"
+	| "teams_files";
 
 export type ConnectMethod =
 	| "oauth"
@@ -177,7 +180,15 @@ export const PROVIDER_CATALOG: Record<
 	},
 	onedrive: {
 		displayName: "Microsoft",
-		capabilities: ["files", "calendar", "email", "contacts"],
+		capabilities: [
+			"files",
+			"calendar",
+			"email",
+			"contacts",
+			"teams_chat",
+			"teams_channels",
+			"teams_files",
+		],
 		connectMethod: "oauth",
 		writable: true,
 		pathBasedWrites: true,

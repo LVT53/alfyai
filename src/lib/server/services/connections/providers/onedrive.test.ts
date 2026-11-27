@@ -1495,3 +1495,115 @@ describe("Microsoft delegated account and permission boundaries", () => {
 		expect(await getConnectionSecret(old.userId, old.id)).toBe(fresh);
 	});
 });
+
+describe("delegated work or school Teams", () => {
+	it("uses the organizations authority and only permissions selected for the requested workloads", async () => {
+		setConfiguredEnv();
+		const { onedriveConnectStart } = await import("./onedrive");
+		for (const [cap, expected] of [
+			["teams_chat", ["Chat.Read", "ChatMessage.Send"]],
+			[
+				"teams_channels",
+				[
+					"Team.ReadBasic.All",
+					"Channel.ReadBasic.All",
+					"ChannelMessage.Read.All",
+					"ChannelMessage.Send",
+				],
+			],
+			[
+				"teams_files",
+				[
+					"Team.ReadBasic.All",
+					"Channel.ReadBasic.All",
+					"Files.Read.All",
+					"Files.ReadWrite.All",
+				],
+			],
+		] as const) {
+			const result = await onedriveConnectStart({
+				userId: "userA",
+				origin: "https://app.example.com",
+				capabilities: [cap],
+				writePermissions: [cap],
+			});
+			const url = new URL(result.authUrl);
+			expect(url.pathname).toBe("/organizations/oauth2/v2.0/authorize");
+			expect(url.searchParams.get("scope")?.split(" ").sort()).toEqual(
+				[
+					"openid",
+					"profile",
+					"email",
+					"offline_access",
+					"User.Read",
+					...expected,
+				].sort(),
+			);
+		}
+		const personal = await onedriveConnectStart({
+			userId: "userA",
+			origin: "https://app.example.com",
+			capabilities: ["email"],
+		});
+		expect(new URL(personal.authUrl).pathname).toBe(
+			"/common/oauth2/v2.0/authorize",
+		);
+	});
+	it("binds an organizational grant to its account; extra Graph permissions cannot enable other services", async () => {
+		setConfiguredEnv();
+		seedUser("userA");
+		const {
+			onedriveConnectStart,
+			onedriveConnectFinish,
+			onedriveGetAccessTokenForRead,
+		} = await import("./onedrive");
+		const { microsoftCanWrite } = await import(
+			"$lib/shared/microsoft-permissions"
+		);
+		const { updateConnection } = await import("../store");
+		const start = await onedriveConnectStart({
+			userId: "userA",
+			origin: "https://app.example.com",
+			capabilities: ["teams_chat"],
+			writePermissions: ["teams_chat"],
+		});
+		const tokenUrl =
+			"https://login.microsoftonline.com/organizations/oauth2/v2.0/token";
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			if (String(input) === tokenUrl)
+				return jsonResponse(200, {
+					access_token: "access",
+					refresh_token: "refresh",
+					expires_in: 3600,
+					scope:
+						"User.Read Chat.Read ChatMessage.Send ChannelMessage.Send Files.ReadWrite.All",
+					token_type: "Bearer",
+				});
+			if (String(input).startsWith("https://graph.microsoft.com/v1.0/me?"))
+				return jsonResponse(200, {
+					id: "org-id",
+					userPrincipalName: "user@example.com",
+				});
+			throw new Error("wrong authority");
+		});
+		const { connection } = await onedriveConnectFinish({
+			code: "code",
+			state: new URL(start.authUrl).searchParams.get("state") ?? "",
+			origin: "https://app.example.com",
+			fetch,
+		});
+		expect(connection.config.microsoftOrganizationAccount).toBe(true);
+		expect(connection.capabilities).toEqual(["teams_chat"]);
+		expect(microsoftCanWrite(connection, "teams_chat")).toBe(true);
+		expect(microsoftCanWrite(connection, "teams_channels")).toBe(false);
+		await expect(
+			onedriveGetAccessTokenForRead(connection, { fetch }, "teams_chat"),
+		).resolves.toBe("access");
+		await updateConnection("userA", connection.id, {
+			config: { ...connection.config, microsoftOrganizationAccount: false },
+		});
+		await expect(
+			onedriveGetAccessTokenForRead(connection, { fetch }, "teams_chat"),
+		).rejects.toMatchObject({ code: "needs_reauth" });
+	});
+});

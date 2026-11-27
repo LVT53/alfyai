@@ -10,6 +10,7 @@ import {
 	CAPABILITIES,
 	type Capability,
 } from "$lib/server/services/connections/registry";
+import { isTeamsCapability } from "$lib/shared/microsoft-permissions";
 import { TOOL_HEALTH_REGISTRY } from "./registry";
 import {
 	type ConnectedConnectionCounts,
@@ -73,7 +74,9 @@ export async function countConnectedConnections(): Promise<ConnectedConnectionCo
 		.where(eq(userConnections.status, "connected"));
 	const counts: ConnectedConnectionCounts = {};
 	for (const row of rows) {
-		for (const capability of parseCapabilities(row.capabilitiesJson)) {
+		const caps = parseCapabilities(row.capabilitiesJson);
+		if (caps.some(isTeamsCapability)) counts.teams = (counts.teams ?? 0) + 1;
+		for (const capability of caps) {
 			counts[capability] = (counts[capability] ?? 0) + 1;
 		}
 	}
