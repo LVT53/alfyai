@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { boschUploadUrl, demandPolling } from "./bosch-flow-demand";
+import type { BoschDetailGrant } from "./bosch-flow-details";
 import {
 	beginBoschLogin,
 	exchangeBoschCode,
@@ -20,6 +21,7 @@ export type BoschLocalCredential = {
 	pairing: string;
 	refreshToken: string;
 	onDemand?: boolean;
+	dataGrants?: BoschDetailGrant[];
 };
 type Options = {
 	service?: boolean;
@@ -47,6 +49,14 @@ export function createBoschRunner(options: Options = {}) {
 	const launchUrl = `${origin}/?start=${launchKey}`;
 	const fetcher = options.fetch ?? fetch;
 	let saved = options.saved ?? null;
+	const knownGrants: BoschDetailGrant[] = ["details", "fitness", "location"];
+	let dataGrants =
+		options.service &&
+		saved?.onDemand === true &&
+		Array.isArray(saved.dataGrants)
+			? knownGrants.filter((grant) => saved?.dataGrants?.includes(grant))
+			: [];
+
 	let account: {
 		client: Login;
 		pairing: string;
@@ -56,14 +66,17 @@ export function createBoschRunner(options: Options = {}) {
 	} | null = saved ? { ...saved, accessToken: "", expiresAt: 0 } : null;
 	let approvedReview: string | null = null;
 	const stopSaved = async () => {
+		dataGrants = [];
 		if (saved?.onDemand) {
 			const next = { ...saved, onDemand: false };
+			delete next.dataGrants;
 			await options.persist?.(next);
 			saved = next;
 		}
 	};
 	const demand = demandPolling(fetcher, {
 		current: () => account,
+		grants: () => dataGrants,
 		disable: stopSaved,
 		rotate: async (r) => {
 			if (
@@ -137,6 +150,7 @@ export function createBoschRunner(options: Options = {}) {
 					completed,
 					canSave: !!options.persist,
 					demand: demand.enabled(),
+					dataGrants,
 					approval: approvedReview,
 					service: !!options.service,
 				}),
@@ -289,6 +303,25 @@ export function createBoschRunner(options: Options = {}) {
 				approvedReview = null;
 				prepared = null;
 				completed = false;
+				return redirect("/");
+			}
+			if (u.pathname === "/permissions" && req.method === "POST") {
+				if (!demand.enabled() || !account) return message(409, word.stale);
+				const values = fields.getAll("grant");
+				const selected = knownGrants.filter((grant) => values.includes(grant));
+				if (selected.length !== values.length)
+					return message(400, word.invalid);
+				await demand.stopAndWait();
+				try {
+					if (options.service && saved) {
+						const next = { ...saved, dataGrants: selected };
+						await options.persist?.(next);
+						saved = next;
+					}
+					dataGrants = selected;
+				} finally {
+					demand.start();
+				}
 				return redirect("/");
 			}
 			if (u.pathname === "/stop" && req.method === "POST") {

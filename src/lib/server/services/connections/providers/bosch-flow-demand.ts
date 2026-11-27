@@ -1,3 +1,11 @@
+import { readBoschDetail } from "./bosch-flow-detail-reader";
+import {
+	type BoschDetailGrant,
+	parseBoschDetailQuery,
+	requiredBoschGrant,
+} from "./bosch-flow-details";
+import { boschJson } from "./bosch-flow-json";
+
 type Account = {
 	pairing: string;
 	client: { clientId: string; clientSecret?: string };
@@ -7,6 +15,7 @@ type Account = {
 };
 type State = {
 	current: () => Account | null;
+	grants: () => BoschDetailGrant[];
 	rotate: (r: Account) => Promise<void>;
 	disable: () => Promise<void>;
 };
@@ -19,7 +28,8 @@ const pollUrl = "https://ai.alfydesign.com/api/connections/bosch/poll";
 export function demandPolling(fetcher: typeof fetch, state: State) {
 	let control: AbortController | null = null;
 	let running: Promise<number> | undefined;
-	let cache: { requestId: string; body: string } | null = null;
+	let cache: { requestId: string; queryKey: string; body: string } | null =
+		null;
 	const stop = () => {
 		control?.abort();
 		control = null;
@@ -30,6 +40,7 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 			rider = state.current();
 		if (!ctx || !rider) return 2000;
 		let requestId: string | null = null;
+		let detailRequest = false;
 		const call = (endpoint: string, extra: RequestInit = {}) =>
 			fetcher(endpoint, {
 				method: "POST",
@@ -54,16 +65,23 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 			}
 		};
 		try {
-			const poll = await call(pollUrl);
+			const poll = await call(pollUrl, {
+				headers: {
+					"X-Bosch-Protocol": "2",
+					"X-Bosch-Grants": state.grants().join(","),
+				},
+			});
 			if (poll.status === 401 || poll.status === 403) {
 				await disable();
 				return 2000;
 			}
 			if (!poll.ok) return 10000;
-			const data = await poll.json();
-			const delay = Number.isSafeInteger(data?.retryAfterMs)
-				? Math.min(30000, Math.max(1000, data.retryAfterMs))
-				: 2000;
+			const data = await boschJson(poll, 8192);
+			const delay =
+				typeof data.retryAfterMs === "number" &&
+				Number.isSafeInteger(data.retryAfterMs)
+					? Math.min(30000, Math.max(1000, data.retryAfterMs))
+					: 2000;
 			if (data?.requestId === null) {
 				cache = null;
 				return delay;
@@ -75,6 +93,18 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 				return 5000;
 			requestId = data.requestId;
 			if (!requestId || ctx.signal.aborted) return delay;
+			detailRequest = Object.hasOwn(data, "query");
+			const query = detailRequest ? parseBoschDetailQuery(data.query) : null;
+			if (
+				detailRequest &&
+				(!query || !state.grants().includes(requiredBoschGrant(query)))
+			)
+				throw Error("Unapproved Bosch detail question");
+			const queryKey = JSON.stringify(query);
+			if (cache?.requestId === requestId && cache.queryKey !== queryKey) {
+				cache = null;
+				throw Error("Changed Bosch detail request");
+			}
 			if (cache?.requestId !== requestId) {
 				const renew = async () => {
 					if (!rider.refreshToken)
@@ -89,9 +119,20 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 				};
 				if (rider.expiresAt <= Date.now() + 30000) await renew();
 				await state.rotate(rider);
-				let summary: Awaited<ReturnType<typeof collectBoschSnapshot>>;
+				const collect = async () =>
+					query
+						? {
+								query,
+								result: await readBoschDetail(
+									query,
+									rider.accessToken,
+									boschFetch,
+								),
+							}
+						: collectBoschSnapshot(rider.accessToken, boschFetch);
+				let result: Awaited<ReturnType<typeof collect>>;
 				try {
-					summary = await collectBoschSnapshot(rider.accessToken, boschFetch);
+					result = await collect();
 				} catch (error) {
 					if (
 						!error ||
@@ -104,11 +145,11 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 						throw error;
 					await renew();
 					await state.rotate(rider);
-					summary = await collectBoschSnapshot(rider.accessToken, boschFetch);
+					result = await collect();
 				}
-				const body = JSON.stringify(summary);
+				const body = JSON.stringify(result);
 				if (ctx.signal.aborted) return delay;
-				cache = { requestId, body };
+				cache = { requestId, queryKey, body };
 			}
 			const sent = await call(boschUploadUrl, {
 				headers: {
@@ -126,9 +167,9 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 				);
 				const code = typeof e === "object" && e && "code" in e ? e.code : "";
 				if (
-					["authorization_failed", "access_denied", "expired"].includes(
-						String(code),
-					)
+					code === "authorization_failed" ||
+					code === "expired" ||
+					(!detailRequest && code === "access_denied")
 				)
 					await disable();
 			}

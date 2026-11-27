@@ -1,5 +1,16 @@
+import type { BoschDetailGrant } from "./bosch-flow-details";
 export const runnerWords = {
 	en: {
+		permissions: "Additional data for cycling questions",
+		permissionsHint:
+			"Select the data AlfyAI may fetch when you ask. Leave all unchecked to share only your existing ride summary. You can change these choices here.",
+		details:
+			"Bike profile and pass, frame and component serial numbers, registrations, battery tests, software updates, dealer names and addresses, workshop notes, and ride statistics including speed and altitude",
+		fitness:
+			"Cadence, rider power and calories for the selected ride, including recorded samples",
+		location: "Precise locations and routes for the selected ride",
+		savePermissions: "Save data permissions",
+
 		enable:
 			"Allow future AlfyAI cycling questions to fetch these fields while this helper is running",
 		enableService:
@@ -36,7 +47,7 @@ export const runnerWords = {
 		bikes: "Bikes",
 		rides: "Rides",
 		partial: "This snapshot is partial. Some records could not be included.",
-		details: "View all fields",
+		summaryFields: "View all fields",
 		confirm: "Send this summary to AlfyAI",
 		discard: "Discard",
 		saved: "Saved setup",
@@ -46,6 +57,16 @@ export const runnerWords = {
 		stop: "Press Ctrl+C in the terminal to close this local helper.",
 	},
 	hu: {
+		permissions: "További adatok kerékpáros kérdésekhez",
+		permissionsHint:
+			"Válaszd ki, milyen adatokat kérhet le az AlfyAI a kérdéseidhez. Ha egyiket sem jelölöd be, továbbra is csak a túraösszesítés érhető el. A választásaidat itt módosíthatod.",
+		details:
+			"Kerékpárprofil és kerékpárútlevél, váz- és sorozatszámok, regisztrációk, akkumulátortesztek, szoftverfrissítések, szerviznevek, címek és megjegyzések, valamint túraadatok, köztük sebesség és magasság",
+		fitness:
+			"A kiválasztott túra pedálfordulata, kerékpáros teljesítménye és kalóriaadatai, a rögzített mintákkal együtt",
+		location: "A kiválasztott túra pontos helyadatai és útvonala",
+		savePermissions: "Adathozzáférés mentése",
+
 		enable:
 			"Az AlfyAI kerékpáros kérdésekhez lekérheti ezeket az adatokat, amíg fut a segéd",
 		enableService:
@@ -83,7 +104,7 @@ export const runnerWords = {
 		bikes: "Kerékpárok",
 		rides: "Túrák",
 		partial: "Ez részleges összesítés. Néhány adat hiányzik.",
-		details: "Összes mező",
+		summaryFields: "Összes mező",
 		confirm: "Összesítés küldése az AlfyAI-nak",
 		discard: "Elvetés",
 		saved: "Mentett beállítások",
@@ -110,6 +131,7 @@ type Data = {
 	completed: boolean;
 	canSave: boolean;
 	demand: boolean;
+	dataGrants: BoschDetailGrant[];
 	approval: string | null;
 	service: boolean;
 };
@@ -128,13 +150,16 @@ export function runnerPage(d: Data) {
 		`<button${secondary ? ' class="secondary"' : ""}>${s}</button>`;
 	const review = d.prepared;
 	const screen = review
-		? `<h1>${w.review}</h1><p>${w.info}</p><p>${w.bikes} · ${review.snapshot.bikes.length} &nbsp; ${w.rides} · ${review.snapshot.rides.length}</p>${review.snapshot.complete ? "" : `<p>${w.partial}</p>`}<details><summary>${w.details}</summary><pre>${esc(JSON.stringify(review.snapshot, null, 2))}</pre></details>${form("/sync", `<input type="hidden" name="review" value="${esc(review.review)}">${button(w.confirm)}`)}${form("/discard", button(w.discard, true))}`
+		? `<h1>${w.review}</h1><p>${w.info}</p><p>${w.bikes} · ${review.snapshot.bikes.length} &nbsp; ${w.rides} · ${review.snapshot.rides.length}</p>${review.snapshot.complete ? "" : `<p>${w.partial}</p>`}<details><summary>${w.summaryFields}</summary><pre>${esc(JSON.stringify(review.snapshot, null, 2))}</pre></details>${form("/sync", `<input type="hidden" name="review" value="${esc(review.review)}">${button(w.confirm)}`)}${form("/discard", button(w.discard, true))}`
 		: (d.completed ? `<p role="status">${w.done}</p>` : "") +
 			(d.saved
 				? `<h1>${w.saved}</h1>${form("/refresh", button(w.preview))}${form("/forget", button(w.forget, true))}`
 				: `<h1>${w.sub}</h1><p>${w.intro}</p>${form("/authorize", field("pairing", w.key, "password", true) + field("clientId", w.client, "text", true) + field("clientSecret", w.secret, "password", false) + (d.canSave ? `<label class="check"><input name="remember" value="yes" type="checkbox">${w.remember}</label>` : "") + button(w.sign))}`);
 	const demandControl = d.demand
-		? form("/stop", button(w.stopDemand, true))
+		? form(
+				"/permissions",
+				`<fieldset><legend>${w.permissions}</legend><p>${w.permissionsHint}</p>${(["details", "fitness", "location"] as const).map((grant) => `<label class="check"><input type="checkbox" name="grant" value="${grant}" ${d.dataGrants.includes(grant) ? "checked" : ""}>${w[grant]}</label>`).join("")}</fieldset>${button(w.savePermissions)}`,
+			) + form("/stop", button(w.stopDemand, true))
 		: d.approval
 			? form(
 					"/enable",

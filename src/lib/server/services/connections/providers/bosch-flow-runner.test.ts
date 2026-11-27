@@ -265,3 +265,143 @@ it("refreshes once when Bosch rejects a cached access token and keeps a usable g
 		expect.objectContaining({ onDemand: true, refreshToken: "refresh-2" }),
 	);
 });
+
+it("keeps old on-demand approvals summary-only until the rider selects individual extra permissions", async () => {
+	const saved = {
+		client: { clientId: "public" },
+		refreshToken: "saved",
+		pairing,
+		onDemand: true,
+	};
+	const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+		Response.json({ requestId: null }),
+	);
+	const persist = vi.fn(async () => {});
+	const runner = createBoschRunner({ service: true, saved, fetch, persist });
+	const origin = new URL(runner.launchUrl).origin;
+	const host = new URL(origin).host;
+	const open = await runner.handle(
+		new Request(runner.launchUrl, { headers: { host } }),
+	);
+	const cookie = open.headers.get("set-cookie")?.split(";")[0] ?? "";
+	const page = await (
+		await runner.handle(new Request(origin, { headers: { host, cookie } }))
+	).text();
+	const csrf = /name="csrf" value="([^"]+)"/.exec(page)?.[1] ?? "";
+	expect(page).toContain('action="/permissions"');
+	expect(page).not.toMatch(/name="grant"[^>]*checked/);
+	await runner.pollOnce();
+	const headers = () => new Headers(fetch.mock.calls.at(-1)?.[1]?.headers);
+	expect(headers().get("X-Bosch-Grants")).toBe("");
+	const set = async (grant: string) =>
+		runner.handle(
+			new Request(new URL("/permissions", origin), {
+				method: "POST",
+				headers: {
+					host,
+					cookie,
+					origin,
+					"content-type": "application/x-www-form-urlencoded",
+				},
+				body: new URLSearchParams(grant ? { csrf, grant } : { csrf }),
+			}),
+		);
+	expect((await set("unsupported")).status).toBe(400);
+	expect((await set("details")).status).toBe(303);
+	expect(persist).toHaveBeenLastCalledWith({
+		...saved,
+		dataGrants: ["details"],
+	});
+	await runner.pollOnce();
+	expect(headers().get("X-Bosch-Grants")).toBe("details");
+	expect((await set("")).status).toBe(303);
+	await runner.pollOnce();
+	expect(headers().get("X-Bosch-Grants")).toBe("");
+	expect(fetch.mock.calls.every(([url]) => String(url).endsWith("/poll"))).toBe(
+		true,
+	);
+});
+
+it("rejects a detail request for an old approval without refreshing OAuth or uploading a summary", async () => {
+	const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+		if (new Headers(init?.headers).get("X-Bosch-Failed") === "question-3")
+			return new Response(null, { status: 204 });
+		return Response.json({
+			requestId: "question-3",
+			query: { operation: "unknown" },
+		});
+	});
+	const runner = createBoschRunner({
+		service: true,
+		saved: {
+			client: { clientId: "public" },
+			refreshToken: "saved",
+			pairing,
+			onDemand: true,
+		},
+		fetch,
+	});
+	await runner.pollOnce();
+	expect(fetch.mock.calls.every(([url]) => String(url).endsWith("/poll"))).toBe(
+		true,
+	);
+	expect(
+		fetch.mock.calls.some(
+			([, init]) =>
+				new Headers(init?.headers).get("X-Bosch-Failed") === "question-3",
+		),
+	).toBe(true);
+});
+
+it("answers just the requested expanded operation after restart and retries the same upload without a second read", async () => {
+	let attempts = 0;
+	const query = { action: "ride_route", id: "one" } as const;
+	const fetch = vi.fn<typeof globalThis.fetch>(async (u, i) => {
+		const url = new URL(String(u));
+		if (url.pathname.endsWith("/poll")) {
+			expect(new Headers(i?.headers).get("X-Bosch-Grants")).toBe("location");
+			return Response.json({ requestId: "ask-1", query });
+		}
+		if (url.pathname.endsWith("/token"))
+			return Response.json({
+				access_token: "current",
+				refresh_token: "rotated",
+				token_type: "Bearer",
+				expires_in: 300,
+			});
+		if (url.pathname.endsWith("/activities/one/details"))
+			return Response.json({
+				activityDetails: [{ latitude: 47.1, longitude: 19, riderPower: 500 }],
+			});
+		if (url.pathname.endsWith("/sync")) {
+			attempts++;
+			expect(new Headers(i?.headers).get("X-Bosch-Request")).toBe("ask-1");
+			const upload = JSON.parse(String(i?.body));
+			expect(upload.query).toEqual(query);
+			expect(upload.result.fields).toContainEqual({
+				path: "activityDetails.0.latitude",
+				value: 47.1,
+			});
+			expect(String(i?.body)).not.toContain("riderPower");
+			return new Response(null, { status: attempts === 1 ? 503 : 204 });
+		}
+		throw Error("Unexpected URL");
+	});
+	const runner = createBoschRunner({
+		service: true,
+		saved: {
+			client: { clientId: "public" },
+			refreshToken: "private",
+			pairing,
+			onDemand: true,
+			dataGrants: ["location"],
+		},
+		fetch,
+		persist: vi.fn(async () => {}),
+	});
+	expect(await runner.pollOnce()).toBe(5000);
+	expect(await runner.pollOnce()).toBe(2000);
+	expect(
+		fetch.mock.calls.filter(([u]) => String(u).endsWith("/details")),
+	).toHaveLength(1);
+});
