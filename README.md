@@ -179,6 +179,15 @@ Set `DRIVE_TEST_USER_IDS` to the AlfyAI user IDs permitted to connect Google Dri
 
 Set `GMAIL_TEST_USER_IDS` to a comma-separated list of AlfyAI user IDs and enable the Gmail API in the existing Google OAuth project. Only those users can select Gmail while connecting Google. Gmail requests read-only access by default. Managing mail requires separate consent and enabling writes in Connections. The existing Google callback and credentials serve this flow.
 
+#### Bosch eBike Flow for individual riders
+
+Each rider registers under **I am a user** in the [Bosch Data Act portal](https://portal.bosch-ebike.com/data-act), creates a personal Smart System client, and releases their own bike data to themselves in the [Flow portal](https://flow.bosch-ebike.com/data-act). Use the loopback callback `http://127.0.0.1:47831/callback` for the local helper.
+
+From **Settings → Connections → Bosch eBike Flow**, pair your AlfyAI account and download the helper. On a computer with Node.js 22 or later, run `node alfyai-bosch.mjs` and follow its local setup page. Enter your personal Bosch client details there and sign in on Bosch’s site. Review the bike names, ride dates, and distances before sharing the summary with your AlfyAI account.
+
+Chat can answer from the latest uploaded snapshot. Run the helper again to share newer rides. Each rider pairs their own AlfyAI account. Pairing again replaces that account’s previous upload key. Removing the connection removes its stored snapshot. Bosch credentials and GPS tracks stay out of the uploaded summary.
+
+
 ## Development
 
 ```bash

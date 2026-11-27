@@ -380,6 +380,7 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	if (
 		!PUBLIC_PATHS.includes(path) &&
 		!isMemoryAdmission &&
+		!(path === "/api/connections/bosch/sync" && event.request.method === "POST") &&
 		!event.locals.user
 	) {
 		// Ruling 58: the App's served route, loaded in its own sandboxed
