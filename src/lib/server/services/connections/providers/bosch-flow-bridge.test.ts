@@ -101,6 +101,34 @@ describe("personal Bosch rider pairing", () => {
 			await acceptBoschUpload(first.pairingToken, async () => bikeData, id),
 		).toBe(409);
 	});
+	it("shares a pending read and preserves the dated snapshot if the helper fails mid-upload", async () => {
+		const pair = await pairBoschBridge("one");
+		await acceptBoschUpload(pair.pairingToken, async () => bikeData);
+		const cached = await readBoschSnapshot("one", pair.connectionId);
+		await pollBoschQuestion(pair.pairingToken, null);
+		const answers = Promise.all([
+			loadBoschForQuestion("one", pair.connectionId),
+			loadBoschForQuestion("one", pair.connectionId),
+		]);
+		let requestId: string | null = null;
+		await vi.waitFor(async () => {
+			requestId =
+				(await pollBoschQuestion(pair.pairingToken, null))?.requestId ?? null;
+			expect(requestId).toBeTruthy();
+		});
+		const late = await acceptBoschUpload(
+			pair.pairingToken,
+			async () => {
+				await pollBoschQuestion(pair.pairingToken, requestId);
+				return { ...bikeData, bikes: [] };
+			},
+			requestId,
+		);
+		expect(late).toBe(409);
+		expect(await answers).toEqual(
+			Array(2).fill({ snapshot: cached, fresh: false }),
+		);
+	});
 	it("discards an in-flight upload if the rider replaces the key during transfer", async () => {
 		const pair = await pairBoschBridge("one");
 		const result = await acceptBoschUpload(pair.pairingToken, async () => {
