@@ -2,14 +2,11 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import {
-	atlasJobs,
-	conversations,
-	users,
-} from "../../src/lib/server/db/schema";
+import { atlasJobs, users } from "../../src/lib/server/db/schema";
 import { createConversation } from "../../src/lib/server/services/conversations";
 import { createMessage } from "../../src/lib/server/services/messages";
-import { ensureSidebarExpanded, login, TEST_EMAIL } from "./helpers";
+import { createTourUser } from "./artifact-tours-helpers";
+import { ensureSidebarExpanded, login } from "./helpers";
 
 // ADR 0043 — Slice 13: LogoMark placement on 5 surfaces (+ favicon link).
 // These assertions guard that the EXISTING LogoMark (unchanged) now appears
@@ -17,13 +14,10 @@ import { ensureSidebarExpanded, login, TEST_EMAIL } from "./helpers";
 // state, and the mobile header. Each mark is wrapped in a stable testid span.
 
 test.describe("Brand LogoMark placement (Slice 13)", () => {
-	test.beforeEach(async ({ page }) => {
-		await login(page);
-	});
-
 	test("sidebar header shows the LogoMark beside the wordmark", async ({
 		page,
 	}) => {
+		await login(page);
 		await ensureSidebarExpanded(page);
 		const logo = page.getByTestId("sidebar-logo");
 		await expect(logo).toBeVisible();
@@ -32,6 +26,7 @@ test.describe("Brand LogoMark placement (Slice 13)", () => {
 	});
 
 	test("collapsed sidebar rail shows the LogoMark", async ({ page }) => {
+		await login(page);
 		await ensureSidebarExpanded(page);
 		const collapseButton = page.getByRole("button", {
 			name: "Collapse sidebar",
@@ -44,19 +39,17 @@ test.describe("Brand LogoMark placement (Slice 13)", () => {
 	test("collapsed rail dot is an unseen-activity cue, not an open-chat marker", async ({
 		page,
 	}) => {
-		const [owner] = await db
-			.select({ id: users.id })
-			.from(users)
-			.where(eq(users.email, TEST_EMAIL))
-			.limit(1);
-		const open = await createConversation(owner.id, "Rail dot open chat");
-		await createMessage(open.id, "user", "hello");
-		await createMessage(open.id, "assistant", "hi");
-		const finished = await createConversation(owner.id, "Rail dot finished");
-		await createMessage(finished.id, "user", "research");
-		await createMessage(finished.id, "assistant", "done");
-		const jobId = randomUUID();
+		// The rail aggregates unseen reports across every chat owned by this user.
+		const owner = await createTourUser();
 		try {
+			await login(page, owner.email, owner.password);
+			const open = await createConversation(owner.id, "Rail dot open chat");
+			await createMessage(open.id, "user", "hello");
+			await createMessage(open.id, "assistant", "hi");
+			const finished = await createConversation(owner.id, "Rail dot finished");
+			await createMessage(finished.id, "user", "research");
+			await createMessage(finished.id, "assistant", "done");
+			const jobId = randomUUID();
 			await page.goto(`/chat/${open.id}`, { waitUntil: "domcontentloaded" });
 			await ensureSidebarExpanded(page);
 			await page.getByRole("button", { name: "Collapse sidebar" }).click();
@@ -103,15 +96,14 @@ test.describe("Brand LogoMark placement (Slice 13)", () => {
 				0,
 			);
 		} finally {
-			await db.delete(atlasJobs).where(eq(atlasJobs.id, jobId));
-			await db.delete(conversations).where(eq(conversations.id, open.id));
-			await db.delete(conversations).where(eq(conversations.id, finished.id));
+			await db.delete(users).where(eq(users.id, owner.id));
 		}
 	});
 
 	test("empty conversation state shows a static LogoMark centerpiece", async ({
 		page,
 	}) => {
+		await login(page);
 		// The MessageArea empty state (`.conversation-empty-state`) renders on a
 		// conversation view with zero messages, not on the "/" landing page. Create
 		// an empty conversation via the API and open it.
