@@ -30,9 +30,9 @@ type Options = {
 };
 const safeHeaders = {
 	"Content-Security-Policy":
-		"default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://p9.authz.bosch.com; frame-ancestors 'none'; base-uri 'none'",
+		"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 	"X-Content-Type-Options": "nosniff",
-	"Referrer-Policy": "no-referrer",
+	"Referrer-Policy": "same-origin",
 	"Cache-Control": "no-store",
 };
 export function createBoschRunner(options: Options = {}) {
@@ -195,7 +195,20 @@ export function createBoschRunner(options: Options = {}) {
 				};
 				prepared = null;
 				completed = false;
-				return redirect(login.url);
+				// Finish the local POST before navigating. Chromium applies form-action
+				// to every redirect in a form submission, including Bosch's identity provider.
+				const href = login.url.replaceAll("&", "&amp;");
+				return new Response(
+					`<!doctype html><html lang="${hu ? "hu" : "en"}"><meta charset="utf-8"><title>${word.sign}</title><a href="${href}">${word.sign}</a></html>`,
+					{
+						headers: {
+							...safeHeaders,
+							"Content-Type": "text/html; charset=utf-8",
+							"Referrer-Policy": "no-referrer",
+							Refresh: `0; url=${login.url}`,
+						},
+					},
+				);
 			}
 			if (u.pathname === "/callback" && req.method === "GET") {
 				if (

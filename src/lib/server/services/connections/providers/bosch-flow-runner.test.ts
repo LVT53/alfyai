@@ -95,7 +95,9 @@ it("blocks foreign host/origin and requires exact consent before a summary reach
 		clientId: "mine",
 		pairing,
 	});
-	const url = new URL(login.headers.get("location") ?? "");
+	const url = new URL(
+		login.headers.get("refresh")?.replace(/^0; url=/, "") ?? "",
+	);
 	expect(url.hostname).toBe("p9.authz.bosch.com");
 	expect((await request("/callback?state=bogus&code=fake")).status).toBe(400);
 	const callback = await request(
