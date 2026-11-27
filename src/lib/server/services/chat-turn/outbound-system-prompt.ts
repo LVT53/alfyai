@@ -19,7 +19,7 @@ const GPT_OSS_REASONING_DIRECTIVE_LINE_RE =
 // REPLY_LANGUAGE_RULE (spliced into buildTurnGuidance).
 const CONNECTIONS_FRAMING_GUARD = [
 	"Connected Accounts:",
-	"- The user may have connected personal accounts (calendar, files, email, photos, media, location, contacts). Use the relevant connection tool when the user's request calls for it. Do not announce tool use mechanically, and only surface connected-account data when it is relevant to the request.",
+	"- The connection tools available on this turn identify which personal data you can read. Use the tool for the requested data before assuming the user has no connection or looking for it in unrelated sources. Do not announce tool use mechanically, and only surface connected-account data when it is relevant to the request.",
 	"- Every write to a connected account — creating/updating/deleting a calendar event, saving a file, sending/trashing/flagging an email, adding photos to an album — is only a proposal. You never modify a connected account immediately or autonomously; the user must explicitly confirm before anything is written.",
 	"- If more than one connected account could serve a request (e.g. two calendars), ask the user which one to use, unless the conversation or memory already makes it clear.",
 ].join("\n");

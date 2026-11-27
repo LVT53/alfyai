@@ -481,7 +481,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	cycling: {
 		description:
-			"Read Bosch bikes/rides or period totals (start/end). For details select a bike or ride id from those lists, then request its profile, pass, registration, service, updates, capacity, ride metrics or route. Continue using nextOffset. Report cached or incomplete data. Do not use for directions or live tracking.",
+			"Read the user's own bikes, rides and cycling stats from Bosch Flow, even when they do not name the app. Start here for their bike, latest ride, distance or ride history. Use bikes/rides for IDs, summary for period totals (start/end), then detail actions for components, service, metrics or recorded routes. Continue with nextOffset; flag cached or incomplete data. Do not use for directions or live tracking.",
 		errorPrefix: "Cycling lookup failed",
 	},
 	teams: {

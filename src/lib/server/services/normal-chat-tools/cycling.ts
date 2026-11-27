@@ -172,7 +172,7 @@ export async function runCyclingTool(
 				connections.length ? "no_such_account" : "not_connected",
 				connections.length
 					? "Specify which rider account to read."
-					: "Pair a Bosch eBike Flow bridge first.",
+					: "No active cycling connection is available for this turn. Check Bosch eBike Flow in Settings > Connections.",
 			);
 		if (
 			input.action !== "bikes" &&
@@ -200,7 +200,7 @@ export async function runCyclingTool(
 			if (answer.status === "consent_required")
 				return fail(
 					"detail_consent_required",
-					"Ask the rider to enable this field group on their private Bosch setup page.",
+					"Ask the rider to check their Bosch data permissions in Settings > Connections, or in their existing private helper.",
 				);
 			if (answer.status === "access_denied")
 				return fail(

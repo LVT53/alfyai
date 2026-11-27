@@ -4808,6 +4808,32 @@ describe("prepareOutboundChatContext", () => {
 			expect(prepared.systemPrompt).toContain("Connected Accounts:");
 		});
 
+		it.each([
+			"What bike do I have and how long was my last ride?",
+			"Milyen bringám van, és milyen hosszú volt a legutóbbi utam?",
+		])(
+			"grounds a personal bike question in the active tools without prefetching private data: %s",
+			async (message) => {
+				mocks.buildConstructedContext.mockResolvedValueOnce(
+					createConstructedContextResult(message),
+				);
+				const prepared = await prepareOutboundChatContext({
+					message,
+					sessionId: "conv-bike",
+					modelConfig,
+					user: { id: "user-1" },
+					modelId: "model1",
+					activeConnectionCapabilities: new Set(["cycling", "files", "photos"]),
+
+					logLabel: "provider request",
+				});
+				expect(prepared.systemPrompt).toContain(
+					"Use the tool for the requested data",
+				);
+				expect(mocks.buildProactiveConnectorContext).not.toHaveBeenCalled();
+			},
+		);
+
 		it("omits the connections framing when no connection capabilities are active", async () => {
 			mocks.buildConstructedContext.mockResolvedValueOnce(
 				createConstructedContextResult("What's the weather like today?"),
