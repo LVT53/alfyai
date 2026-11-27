@@ -136,6 +136,14 @@ describe("the guide page", () => {
 				),
 			);
 			const steps = row.getByRole("list");
+			expect(steps).toHaveTextContent(
+				language === "en"
+					? "Allow all supported data"
+					: "Minden támogatott adat engedélyezése",
+			);
+			expect(steps).toHaveTextContent(
+				language === "en" ? "precise ride coordinates" : "pontos útvonalat",
+			);
 			expect(row.getByRole("link", { name: "Manage Access" })).toHaveAttribute(
 				"href",
 				"https://flow.bosch-ebike.com/data-act",

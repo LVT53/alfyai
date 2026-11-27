@@ -1667,7 +1667,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "cycling",
-      "description": "Read the rider’s Bosch bikes, rides or distance totals between two ISO times. Ask the rider service now. State when a fallback is cached or history is incomplete. Do not use for directions or live bike location.",
+      "description": "Read Bosch bikes/rides or period totals (start/end). For details select a bike or ride id from those lists, then request its profile, pass, registration, service, updates, capacity, ride metrics or route. Continue using nextOffset. Report cached or incomplete data. Do not use for directions or live tracking.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1676,7 +1676,17 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "enum": [
               "bikes",
               "rides",
-              "summary"
+              "summary",
+              "bike_profile",
+              "bike_pass",
+              "bike_registration",
+              "service_history",
+              "software_updates",
+              "battery_capacity",
+              "ride_detail",
+              "ride_stream",
+              "ride_fitness",
+              "ride_route"
             ]
           },
           "account": {
@@ -1700,7 +1710,29 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
           "offset": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 2000
+            "maximum": 2000000
+          },
+          "id": {
+            "description": "Selected Bosch bike or ride ID from bikes or rides; required for detailed reads.",
+            "type": "string",
+            "maxLength": 150
+          },
+          "field": {
+            "description": "Optional exact field or prefix, e.g. driveUnit.odometer or batteries.0.",
+            "type": "string",
+            "maxLength": 240
+          },
+          "textOffset": {
+            "description": "For a long text value, pass its exact field and nextTextOffset here.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12582912
+          },
+          "batteryIndex": {
+            "description": "Battery shown on bike_profile, default 0; battery_capacity only.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 49
           }
         },
         "required": [

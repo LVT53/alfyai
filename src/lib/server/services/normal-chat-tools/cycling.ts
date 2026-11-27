@@ -1,9 +1,15 @@
 import { z } from "zod";
-import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
 import {
+	loadBoschDetailForQuestion,
 	loadBoschForQuestion,
 	type readBoschSnapshot,
 } from "../connections/providers/bosch-flow-bridge";
+import {
+	type BoschDetailResult,
+	boschDetailActions,
+	parseBoschDetailQuery,
+} from "../connections/providers/bosch-flow-details";
 import {
 	matchingConnections,
 	resolveConnectionsForCapability,
@@ -13,12 +19,44 @@ import { applyLocalDistillGate } from "./connector-distill";
 import { withReasonCode } from "./shared";
 
 export const cyclingToolInputSchema = z.object({
-	action: z.enum(["bikes", "rides", "summary"]),
+	action: z.enum(["bikes", "rides", "summary", ...boschDetailActions]),
 	account: z.string().trim().optional(),
 	start: z.iso.datetime({ offset: true }).optional(),
 	end: z.iso.datetime({ offset: true }).optional(),
 	limit: z.number().int().min(1).max(50).optional(),
-	offset: z.number().int().min(0).max(2000).optional(),
+	offset: z.number().int().min(0).max(2000000).optional(),
+	id: z
+		.string()
+		.max(150)
+		.optional()
+		.describe(
+			"Selected Bosch bike or ride ID from bikes or rides; required for detailed reads.",
+		),
+	field: z
+		.string()
+		.max(240)
+		.optional()
+		.describe(
+			"Optional exact field or prefix, e.g. driveUnit.odometer or batteries.0.",
+		),
+	textOffset: z
+		.number()
+		.int()
+		.min(0)
+		.max(12 * 1024 * 1024)
+		.optional()
+		.describe(
+			"For a long text value, pass its exact field and nextTextOffset here.",
+		),
+	batteryIndex: z
+		.number()
+		.int()
+		.min(0)
+		.max(49)
+		.optional()
+		.describe(
+			"Battery shown on bike_profile, default 0; battery_capacity only.",
+		),
 });
 type CyclingInput = z.infer<typeof cyclingToolInputSchema>;
 type Snapshot = NonNullable<Awaited<ReturnType<typeof readBoschSnapshot>>>;
@@ -34,6 +72,8 @@ type Payload = {
 	bikes: Snapshot["bikes"];
 	rides: Snapshot["rides"];
 	nextOffset: number | null;
+	detail?: BoschDetailResult;
+	units?: Record<string, string>;
 	summary: {
 		rideCount: number;
 		distanceMeters: number;
@@ -41,6 +81,48 @@ type Payload = {
 	} | null;
 	citations: { label: string; url: string }[];
 };
+// Documented units in Bosch Data Act Appendix 1. Omit units Bosch doesn't state.
+const fieldUnits: Record<string, string> = {
+	"driveUnit.odometer": "m",
+	"driveUnit.maximumAssistanceSpeed": "km/h",
+	"driveUnit.walkAssistConfiguration.maximumSpeed": "km/h",
+	"driveUnit.activeAssistModes[].reachableRange": "m",
+	"driveUnit.rearWheelCircumferenceUser": "mm",
+	"driveUnit.powerOnTime.total": "h",
+	"driveUnit.powerOnTime.withMotorSupport": "h",
+	"batteries[].deliveredWhOverLifetime": "Wh",
+	"serviceDue.odometer": "m",
+	startOdometer: "m",
+	distance: "m",
+	durationWithoutStops: "s",
+	"speed.average": "km/h",
+	"speed.maximum": "km/h",
+	"elevation.gain": "m",
+	"elevation.loss": "m",
+	"cadence.average": "rpm",
+	"cadence.maximum": "rpm",
+	"riderPower.average": "W",
+	"riderPower.maximum": "W",
+	"activityDetails[].distance": "m",
+	"activityDetails[].altitude": "m",
+	"activityDetails[].speed": "km/h",
+	"activityDetails[].latitude": "degrees WGS84",
+	"activityDetails[].longitude": "degrees WGS84",
+	"activityDetails[].cadence": "rpm",
+	"activityDetails[].riderPower": "W",
+	"capacityTesters[].batteryData.measuredCapacity": "Wh",
+	"capacityTesters[].batteryData.nominalCapacity": "Wh",
+};
+function unitsIn(result: BoschDetailResult) {
+	const units: Record<string, string> = {};
+	for (const field of result.fields) {
+		const key = field.path.replace(/\.\d+(?=\.|$)/g, "[]");
+		if (typeof field.value === "number" && Object.hasOwn(fieldUnits, key))
+			units[key] = fieldUnits[key];
+	}
+	return units;
+}
+
 export async function runCyclingTool(
 	userId: string,
 	input: CyclingInput,
@@ -61,7 +143,7 @@ export async function runCyclingTool(
 		summary: null,
 		citations: [],
 	};
-	const fail = (reason: ConnectorReasonCode, message: string) => ({
+	const fail = (reason: ToolReasonCode<"cycling">, message: string) => ({
 		modelPayload: withReasonCode({ ...base, message }, reason),
 		candidates: [] as ToolEvidenceCandidate[],
 	});
@@ -91,6 +173,106 @@ export async function runCyclingTool(
 				connections.length
 					? "Specify which rider account to read."
 					: "Pair a Bosch eBike Flow bridge first.",
+			);
+		if (
+			input.action !== "bikes" &&
+			input.action !== "rides" &&
+			input.action !== "summary"
+		) {
+			const query = parseBoschDetailQuery({
+				action: input.action,
+				id: input.id,
+				offset: input.offset,
+				field: input.field,
+				textOffset: input.textOffset,
+				batteryIndex: input.batteryIndex,
+			});
+			if (!query || input.start || input.end || input.limit)
+				return fail(
+					"not_supported",
+					"Select a valid detail field and bike or ride ID. Use offset only to continue a detail result.",
+				);
+			const answer = await loadBoschDetailForQuestion(
+				userId,
+				selected[0].id,
+				query,
+			);
+			if (answer.status === "consent_required")
+				return fail(
+					"detail_consent_required",
+					"Ask the rider to enable this field group on their private Bosch setup page.",
+				);
+			if (answer.status === "access_denied")
+				return fail(
+					"detail_access_denied",
+					"Bosch denied access to the selected data. Ask the rider to check their app and per-bike permissions in Flow Manage Access. The missing value is unknown.",
+				);
+			if (answer.status === "not_found")
+				return fail(
+					"item_not_found",
+					"No matching record was available for this bike, ride or test. This does not establish that the bike lacks the component or that a measurement is zero.",
+				);
+			if (answer.status !== "ready")
+				return fail(
+					"detail_unavailable",
+					"The rider's helper could not provide these details now. No detail cache is available; do not infer a value.",
+				);
+			const data: Payload = {
+				...base,
+				success: true,
+				fresh: true,
+				syncedAt: new Date().toISOString(),
+				complete:
+					answer.result.nextOffset === null &&
+					!answer.result.fields.some((f) => f.nextTextOffset !== undefined),
+				nextOffset: answer.result.nextOffset,
+				detail: answer.result,
+				units: unitsIn(answer.result),
+				message: answer.result.fields.length
+					? "Read the requested Bosch fields. Numbers keep Bosch's units; do not assume a unit for an undocumented field. To continue long text, pass its exact field and nextTextOffset as textOffset. Use nextOffset when present to continue this same question."
+					: "No matching fields were available. Dealer reports and battery measurements may never have been supplied. Do not infer a zero value, a missing component or an empty ride history.",
+			};
+			const redacted = (message: string) => ({
+				modelPayload: {
+					...base,
+					success: true,
+					fresh: true,
+					syncedAt: data.syncedAt,
+					complete: data.complete,
+					nextOffset: data.nextOffset,
+					message,
+				},
+				candidates: [] as ToolEvidenceCandidate[],
+			});
+			return await applyLocalDistillGate({
+				outcome: {
+					modelPayload: data,
+					candidates: [] as ToolEvidenceCandidate[],
+				},
+				userId,
+				modelId,
+				capability: "cycling",
+				userQuestion: [input.action, input.field].filter(Boolean).join(" "),
+				rawText: answer.result.fields.length
+					? JSON.stringify({ detail: answer.result, units: data.units })
+					: "",
+				onDistilled: (_o, summary) => redacted(summary),
+				onUnavailable: () =>
+					redacted(
+						"The requested fields were withheld because private summarization was unavailable.",
+					),
+			});
+		}
+		if (
+			input.id ||
+			input.field ||
+			input.batteryIndex !== undefined ||
+			input.textOffset !== undefined ||
+			(input.offset ?? 0) > 2000
+		)
+			return fail(
+				"not_supported",
+				"Use a detail action for an individual bike, ride or field.",
 			);
 		const { snapshot, fresh } = await loadBoschForQuestion(
 			userId,

@@ -85,6 +85,9 @@ describe("tool reason codes", () => {
 			...CONNECTOR_REASON_CODES,
 			"cached_rider_data",
 			"no_visible_rider_data",
+			"detail_consent_required",
+			"detail_access_denied",
+			"detail_unavailable",
 		]);
 		for (const name of CONNECTOR_TOOL_NAMES) {
 			if (name !== "calendar" && name !== "cycling")

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import {
 	acceptBoschUpload,
+	loadBoschDetailForQuestion,
 	loadBoschForQuestion,
 	pairBoschBridge,
 	pollBoschQuestion,
@@ -154,4 +155,143 @@ describe("personal Bosch rider pairing", () => {
 		).toBe(400);
 		expect(await readBoschSnapshot("one", pair.connectionId)).toBeNull();
 	});
+});
+
+describe("private on-demand Bosch detail", () => {
+	it("does not queue detail for an offline or summary-only helper", async () => {
+		const pair = await pairBoschBridge("one");
+		const query = { action: "bike_profile", id: "b1" } as const;
+		expect(
+			await loadBoschDetailForQuestion("one", pair.connectionId, query),
+		).toEqual({ status: "offline" });
+		await pollBoschQuestion(pair.pairingToken, null);
+		expect(
+			await loadBoschDetailForQuestion("one", pair.connectionId, query),
+		).toEqual({ status: "consent_required" });
+		expect(
+			(await pollBoschQuestion(pair.pairingToken, null))?.requestId,
+		).toBeNull();
+	});
+});
+
+it("binds an ephemeral detail response to the specific consenting rider, query and request", async () => {
+	const owner = await pairBoschBridge("one"),
+		other = await pairBoschBridge("two");
+	const query = {
+		action: "bike_profile",
+		id: "b1",
+		field: "driveUnit.odometer",
+	} as const;
+	const result = {
+		fields: [{ path: "driveUnit.odometer", value: 120034 }],
+		nextOffset: null,
+	};
+	await pollBoschQuestion(owner.pairingToken, null, "2", "details");
+	const answer = loadBoschDetailForQuestion("one", owner.connectionId, query);
+	let requestId: string | null = null;
+	await vi.waitFor(async () => {
+		const next = await pollBoschQuestion(
+			owner.pairingToken,
+			null,
+			"2",
+			"details",
+		);
+		expect(next).toMatchObject({ query });
+		requestId = next?.requestId ?? null;
+	});
+	expect(
+		await acceptBoschUpload(
+			other.pairingToken,
+			async () => ({ query, result }),
+			requestId,
+		),
+	).toBe(409);
+	expect(
+		await acceptBoschUpload(
+			owner.pairingToken,
+			async () => ({ query: { ...query, id: "b2" }, result }),
+			requestId,
+		),
+	).toBe(400);
+	expect(
+		await acceptBoschUpload(
+			owner.pairingToken,
+			async () => ({
+				query,
+				result: {
+					...result,
+					fields: [{ path: "privateToken", value: "not a field" }],
+				},
+			}),
+			requestId,
+		),
+	).toBe(400);
+	expect(
+		await acceptBoschUpload(
+			owner.pairingToken,
+			async () => ({ query, result }),
+			null,
+		),
+	).toBe(400);
+	expect(
+		await acceptBoschUpload(
+			owner.pairingToken,
+			async () => ({ query, result }),
+			requestId,
+		),
+	).toBe(204);
+	expect(await answer).toEqual({ status: "ready", result });
+	expect(await readBoschSnapshot("one", owner.connectionId)).toBeNull();
+	expect(
+		await acceptBoschUpload(
+			owner.pairingToken,
+			async () => ({ query, result }),
+			requestId,
+		),
+	).toBe(409);
+});
+it("withdrawing location access resolves only that scoped question without releasing private fields", async () => {
+	const owner = await pairBoschBridge("one");
+	await pollBoschQuestion(owner.pairingToken, null, "2", "details,location");
+	const route = loadBoschDetailForQuestion("one", owner.connectionId, {
+		action: "ride_route",
+		id: "r1",
+	});
+	let requestId: string | null = null;
+	await vi.waitFor(async () => {
+		const next = await pollBoschQuestion(
+			owner.pairingToken,
+			null,
+			"2",
+			"details,location",
+		);
+		requestId = next?.requestId ?? null;
+		expect(requestId).toBeTruthy();
+	});
+	const profile = loadBoschDetailForQuestion("one", owner.connectionId, {
+		action: "bike_profile",
+		id: "b1",
+	});
+	await vi.waitFor(async () => {
+		expect(
+			await pollBoschQuestion(owner.pairingToken, null, "2", "details"),
+		).toMatchObject({ query: { action: "bike_profile" } });
+	});
+	expect(await route).toEqual({ status: "consent_required" });
+	expect(
+		await acceptBoschUpload(owner.pairingToken, async () => ({}), requestId),
+	).toBe(409);
+	const next = await pollBoschQuestion(
+		owner.pairingToken,
+		null,
+		"2",
+		"details",
+	);
+	await pollBoschQuestion(
+		owner.pairingToken,
+		next?.requestId ?? null,
+		"2",
+		"details",
+	);
+	expect(await profile).toEqual({ status: "unavailable" });
 });

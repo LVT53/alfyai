@@ -13,6 +13,13 @@ import {
 	getConnectionSecretSnapshot,
 	updateConnection,
 } from "../store";
+import {
+	type BoschDetailQuery,
+	type BoschDetailResult,
+	parseBoschDetailQuery,
+	parseBoschDetailResult,
+	requiredBoschGrant,
+} from "./bosch-flow-details";
 
 const rideId = z.string().min(1).max(150);
 const instant = z.iso.datetime({ offset: true });
@@ -104,7 +111,29 @@ type PendingRead = {
 // The production web service is a single Node process. Unanswered questions
 // expire promptly; credentials and ride data do not live in this map.
 const reads = new Map<string, PendingRead>();
-const heartbeats = new Map<string, number>();
+type DetailAnswer =
+	| { status: "ready"; result: BoschDetailResult }
+	| {
+			status:
+				| "offline"
+				| "consent_required"
+				| "unavailable"
+				| "access_denied"
+				| "not_found";
+	  };
+type PendingDetail = {
+	id: string;
+	connectionId: string;
+	keyHash: string;
+	query: BoschDetailQuery;
+	finished: Promise<DetailAnswer>;
+	finish: (answer: DetailAnswer) => void;
+};
+const detailReads = new Map<string, PendingDetail>();
+const heartbeats = new Map<
+	string,
+	{ time: number; keyHash: string; grants: Set<string> }
+>();
 
 async function authenticateBridge(bearer: string) {
 	const parts = /^([\w-]{1,180})\.([\w-]{1,128})\.([\w-]{43})$/.exec(bearer);
@@ -112,7 +141,11 @@ async function authenticateBridge(bearer: string) {
 	const userId = Buffer.from(parts[1], "base64url").toString();
 	const id = parts[2];
 	const connection = await getConnection(userId, id);
-	if (connection?.provider !== "bosch" || connection.status !== "connected")
+	if (
+		connection?.provider !== "bosch" ||
+		connection.status !== "connected" ||
+		!connection.capabilities.includes("cycling")
+	)
 		return null;
 	const existing = await getConnectionSecretSnapshot(userId, id);
 	if (!existing) return null;
@@ -126,17 +159,48 @@ async function authenticateBridge(bearer: string) {
 	return { userId, id, existing, saved };
 }
 
-export async function pollBoschQuestion(bearer: string, failed: string | null) {
+export async function pollBoschQuestion(
+	bearer: string,
+	failed: string | null,
+	protocol: string | null = null,
+	grantHeader: string | null = null,
+	failureCode: string | null = null,
+) {
 	const auth = await authenticateBridge(bearer);
 	if (!auth) return null;
 	const now = Date.now();
-	for (const [key, time] of heartbeats) {
-		if (now - time > 12000) heartbeats.delete(key);
+	for (const [key, beat] of heartbeats) {
+		if (now - beat.time > 12000) heartbeats.delete(key);
 	}
-	heartbeats.set(auth.id, now);
+	const grants = new Set(
+		protocol === "2" ? (grantHeader ?? "").split(",").map((g) => g.trim()) : [],
+	);
+	heartbeats.set(auth.id, { time: now, keyHash: auth.saved.keyHash, grants });
+	for (const pending of detailReads.values()) {
+		if (pending.connectionId !== auth.id) continue;
+		if (
+			pending.keyHash !== auth.saved.keyHash ||
+			!grants.has(requiredBoschGrant(pending.query))
+		) {
+			pending.finish({ status: "consent_required" });
+		} else if (failed === pending.id) {
+			pending.finish({
+				status:
+					failureCode === "access_denied" || failureCode === "not_found"
+						? failureCode
+						: "unavailable",
+			});
+		}
+	}
 	const read = reads.get(auth.id);
-	if (!read || read.keyHash !== auth.saved.keyHash)
-		return { requestId: null, retryAfterMs: 2000 };
+	if (!read || read.keyHash !== auth.saved.keyHash) {
+		const detail = Array.from(detailReads.values()).find(
+			(p) => p.connectionId === auth.id,
+		);
+		return detail
+			? { requestId: detail.id, query: detail.query, retryAfterMs: 1000 }
+			: { requestId: null, retryAfterMs: 2000 };
+	}
 	if (failed === read.id) {
 		read.finish(false);
 		return { requestId: null, retryAfterMs: 2000 };
@@ -152,6 +216,34 @@ export async function acceptBoschUpload(
 	const auth = await authenticateBridge(bearer);
 	if (!auth) return 401;
 	const { userId, id, existing, saved } = auth;
+	const detail = requestId ? detailReads.get(requestId) : null;
+	if (detail) {
+		if (detail.connectionId !== id || detail.keyHash !== saved.keyHash)
+			return 409;
+		const body = await readBody();
+		if (
+			typeof body !== "object" ||
+			!body ||
+			Object.keys(body).length !== 2 ||
+			!("query" in body) ||
+			!("result" in body)
+		)
+			return 400;
+		const query = parseBoschDetailQuery(body.query);
+		if (!query || JSON.stringify(query) !== JSON.stringify(detail.query))
+			return 400;
+		const result = parseBoschDetailResult(query, body.result);
+		if (!result) return 400;
+		const current = await authenticateBridge(bearer);
+		if (
+			!current ||
+			detailReads.get(detail.id) !== detail ||
+			!heartbeats.get(id)?.grants.has(requiredBoschGrant(query))
+		)
+			return 409;
+		detail.finish({ status: "ready", result });
+		return 204;
+	}
 	const read = reads.get(id);
 	if (requestId && (read?.id !== requestId || read.keyHash !== saved.keyHash))
 		return 409;
@@ -193,7 +285,7 @@ export async function loadBoschForQuestion(userId: string, id: string) {
 		!connection.capabilities.includes("cycling")
 	)
 		return { snapshot: null, fresh: false };
-	const recentlyOnline = Date.now() - (heartbeats.get(id) ?? 0) <= 12000;
+	const recentlyOnline = Date.now() - (heartbeats.get(id)?.time ?? 0) <= 12000;
 	if (!recentlyOnline)
 		return { snapshot: await readBoschSnapshot(userId, id), fresh: false };
 	const grant = await getConnectionSecretSnapshot(userId, id);
@@ -220,6 +312,63 @@ export async function loadBoschForQuestion(userId: string, id: string) {
 	const fresh = await pending.finished;
 	const snapshot = await readBoschSnapshot(userId, id);
 	return { snapshot, fresh: fresh && snapshot !== null };
+}
+
+// Details answer only the question that requested them. No detailed response is
+// written to the saved summary, served to another rider, or reused offline.
+export async function loadBoschDetailForQuestion(
+	userId: string,
+	id: string,
+	input: BoschDetailQuery,
+): Promise<DetailAnswer> {
+	const query = parseBoschDetailQuery(input);
+	if (!query) return { status: "unavailable" };
+	const conn = await getConnection(userId, id);
+	if (
+		conn?.provider !== "bosch" ||
+		conn.status !== "connected" ||
+		!conn.capabilities.includes("cycling")
+	)
+		return { status: "offline" };
+	const beat = heartbeats.get(id);
+	const grant = await getConnectionSecretSnapshot(userId, id);
+	if (
+		!beat ||
+		Date.now() - beat.time > 12000 ||
+		!grant ||
+		JSON.parse(grant.value).keyHash !== beat.keyHash
+	)
+		return { status: "offline" };
+	if (!beat.grants.has(requiredBoschGrant(query)))
+		return { status: "consent_required" };
+	const active = Array.from(detailReads.values()).filter(
+		(p) => p.connectionId === id && p.keyHash === beat.keyHash,
+	);
+	const existing = active.find(
+		(p) => JSON.stringify(p.query) === JSON.stringify(query),
+	);
+	if (existing) return existing.finished;
+	if (active.length >= 4) return { status: "unavailable" };
+	const requestId = randomUUID();
+	let resolve!: (answer: DetailAnswer) => void;
+	const finished = new Promise<DetailAnswer>((done) => {
+		resolve = done;
+	});
+	const finish = (answer: DetailAnswer) => {
+		clearTimeout(timeout);
+		detailReads.delete(requestId);
+		resolve(answer);
+	};
+	const timeout = setTimeout(() => finish({ status: "unavailable" }), 15000);
+	detailReads.set(requestId, {
+		id: requestId,
+		connectionId: id,
+		keyHash: beat.keyHash,
+		query,
+		finished,
+		finish,
+	});
+	return finished;
 }
 
 registerConnectionAdapter({

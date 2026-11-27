@@ -43,6 +43,16 @@ export const CONNECTOR_PHRASES: Readonly<
 	cycling: {
 		actions: {
 			bikes: "toolRows.connector.cycling.bikes",
+			bike_profile: "toolRows.connector.cycling.bike_profile",
+			bike_pass: "toolRows.connector.cycling.bike_pass",
+			bike_registration: "toolRows.connector.cycling.bike_registration",
+			service_history: "toolRows.connector.cycling.service_history",
+			software_updates: "toolRows.connector.cycling.software_updates",
+			battery_capacity: "toolRows.connector.cycling.battery_capacity",
+			ride_detail: "toolRows.connector.cycling.ride_detail",
+			ride_stream: "toolRows.connector.cycling.ride_stream",
+			ride_fitness: "toolRows.connector.cycling.ride_fitness",
+			ride_route: "toolRows.connector.cycling.ride_route",
 			rides: "toolRows.connector.cycling.rides",
 			summary: "toolRows.connector.cycling.summary",
 		},

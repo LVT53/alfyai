@@ -481,7 +481,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	cycling: {
 		description:
-			"Read the rider’s Bosch bikes, rides or distance totals between two ISO times. Ask the rider service now. State when a fallback is cached or history is incomplete. Do not use for directions or live bike location.",
+			"Read Bosch bikes/rides or period totals (start/end). For details select a bike or ride id from those lists, then request its profile, pass, registration, service, updates, capacity, ride metrics or route. Continue using nextOffset. Report cached or incomplete data. Do not use for directions or live tracking.",
 		errorPrefix: "Cycling lookup failed",
 	},
 	teams: {
@@ -3266,6 +3266,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												input: safeInput,
 												status: "done",
 												outputSummary: modelPayload.message,
+												// The detailed response is for the current question; keep only its status in history.
+												...(modelPayload.detail
+													? { resultDigest: modelPayload.message }
+													: {}),
 												sourceType: "tool",
 												candidates,
 												metadata: {

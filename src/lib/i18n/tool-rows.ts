@@ -13,6 +13,28 @@
 
 const toolRowsDict = {
 	en: {
+		"toolRows.connector.cycling.detail_access_denied":
+			"Bosch did not authorize this read. Check your client under the bike in Flow’s Manage Access page.",
+		"toolRows.connector.cycling.detail_consent_required":
+			"Enable this data group on your private Bosch setup page to read it here.",
+		"toolRows.connector.cycling.detail_unavailable":
+			"These details could not be read from your rider service. Try again when it is online.",
+		"toolRows.connector.cycling.bike_profile":
+			"Read the selected bike’s specifications",
+		"toolRows.connector.cycling.bike_pass": "Read the selected bike’s pass",
+		"toolRows.connector.cycling.bike_registration":
+			"Checked the bike and component registrations",
+		"toolRows.connector.cycling.service_history":
+			"Read the bike’s service records",
+		"toolRows.connector.cycling.software_updates":
+			"Read the bike’s software installation history",
+		"toolRows.connector.cycling.battery_capacity":
+			"Read the selected battery’s capacity tests",
+		"toolRows.connector.cycling.ride_detail": "Read details for one ride",
+		"toolRows.connector.cycling.ride_stream": "Read measurements from one ride",
+		"toolRows.connector.cycling.ride_fitness":
+			"Read fitness measurements for one ride",
+		"toolRows.connector.cycling.ride_route": "Read coordinates from one ride",
 		"toolRows.connector.cycling.no_visible_rider_data":
 			"No bikes or rides were visible. In Bosch Flow, open Manage Access and turn on your client under your bike.",
 		"toolRows.connector.cycling.cached_rider_data":
@@ -33,7 +55,7 @@ const toolRowsDict = {
 		"toolRows.connector.cycling.read_only_account":
 			"This cycling connection only allows reading.",
 		"toolRows.connector.cycling.item_not_found":
-			"That bike or ride was not found.",
+			"Bosch returned no matching record. Some bikes have no published dealer report or battery test.",
 		"toolRows.connector.cycling.not_supported":
 			"Choose a valid period for the ride summary.",
 		"toolRows.connector.cycling.not_set_up":
@@ -576,6 +598,31 @@ const toolRowsDict = {
 		"toolRows.atlas.atlas_v3_no_sections": "Atlas couldn't write the report.",
 	},
 	hu: {
+		"toolRows.connector.cycling.detail_access_denied":
+			"A Bosch nem engedélyezte a lekérést. A Flow „Manage Access” oldalán ellenőrizd a saját kliensedet a kerékpárod alatt.",
+		"toolRows.connector.cycling.detail_consent_required":
+			"A részletek olvasásához engedélyezd ezt az adatcsoportot a saját Bosch-beállítási oldaladon.",
+		"toolRows.connector.cycling.detail_unavailable":
+			"Ezeket a részleteket nem sikerült lekérni. Próbáld újra, amikor a kerékpáros szolgáltatásod elérhető.",
+		"toolRows.connector.cycling.bike_profile":
+			"Megnézte a kiválasztott kerékpár műszaki adatait",
+		"toolRows.connector.cycling.bike_pass":
+			"Megnézte a kiválasztott kerékpár igazolványát",
+		"toolRows.connector.cycling.bike_registration":
+			"Megnézte a kerékpár és az alkatrészek regisztrációját",
+		"toolRows.connector.cycling.service_history":
+			"Megnézte a kerékpár szervizbejegyzéseit",
+		"toolRows.connector.cycling.software_updates":
+			"Megnézte a kerékpár szoftverfrissítési előzményeit",
+		"toolRows.connector.cycling.battery_capacity":
+			"Megnézte a kiválasztott akkumulátor kapacitástesztjeit",
+		"toolRows.connector.cycling.ride_detail": "Megnézte egy kerékpárút adatait",
+		"toolRows.connector.cycling.ride_stream":
+			"Megnézte egy kerékpárút mérési adatait",
+		"toolRows.connector.cycling.ride_fitness":
+			"Megnézte egy kerékpárút teljesítményadatait",
+		"toolRows.connector.cycling.ride_route":
+			"Megnézte egy kerékpárút útvonalának koordinátáit",
 		"toolRows.connector.cycling.no_visible_rider_data":
 			"Nem látható kerékpár vagy út. A Bosch Flow „Manage Access” menüjében a kerékpárod alatt kapcsold be a saját kliensedet.",
 		"toolRows.connector.cycling.cached_rider_data":
@@ -597,7 +644,7 @@ const toolRowsDict = {
 		"toolRows.connector.cycling.read_only_account":
 			"Ez a kerékpároskapcsolat csak olvasást engedélyez.",
 		"toolRows.connector.cycling.item_not_found":
-			"Nem található ez a kerékpár vagy út.",
+			"A Bosch nem adott vissza megfelelő bejegyzést. Nem minden kerékpárhoz érhető el szervizjelentés vagy akkumulátorteszt.",
 		"toolRows.connector.cycling.not_supported":
 			"Válassz érvényes időszakot a kerékpárutak összesítéséhez.",
 		"toolRows.connector.cycling.not_set_up":

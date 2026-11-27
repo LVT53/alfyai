@@ -15,7 +15,7 @@ import { t } from "$lib/i18n";
 			{$t('connections.wizard.bosch.submitClient')}
 		</li>
 		<li><a href="https://flow.bosch-ebike.com/data-act" target="_blank" rel="noopener noreferrer">Bosch Flow</a> — {$t('connections.wizard.bosch.enable')}</li>
-		<li>{$t('connections.wizard.bosch.pair')}<p>{$t('connections.wizard.bosch.authorize')}</p></li>
+		<li>{$t('connections.wizard.bosch.pair')}<p>{$t('connections.wizard.bosch.authorize')}</p><p>{$t('connections.wizard.bosch.detailConsent')}</p></li>
 		<li><a href="https://flow.bosch-ebike.com/data-act" target="_blank" rel="noopener noreferrer">Manage Access</a> — {$t('connections.wizard.bosch.bikeAccess')}</li>
 	</ol>
 	<p>{$t('connections.wizard.bosch.hosting')}</p>

@@ -248,6 +248,13 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		...cyclingWords,
 		codes: {
 			...cyclingWords.codes,
+			detail_access_denied: stop(
+				"toolRows.connector.cycling.detail_access_denied",
+			),
+			detail_consent_required: stop(
+				"toolRows.connector.cycling.detail_consent_required",
+			),
+			detail_unavailable: fail("toolRows.connector.cycling.detail_unavailable"),
 			no_visible_rider_data: stop(
 				"toolRows.connector.cycling.no_visible_rider_data",
 			),

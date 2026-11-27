@@ -4,7 +4,10 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "../connections/locality";
-import { loadBoschForQuestion } from "../connections/providers/bosch-flow-bridge";
+import {
+	loadBoschDetailForQuestion,
+	loadBoschForQuestion,
+} from "../connections/providers/bosch-flow-bridge";
 import { resolveConnectionsForCapability } from "../connections/resolve";
 import type { ConnectionPublic } from "../connections/store";
 import { runCyclingTool } from "./cycling";
@@ -16,6 +19,7 @@ vi.mock("../connections/resolve", async (importOriginal) => ({
 }));
 vi.mock("../connections/providers/bosch-flow-bridge", () => ({
 	loadBoschForQuestion: vi.fn(),
+	loadBoschDetailForQuestion: vi.fn(),
 }));
 vi.mock("../connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
@@ -189,3 +193,84 @@ it("can still report zero in a requested range with data from another period", a
 		summary: { rideCount: 0, distanceMeters: 0 },
 	});
 });
+
+it("requires current detail consent without serving cached summaries as detail", async () => {
+	vi.mocked(loadBoschDetailForQuestion).mockResolvedValue({
+		status: "consent_required",
+	});
+	const out = await runCyclingTool(
+		"rider",
+		{ action: "bike_profile", id: "b1" },
+		"model",
+	);
+	expect(loadBoschDetailForQuestion).toHaveBeenCalledWith(
+		"rider",
+		"personal-1",
+		{ action: "bike_profile", id: "b1" },
+	);
+	expect(loadBoschForQuestion).not.toHaveBeenCalled();
+	expect(out.modelPayload.success).toBe(false);
+	expect(reasonCodeOf(out.modelPayload)).toBe("detail_consent_required");
+});
+it("distills detailed location locally and never returns the raw fields or candidates to a protected cloud turn", async () => {
+	vi.mocked(loadBoschDetailForQuestion).mockResolvedValue({
+		status: "ready",
+		result: {
+			fields: [{ path: "activityDetails.0.longitude", value: 72.114839 }],
+			nextOffset: null,
+		},
+	});
+	vi.mocked(hasLocalDistillEnabled).mockResolvedValue(true);
+	vi.mocked(isCloudModel).mockResolvedValue(true);
+	vi.mocked(distillConnectorPayload)
+		.mockResolvedValueOnce({ distilled: "The ride crossed town." })
+		.mockResolvedValueOnce({ unavailable: true });
+	for (const expected of ["The ride crossed town.", "withheld"]) {
+		const out = await runCyclingTool(
+			"rider",
+			{ action: "ride_route", id: "r1" },
+			"cloud",
+		);
+		expect(out.modelPayload.message).toContain(expected);
+		expect(out.modelPayload.detail).toBeUndefined();
+		expect(out.candidates).toEqual([]);
+		expect(JSON.stringify(out)).not.toContain("72.114839");
+	}
+});
+
+it("includes Bosch units for a requested odometer, preserving the selected bike and path", async () => {
+	vi.mocked(loadBoschDetailForQuestion).mockResolvedValue({
+		status: "ready",
+		result: {
+			fields: [{ path: "driveUnit.odometer", value: 21000 }],
+			nextOffset: null,
+		},
+	});
+	const { modelPayload } = await runCyclingTool(
+		"rider",
+		{ action: "bike_profile", id: "b1", field: "driveUnit.odometer" },
+		"model",
+	);
+	expect(modelPayload.units).toEqual({ "driveUnit.odometer": "m" });
+	expect(modelPayload.detail?.fields).toEqual([
+		{ path: "driveUnit.odometer", value: 21000 },
+	]);
+});
+it.each([
+	["access_denied", "detail_access_denied"],
+	["not_found", "item_not_found"],
+	["offline", "detail_unavailable"],
+] as const)(
+	"keeps %s separate from a zero-valued dealer measurement",
+	async (status, reason) => {
+		vi.mocked(loadBoschDetailForQuestion).mockResolvedValue({ status });
+		const { modelPayload } = await runCyclingTool(
+			"rider",
+			{ action: "battery_capacity", id: "b1" },
+			"model",
+		);
+		expect(reasonCodeOf(modelPayload)).toBe(reason);
+		expect(modelPayload.summary).toBeNull();
+		expect(modelPayload.detail).toBeUndefined();
+	},
+);

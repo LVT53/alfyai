@@ -3,6 +3,8 @@
 
 const connectionsDict = {
 	en: {
+		"connections.wizard.bosch.detailConsent":
+			"Existing permission covers bike names and ride summaries. On your private setup page, “Allow all supported data” also shares technical and service records (including serial numbers and dealer addresses), fitness measurements and precise ride coordinates. You can choose the groups individually. Alfy reads details on demand while your service is online. A dealer report or battery test may be unavailable for your bike.",
 		"connections.wizard.bosch.bikeAccess":
 			"After Bosch sign-in, reopen the Bosch Flow Data Act page. Choose “Manage Access”. Under the bike you want AlfyAI to read, switch on your personal client. Repeat for each bike you want to share, then ask AlfyAI about your rides.",
 		"connections.wizard.bosch.authorize":
@@ -773,6 +775,8 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.wizard.bosch.detailConsent":
+			"A meglévő engedély a kerékpárok nevére és az utak összesítésére vonatkozik. A saját beállítási oldaladon a „Minden támogatott adat engedélyezése” megosztja a műszaki és szervizadatokat (köztük a sorozatszámokat és a szervizcímeket), a teljesítményadataidat és a pontos útvonalat is. Külön is kiválaszthatod a csoportokat. A részleteket Alfy kérdésedre, az elérhető szolgáltatásból kéri le. Nem minden kerékpárhoz érhető el szervizjelentés vagy akkumulátorteszt.",
 		"connections.wizard.bosch.bikeAccess":
 			"A Bosch-bejelentkezés után nyisd meg újra a Bosch Flow Data Act oldalát, és válaszd a „Manage Access” menüt. A megosztani kívánt kerékpár alatt kapcsold be a személyes kliensedet. Ismételd meg minden megosztandó kerékpárnál, majd kérdezz rá az útjaidra az AlfyAI-ban.",
 		"connections.wizard.bosch.authorize":
