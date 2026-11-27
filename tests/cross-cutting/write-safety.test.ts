@@ -163,6 +163,7 @@ function jsonResponse(
 async function seedConnection(params: {
 	provider: "nextcloud" | "google" | "apple" | "imap" | "immich";
 	allowWrites?: boolean;
+	oauthScopes?: string[];
 	writeAllowlist?: string[];
 	config?: Record<string, unknown>;
 	secret?: string;
@@ -187,6 +188,11 @@ async function seedConnection(params: {
 		],
 		status: "connected",
 		secret: params.secret ?? "secret-value",
+		oauthScopes:
+			params.oauthScopes ??
+			(params.provider === "google"
+				? ["https://www.googleapis.com/auth/calendar.events"]
+				: []),
 		allowWrites: params.allowWrites ?? true,
 		writeAllowlist: params.writeAllowlist ?? [],
 		config: params.config ?? {},
@@ -1084,6 +1090,31 @@ describe("write-safety point 5 — conditional overwrite refuses on mismatch", (
 	// asserted as `it.fails`, because it correctly reflects the documented
 	// design (Google's PATCH is a partial update, no conditional header is
 	// sent at all) rather than a bug to pin as a gap.
+	it("refuses a calendar confirmation on a Google account granted only Gmail management", async () => {
+		const connectionId = await seedConnection({
+			provider: "google",
+			oauthScopes: ["https://www.googleapis.com/auth/gmail.modify"],
+		});
+		const executor = await executorFor("google");
+		const fetch = vi.fn();
+		const result = await executor.execute(
+			USER_ID,
+			connectionId,
+			{
+				provider: "google",
+				connectionId,
+				action: "calendar.delete_event",
+				summary: "Delete meeting",
+				destructive: true,
+				reversible: true,
+				target: { id: "event", label: "meeting" },
+			},
+			JSON.stringify({ calendarId: "primary", uid: "event" }),
+			{ fetch },
+		);
+		expect(result).toEqual({ ok: false, reason: "not_allowed" });
+		expect(fetch).not.toHaveBeenCalled();
+	});
 	it("google (documented N/A/current-behavior): update_event PATCHes unconditionally — no If-Match header is ever sent", async () => {
 		const connectionId = await seedConnection({ provider: "google" });
 		let sawHeaders: Record<string, string> = {};
