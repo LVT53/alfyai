@@ -112,6 +112,23 @@ export async function runCyclingTool(
 				: `The service could not return live data. Only cached records from ${new Date(snapshot.syncedAt).toISOString()} are available. State that timestamp in the answer.`,
 		};
 
+		// Check the original snapshot before applying a date range or pagination.
+		if (!snapshot.bikes.length && !snapshot.rides.length) {
+			return {
+				modelPayload: withReasonCode(
+					{
+						...data,
+						success: false,
+						complete: false,
+						message:
+							data.message +
+							" No bikes or rides were visible in this snapshot. Lifetime totals and ride history are unknown. Ask the rider to reopen Bosch Flow Data Act, choose Manage Access and switch on their own client under the bike, then ask again.",
+					},
+					"no_visible_rider_data",
+				),
+				candidates: [],
+			};
+		}
 		if (input.action === "bikes") data.bikes = snapshot.bikes;
 		else {
 			const rides = [...new Map(snapshot.rides.map((r) => [r.id, r])).values()]

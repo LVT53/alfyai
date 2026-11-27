@@ -248,6 +248,9 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		...cyclingWords,
 		codes: {
 			...cyclingWords.codes,
+			no_visible_rider_data: stop(
+				"toolRows.connector.cycling.no_visible_rider_data",
+			),
 			cached_rider_data: info("toolRows.connector.cycling.cached_rider_data"),
 		},
 	},

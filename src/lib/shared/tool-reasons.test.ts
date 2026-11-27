@@ -84,6 +84,7 @@ describe("tool reason codes", () => {
 		expect(TOOL_REASON_CODES.cycling).toEqual([
 			...CONNECTOR_REASON_CODES,
 			"cached_rider_data",
+			"no_visible_rider_data",
 		]);
 		for (const name of CONNECTOR_TOOL_NAMES) {
 			if (name !== "calendar" && name !== "cycling")

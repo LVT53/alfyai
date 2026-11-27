@@ -3,9 +3,11 @@
 
 const connectionsDict = {
 	en: {
+		"connections.wizard.bosch.bikeAccess":
+			"After Bosch sign-in, reopen the Bosch Flow Data Act page. Choose “Manage Access”. Under the bike you want AlfyAI to read, switch on your personal client. Repeat for each bike you want to share, then ask AlfyAI about your rides.",
 		"connections.wizard.bosch.authorize":
 			"Select “Sign in with Bosch”, review the fields in the preview, then choose to save your credentials on this server and allow future cycling questions to fetch those fields.",
-		"connections.wizard.bosch.steps": "Set up Bosch eBike Flow in 4 steps",
+		"connections.wizard.bosch.steps": "Set up Bosch eBike Flow in 5 steps",
 		"connections.wizard.bosch.register":
 			"Choose “I am a user”, review “Data processing consent”, then select “Confirm”.",
 		"connections.wizard.bosch.client":
@@ -771,10 +773,12 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.wizard.bosch.bikeAccess":
+			"A Bosch-bejelentkezés után nyisd meg újra a Bosch Flow Data Act oldalát, és válaszd a „Manage Access” menüt. A megosztani kívánt kerékpár alatt kapcsold be a személyes kliensedet. Ismételd meg minden megosztandó kerékpárnál, majd kérdezz rá az útjaidra az AlfyAI-ban.",
 		"connections.wizard.bosch.authorize":
 			"Válaszd a „Bejelentkezés a Boschnál” gombot, majd nézd át az előnézet mezőit. Engedélyezd a hitelesítő adatok mentését ezen a szerveren és az adatlekérést a későbbi kerékpáros kérdéseidhez.",
 		"connections.wizard.bosch.steps":
-			"A Bosch eBike Flow beállítása 4 lépésben",
+			"A Bosch eBike Flow beállítása 5 lépésben",
 		"connections.wizard.bosch.register":
 			"Válaszd az „I am a user” lehetőséget, olvasd el a „Data processing consent” nyilatkozatot, majd válaszd a „Confirm” gombot.",
 		"connections.wizard.bosch.client":

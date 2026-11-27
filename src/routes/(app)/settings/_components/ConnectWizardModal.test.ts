@@ -88,21 +88,21 @@ describe("ConnectWizardModal", () => {
 	});
 
 	it.each(["en", "hu"] as const)(
-		"shows the rider the four individual setup steps in %s",
+		"shows the rider the five individual setup steps in %s",
 		async (locale) => {
 			uiLanguage.set(locale);
 			try {
 				render(ConnectWizardModal, baseProps({ provider: "bosch" }));
 				const summary = screen.getByText(
 					locale === "en"
-						? "Set up Bosch eBike Flow in 4 steps"
-						: "A Bosch eBike Flow beállítása 4 lépésben",
+						? "Set up Bosch eBike Flow in 5 steps"
+						: "A Bosch eBike Flow beállítása 5 lépésben",
 				);
 				const details = summary.closest("details");
 				expect(details).not.toHaveAttribute("open");
 				await fireEvent.click(summary);
 				expect(details).toHaveAttribute("open");
-				expect(screen.getAllByRole("listitem")).toHaveLength(4);
+				expect(screen.getAllByRole("listitem")).toHaveLength(5);
 				expect(
 					screen.getByRole("link", { name: "Bosch Partner Portal" }),
 				).toHaveAttribute("href", "https://portal.bosch-ebike.com/data-act");
@@ -120,6 +120,7 @@ describe("ConnectWizardModal", () => {
 					"Submit",
 					"SingleKey ID",
 					"Enable service",
+					"Manage Access",
 					"https://ai.alfydesign.com/settings",
 					"http://127.0.0.1:47831/callback",
 					"1.1.3",

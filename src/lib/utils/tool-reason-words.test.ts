@@ -158,6 +158,7 @@ describe("the words of every tool outcome", () => {
 			"writes_turned_off",
 			"calendar_edit_consent",
 			"online_meeting_notes",
+			"no_visible_rider_data",
 			"read_only_account",
 			"not_supported",
 			"not_set_up",

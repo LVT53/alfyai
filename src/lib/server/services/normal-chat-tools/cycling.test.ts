@@ -134,3 +134,58 @@ it("hides raw personal ride data when a cloud model receives a local summary", a
 	expect(JSON.stringify(out.modelPayload)).not.toContain("Private bike");
 	expect(out.candidates).toEqual([]);
 });
+
+it.each([true, false])(
+	"treats an entirely empty Bosch snapshot as unverified access (fresh=%s)",
+	async (fresh) => {
+		vi.mocked(loadBoschForQuestion).mockResolvedValue({
+			snapshot: { ...snapshot, complete: true, bikes: [], rides: [] },
+			fresh,
+		});
+		vi.mocked(hasLocalDistillEnabled).mockResolvedValue(true);
+		vi.mocked(isCloudModel).mockResolvedValue(true);
+		for (const action of ["bikes", "rides", "summary"] as const) {
+			const { modelPayload, candidates } = await runCyclingTool(
+				"rider",
+				{ action, start, end },
+				"cloud",
+			);
+			expect(modelPayload).toMatchObject({
+				success: false,
+				complete: false,
+				summary: null,
+				fresh,
+				syncedAt: new Date(snapshot.syncedAt).toISOString(),
+			});
+			expect(modelPayload.message).toContain("Manage Access");
+			if (!fresh)
+				expect(modelPayload.message).toContain(
+					new Date(snapshot.syncedAt).toISOString(),
+				);
+			expect(candidates).toEqual([]);
+			expect(reasonCodeOf(modelPayload)).toBe("no_visible_rider_data");
+		}
+		expect(distillConnectorPayload).not.toHaveBeenCalled();
+	},
+);
+it("can still report zero in a requested range with data from another period", async () => {
+	vi.mocked(loadBoschForQuestion).mockResolvedValue({
+		snapshot: {
+			...snapshot,
+			complete: true,
+			bikes: [],
+			rides: [{ ...ride, startTime: end }],
+		},
+		fresh: true,
+	});
+	const { modelPayload } = await runCyclingTool(
+		"rider",
+		{ action: "summary", start, end },
+		"model",
+	);
+	expect(modelPayload).toMatchObject({
+		success: true,
+		complete: true,
+		summary: { rideCount: 0, distanceMeters: 0 },
+	});
+});

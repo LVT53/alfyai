@@ -104,7 +104,11 @@ export const TOOL_REASON_CODES = {
 		"calendar_edit_consent",
 		"online_meeting_notes",
 	],
-	cycling: [...CONNECTOR_REASON_CODES, "cached_rider_data"],
+	cycling: [
+		...CONNECTOR_REASON_CODES,
+		"cached_rider_data",
+		"no_visible_rider_data",
+	],
 	teams: CONNECTOR_REASON_CODES,
 	contacts: CONNECTOR_REASON_CODES,
 	email: CONNECTOR_REASON_CODES,

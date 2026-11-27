@@ -131,11 +131,15 @@ describe("the guide page", () => {
 			await fireEvent.click(
 				row.getByText(
 					language === "en"
-						? "Set up Bosch eBike Flow in 4 steps"
-						: "A Bosch eBike Flow beállítása 4 lépésben",
+						? "Set up Bosch eBike Flow in 5 steps"
+						: "A Bosch eBike Flow beállítása 5 lépésben",
 				),
 			);
 			const steps = row.getByRole("list");
+			expect(row.getByRole("link", { name: "Manage Access" })).toHaveAttribute(
+				"href",
+				"https://flow.bosch-ebike.com/data-act",
+			);
 			expect(steps).toHaveTextContent(
 				language === "en" ? "AlfyAI pairing key" : "AlfyAI párosítási kulcs",
 			);

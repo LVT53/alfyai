@@ -13,6 +13,8 @@
 
 const toolRowsDict = {
 	en: {
+		"toolRows.connector.cycling.no_visible_rider_data":
+			"No bikes or rides were visible. In Bosch Flow, open Manage Access and turn on your client under your bike.",
 		"toolRows.connector.cycling.cached_rider_data":
 			"The cycling service was unavailable, so Alfy used the last saved data.",
 		"toolRows.connector.cycling.bikes": "Looked up your bikes",
@@ -574,6 +576,8 @@ const toolRowsDict = {
 		"toolRows.atlas.atlas_v3_no_sections": "Atlas couldn't write the report.",
 	},
 	hu: {
+		"toolRows.connector.cycling.no_visible_rider_data":
+			"Nem látható kerékpár vagy út. A Bosch Flow „Manage Access” menüjében a kerékpárod alatt kapcsold be a saját kliensedet.",
 		"toolRows.connector.cycling.cached_rider_data":
 			"A kerékpáros szolgáltatás nem volt elérhető, ezért Alfy a legutóbb mentett adatokat használta.",
 		"toolRows.connector.cycling.bikes": "Megnézte a kerékpárjaidat",
