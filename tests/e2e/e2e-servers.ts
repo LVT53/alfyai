@@ -285,6 +285,7 @@ export function serverCommand(
 		// Browser fixtures cover the optional Google consent control.
 		GOOGLE_CALENDAR_EVENT_EDITING_ENABLED: "true",
 		GMAIL_TEST_USER_IDS: E2E_GMAIL_PILOT_ID,
+		DRIVE_TEST_USER_IDS: E2E_GMAIL_PILOT_ID,
 		// The explicit-picture filter's classifier is the stub here (honoured only
 		// with PLAYWRIGHT_TEST): it flags one marker colour, so no spec needs the
 		// model file or an explicit picture (images-picture-filter.spec.ts).

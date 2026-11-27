@@ -7,12 +7,14 @@ import { config as envConfig } from "$lib/server/env";
 import {
 	isMicrosoftReadCapability,
 	isMicrosoftWritePermission,
+	isTeamsCapability,
 	MICROSOFT_READ_SCOPES,
 	MICROSOFT_WRITE_SCOPES,
 	type MicrosoftReadCapability,
 	type MicrosoftWritePermission,
 	microsoftReadGranted,
 	microsoftWriteCapability,
+	TEAMS_DISCOVERY_SCOPES,
 } from "$lib/shared/microsoft-permissions";
 import { oneDriveDocumentUrl } from "$lib/shared/onedrive-links";
 import { registerConnectionAdapter } from "../adapters";
@@ -113,6 +115,10 @@ function scopesForCapabilities(
 		...new Set([
 			...BASE_SCOPES,
 			...mapped,
+			...(capabilities.includes("teams_channels") ||
+			capabilities.includes("teams_files")
+				? TEAMS_DISCOVERY_SCOPES
+				: []),
 			...writePermissions.map(
 				(permission) => MICROSOFT_WRITE_SCOPES[permission],
 			),
@@ -127,6 +133,11 @@ function capabilitiesFromScope(scope: string): Capability[] {
 		.filter((cap) => microsoftReadGranted(scopes, cap));
 }
 
+// Both ends of a Teams authorization use the organizational authority, which
+// cannot issue a consumer-account grant.
+function microsoftAuthority(url: string, organization: boolean) {
+	return organization ? url.replace("/common/", "/organizations/") : url;
+}
 function redirectUriFor(origin: string): string {
 	return `${origin}/api/oauth/onedrive/callback`;
 }
@@ -308,7 +319,12 @@ export async function onedriveConnectStart(params: {
 		capabilities: params.capabilities,
 	});
 
-	const url = new URL(MS_AUTH_URL);
+	const url = new URL(
+		microsoftAuthority(
+			MS_AUTH_URL,
+			params.capabilities.some(isTeamsCapability),
+		),
+	);
 	url.searchParams.set("client_id", clientId);
 	url.searchParams.set("redirect_uri", redirectUriFor(params.origin));
 	url.searchParams.set("response_type", "code");
@@ -403,6 +419,7 @@ async function upsertOneDriveConnection(params: {
 	userId: string;
 	email: string;
 	graphId: string;
+	organizationAccount: boolean;
 	fetchImpl: typeof fetch;
 	upn?: string;
 	connectionId?: string;
@@ -488,6 +505,9 @@ async function upsertOneDriveConnection(params: {
 	const config = {
 		...existing?.config,
 		microsoftAccountId: params.graphId,
+		...(params.organizationAccount
+			? { microsoftOrganizationAccount: true }
+			: {}),
 		microsoftLogin: params.upn || params.email,
 	};
 	const allowWrites = Object.values(MICROSOFT_WRITE_SCOPES).some((scope) =>
@@ -558,19 +578,23 @@ export async function onedriveConnectFinish(
 	const statePayload = verifyOAuthState(params.state);
 	const { clientId, clientSecret } = requireOneDriveCredentials();
 
-	const tokenResponse = await providerFetch(MS_TOKEN_URL, {
-		fetch: fetchImpl,
-		timeoutError: onedriveTimeout,
-		method: "POST",
-		headers: { "Content-Type": "application/x-www-form-urlencoded" },
-		body: new URLSearchParams({
-			grant_type: "authorization_code",
-			code: params.code,
-			client_id: clientId,
-			client_secret: clientSecret,
-			redirect_uri: redirectUriFor(params.origin),
-		}).toString(),
-	});
+	const organizationAccount = statePayload.capabilities.some(isTeamsCapability);
+	const tokenResponse = await providerFetch(
+		microsoftAuthority(MS_TOKEN_URL, organizationAccount),
+		{
+			fetch: fetchImpl,
+			timeoutError: onedriveTimeout,
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({
+				grant_type: "authorization_code",
+				code: params.code,
+				client_id: clientId,
+				client_secret: clientSecret,
+				redirect_uri: redirectUriFor(params.origin),
+			}).toString(),
+		},
+	);
 	const tokenBody: unknown = await tokenResponse.json().catch(() => null);
 
 	if (!tokenResponse.ok || !isValidTokenResponse(tokenBody)) {
@@ -624,10 +648,13 @@ export async function onedriveConnectFinish(
 		userId: statePayload.userId,
 		email,
 		graphId: userinfoBody.id,
+		organizationAccount,
 		fetchImpl,
 		upn: userinfoBody.userPrincipalName,
 		connectionId: statePayload.connectionId,
-		capabilities: capabilitiesFromScope(scope),
+		capabilities: capabilitiesFromScope(scope).filter((cap) =>
+			statePayload.capabilities.includes(cap),
+		),
 		refreshToken: tokenBody.refresh_token,
 		accessToken: tokenBody.access_token,
 		scope,
@@ -710,28 +737,35 @@ async function refreshAccessToken(
 
 	const { clientId, clientSecret } = requireOneDriveCredentials();
 
-	const response = await providerFetch(MS_TOKEN_URL, {
-		fetch: fetchImpl,
-		timeoutError: onedriveTimeout,
-		method: "POST",
-		headers: { "Content-Type": "application/x-www-form-urlencoded" },
-		body: new URLSearchParams({
-			grant_type: "refresh_token",
-			refresh_token: secret.refreshToken,
-			client_id: clientId,
-			client_secret: clientSecret,
-			scope: [
-				...new Set([
-					...BASE_SCOPES,
-					...conn.oauthScopes.filter(
-						(scope) =>
-							Object.values(MICROSOFT_READ_SCOPES).some((s) => s === scope) ||
-							Object.values(MICROSOFT_WRITE_SCOPES).some((s) => s === scope),
-					),
-				]),
-			].join(" "),
-		}).toString(),
-	});
+	const response = await providerFetch(
+		microsoftAuthority(
+			MS_TOKEN_URL,
+			conn.config.microsoftOrganizationAccount === true,
+		),
+		{
+			fetch: fetchImpl,
+			timeoutError: onedriveTimeout,
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({
+				grant_type: "refresh_token",
+				refresh_token: secret.refreshToken,
+				client_id: clientId,
+				client_secret: clientSecret,
+				scope: [
+					...new Set([
+						...BASE_SCOPES,
+						...conn.oauthScopes.filter(
+							(scope) =>
+								TEAMS_DISCOVERY_SCOPES.some((s) => s === scope) ||
+								Object.values(MICROSOFT_READ_SCOPES).some((s) => s === scope) ||
+								Object.values(MICROSOFT_WRITE_SCOPES).some((s) => s === scope),
+						),
+					]),
+				].join(" "),
+			}).toString(),
+		},
+	);
 	const body: unknown = await response.json().catch(() => null);
 
 	if (!response.ok) {
@@ -775,7 +809,8 @@ async function refreshAccessToken(
 	const narrowed = conn.oauthScopes.some(
 		(scope) =>
 			!oauthScopes.includes(scope) &&
-			(Object.values(MICROSOFT_READ_SCOPES).some((s) => s === scope) ||
+			(TEAMS_DISCOVERY_SCOPES.some((s) => s === scope) ||
+				Object.values(MICROSOFT_READ_SCOPES).some((s) => s === scope) ||
 				Object.values(MICROSOFT_WRITE_SCOPES).some((s) => s === scope)),
 	);
 	const refreshed = await updateConnection(
@@ -864,13 +899,16 @@ async function checkHealth(
 			calendar: "/me/calendar?$select=id",
 			email: "/me/mailFolders/inbox?$select=id",
 			contacts: "/me/contacts?$select=id&$top=1",
+			teams_chat: "/me/chats?$select=id&$top=1",
+			teams_channels: "/me/joinedTeams?$select=id",
+			teams_files: "/me/joinedTeams?$select=id",
 		};
 		const paths = conn.capabilities
 			.filter(isMicrosoftReadCapability)
 			.map((cap) => probe[cap]);
 		if (paths.length === 0) paths.push("/me?$select=id");
 		const responses = await Promise.all(
-			paths.map((path) =>
+			[...new Set(paths)].map((path) =>
 				providerFetch(GRAPH_BASE + path, {
 					fetch: fetchImpl,
 					headers: bearerAuthHeader(accessToken),
@@ -977,6 +1015,19 @@ export async function onedriveGetAccessTokenForRead(
 	opts?: FetchOpt,
 	capability: MicrosoftReadCapability = "files",
 ): Promise<string> {
+	if (isTeamsCapability(capability)) {
+		const current = await getConnection(conn.userId, conn.id);
+		if (
+			current?.provider !== "onedrive" ||
+			current.status !== "connected" ||
+			current.config.microsoftOrganizationAccount !== true
+		)
+			throw new OneDriveError(
+				"A connected work or school Microsoft account is required",
+				"needs_reauth",
+			);
+		conn = current;
+	}
 	if (
 		!conn.capabilities.includes(capability) ||
 		!microsoftReadGranted(conn.oauthScopes, capability)

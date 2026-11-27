@@ -18,10 +18,11 @@
  * picture included), and the single card's picture button stands beside its
  * link.
  */
-import { ChevronDown } from "@lucide/svelte";
+import { ChevronDown,Download } from "@lucide/svelte";
 import { tick } from "svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
+import { googleDriveDocumentUrl } from "$lib/shared/google-drive-links";
 import type { ToolCallFileCard } from "$lib/server/services/messages-types";
 import {
 	type AttachmentFileType,
@@ -41,7 +42,24 @@ import {
 } from "./image-lightbox-loader";
 import { replayEarlyImageEvent } from "$lib/utils/early-image-event";
 
-let { cards }: { cards: ToolCallFileCard[] } = $props();
+let { cards: storedCards }: { cards: ToolCallFileCard[] } = $props();
+// Drive supplies click-through links only. Historical cards are revalidated
+// here too, before their contents become an href or an automatic image load.
+const cards = $derived(
+	storedCards.flatMap((card) => {
+		if (card.provider !== "google") return [card];
+		const webUrl = googleDriveDocumentUrl(card.webUrl);
+		return webUrl ? [{ ...card, webUrl, previewUrl: null, viewUrl: null }] : [];
+	}),
+);
+
+function teamsDownload(card:ToolCallFileCard):string|undefined {
+ if(card.provider!=="onedrive" || !card.downloadUrl?.startsWith("/api/connections/teams/files/download?"))return;
+ const url=URL.parse(card.downloadUrl,"https://app.invalid");
+ const keys=["connectionId","teamId","channelId","path","itemId","revision"];
+ if(url?.origin!=="https://app.invalid" || url.pathname!=="/api/connections/teams/files/download" || url.hash || [...url.searchParams].length!==keys.length || !keys.every(key=>url.searchParams.get(key)))return;
+ return url.pathname+url.search;
+}
 
 /** The list's id, so the chevron can name what it opens and closes. */
 const listId = $props.id();
@@ -119,6 +137,20 @@ type StripTileView =
 			hidden: number;
 	  };
 
+function openLabel(card: ToolCallFileCard, named = false) {
+	if (card.provider === "google")
+		return named
+			? $t("toolActivity.filesOpenFileDrive", { name: card.name })
+			: $t("toolActivity.filesOpenDrive");
+	if (card.provider === "onedrive")
+		return named
+			? $t("toolActivity.filesOpenFileOneDrive", { name: card.name })
+			: $t("toolActivity.filesOpenOneDrive");
+	return named
+		? $t("toolActivity.filesOpenFile", { name: card.name })
+		: $t("toolActivity.filesOpen");
+}
+
 const slots = $derived(narrow ? STRIP_SLOTS_NARROW : STRIP_SLOTS_WIDE);
 const pictures = $derived(stripPictureCards(cards));
 
@@ -142,12 +174,7 @@ const tileViews = $derived.by((): StripTileView[] =>
 				return {
 					kind: "document",
 					key: JSON.stringify([tile.card.webUrl, tile.card.path]),
-					label: $t(
-						tile.card.provider === "onedrive"
-							? "toolActivity.filesOpenFileOneDrive"
-							: "toolActivity.filesOpenFile",
-						{ name: tile.card.name },
-					),
+					label: openLabel(tile.card, true),
 					fileType,
 					webUrl: tile.card.webUrl,
 					ext: fileExtension(tile.card.name),
@@ -236,6 +263,11 @@ async function closeViewer() {
 }
 </script>
 
+{#snippet download(card:ToolCallFileCard)}
+ {@const href=teamsDownload(card)}
+ {#if href}<a class="fs-download" {href} download aria-label={$t("toolActivity.teamsDownload",{name:card.name})} title={$t("toolActivity.teamsDownload",{name:card.name})}><Download size={16} aria-hidden="true"/></a>{/if}
+{/snippet}
+
 {#if cards.length === 0}
 	<!-- A call that found nothing draws nothing at all: the quiet line would
 	     read "Searched your files · 0 files" over an empty list. -->
@@ -283,8 +315,9 @@ async function closeViewer() {
 		>
 			<span class="fs-card-name" title={card.name}>{card.name}</span>
 			<span class="fs-card-facts">{singleCard.facts}</span>
-			<span class="fs-card-open">{$t(card.provider === "onedrive" ? "toolActivity.filesOpenOneDrive" : "toolActivity.filesOpen")}</span>
+			<span class="fs-card-open">{openLabel(card)}</span>
 		</a>
+{@render download(card)}
 	</div>
 {:else}
 	<div class="fs-block" data-testid="files-strip">
@@ -401,8 +434,9 @@ async function closeViewer() {
 								>
 								<span class="fs-row-facts">{row.facts}</span>
 							</span>
-							<span class="fs-row-open">{$t(row.card.provider === "onedrive" ? "toolActivity.filesOpenOneDrive" : "toolActivity.filesOpen")}</span>
+							<span class="fs-row-open">{openLabel(row.card)}</span>
 						</a>
+{@render download(row.card)}
 					</li>
 				{/each}
 			</ul>
@@ -420,6 +454,10 @@ async function closeViewer() {
 {/if}
 
 <style>
+ .fs-download { display:inline-flex; flex-shrink:0; align-items:center; justify-content:center; min-width:2.75rem; min-height:2.75rem; color:inherit; }
+ .fs-list-item:has(.fs-download) {display:flex;align-items:center;}
+ .fs-list-item:has(.fs-download) .fs-row {flex:1;min-width:0;}
+
 	/* The single card: one 56px picture or glyph, the name, the facts and the
 	   way to the file. It takes the width it needs and never more — a long name
 	   truncates instead of widening the card. */

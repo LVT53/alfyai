@@ -54,6 +54,50 @@ it("keeps the folder identity on a OneDrive trash confirmation", () => {
 		),
 	).toMatchObject({ kind: "files.delete", subject: "Work", isFolder: true });
 });
+it("shows the destination, original post and proposed reaction on the Teams card", () => {
+	const result = cardFor(
+		operation({ action: "teams.set_reaction", provider: "onedrive" }),
+		JSON.stringify({
+			destination: "Design / General",
+			original: "Alex · Plan?",
+			reaction: "👍",
+		}),
+	);
+	expect(result).toMatchObject({
+		kind: "teams.set_reaction",
+		subject: "Design / General",
+		facts: [
+			{ key: "teams_original", value: "Alex · Plan?" },
+			{ key: "teams_reaction", value: "👍" },
+		],
+	});
+});
+it("describes the audience of a Teams channel file link", () => {
+	const card = cardFor(
+		operation({
+			action: "files.share_link",
+			provider: "onedrive",
+			target: {
+				path: "/Design.pdf",
+				label: "General",
+				teamsChannel: {
+					teamId: "t",
+					channelId: "c",
+					driveId: "d",
+					folderId: "f",
+				},
+			},
+		}),
+		"{}",
+		[WRITE_WARNING.organizationTeamsLink],
+	);
+	expect(card?.facts).toContainEqual({
+		key: "teams_channel",
+		value: "General · t / c",
+	});
+	expect(card?.risks).toContain("organization_link");
+	expect(card?.risks).not.toContain("public_link");
+});
 describe("buildWriteCard: email", () => {
 	it("shows that Outlook sends meeting cancellations to all attendees on the delete card", () => {
 		const card = cardFor(
@@ -548,6 +592,38 @@ describe("buildWriteCard: files", () => {
 		expect(card?.message?.endsWith("…")).toBe(true);
 	});
 
+	it("names Drive items from the proposal, preserving their stable identity when folder paths are unavailable", () => {
+		const target = { path: "/@drive/item123", label: "Schedule.pdf" };
+		expect(
+			cardFor(
+				operation({ provider: "google", action: "files.share_link", target }),
+				"",
+				[WRITE_WARNING.publicFileLink],
+			),
+		).toMatchObject({
+			subject: "Schedule.pdf",
+			risks: ["public_link"],
+			facts: [{ key: "drive_item", value: "item123" }],
+		});
+		expect(
+			cardFor(
+				operation({ provider: "google", action: "files.move", target }),
+				JSON.stringify({
+					fromPath: target.path,
+					fromName: "Draft.pdf",
+					toName: "Schedule.pdf",
+					isMove: false,
+				}),
+			),
+		).toMatchObject({
+			kind: "files.rename",
+			subject: "Draft.pdf",
+			facts: [
+				{ key: "new_name", value: "Schedule.pdf" },
+				{ key: "drive_item", value: "item123" },
+			],
+		});
+	});
 	it("reads a move between folders as a move", () => {
 		const card = cardFor(
 			operation({

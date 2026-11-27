@@ -46,6 +46,7 @@ import {
 	microsoftCanWrite,
 	type MicrosoftWritePermission,
 } from "$lib/shared/microsoft-permissions";
+import { DRIVE_MODIFY_SCOPE } from "$lib/shared/google-drive-scopes";
 import { GMAIL_MODIFY_SCOPE } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import BehaviourRow from "./connections/BehaviourRow.svelte";
@@ -69,6 +70,7 @@ let {
 	onToggleAllowWrites,
 	onRequestGoogleCalendarWrites,
 	gmailPilotEnabled = false,
+	drivePilotEnabled = false,
 	onEnableImmichWrites,
 	onToggleDefaultOn,
 	onUpdateWriteAllowlist,
@@ -96,6 +98,7 @@ let {
 	) => void | Promise<void>;
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
 	gmailPilotEnabled?: boolean;
+	drivePilotEnabled?: boolean;
 	onRequestGoogleCalendarWrites?: (id: string) => void | Promise<void>;
 	// Makes the key an Immich account writes with, from its password. Rejects
 	// when Immich turns the password away or cannot be reached.
@@ -167,15 +170,24 @@ const hasGmail = $derived(
 const canManageGmail = $derived(
 	hasGmail && connection?.oauthScopes.includes(GMAIL_MODIFY_SCOPE),
 );
+const hasDrive = $derived(
+	drivePilotEnabled &&
+		connection?.provider === "google" &&
+		connection.capabilities.includes("files"),
+);
+const canManageDrive = $derived(
+	hasDrive && connection?.oauthScopes.includes(DRIVE_MODIFY_SCOPE),
+);
+const hasGoogleManagement = $derived(canManageDrive || canManageGmail);
 const canEditCalendar = $derived(
 	connection?.capabilities.includes("calendar") &&
 		connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE),
 );
 const showWriteSwitch = $derived(
-	canManageGmail ||
+	hasGoogleManagement ||
 		(needsGoogleCalendarConsent
 			? !!onRequestGoogleCalendarWrites
-			: !hasGmail || canEditCalendar),
+			: (!hasGmail && !hasDrive) || canEditCalendar),
 );
 
 function closeWriteKeyForm() {
@@ -198,7 +210,7 @@ async function onWritesSwitch(conn: ConnectionPublic, next: boolean) {
 	}
 	if (
 		next &&
-		!canManageGmail &&
+		!hasGoogleManagement &&
 		needsGoogleCalendarConsent &&
 		onRequestGoogleCalendarWrites
 	) {
@@ -453,6 +465,7 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 }
 
 function capabilityLabel(provider: string, capability: string): string {
+	if (provider === "google" && capability === "files") return "Google Drive";
 	if (provider === "google" && capability === "email") return "Gmail";
 	// Plex's library is films and shows, not "media".
 	if (provider === "plex" && capability === "media") {
@@ -470,11 +483,11 @@ function capabilityAbout(capability: string): string {
 
 {#if connection}
 	{@const conn = connection}
-	{@const entry = getProviderCatalogEntry(conn.provider, gmailPilotEnabled)}
+	{@const entry = getProviderCatalogEntry(conn.provider, gmailPilotEnabled, drivePilotEnabled)}
 	{@const name = providerDisplayName(conn.provider, $t)}
 	{@const grammar = connectionStatusGrammar(conn, formatters, name)}
-	{@const granted = grantedCapabilitiesOf(conn, gmailPilotEnabled)}
-	{@const denied = deniedCapabilitiesOf(conn, gmailPilotEnabled)}
+	{@const granted = grantedCapabilitiesOf(conn, gmailPilotEnabled, drivePilotEnabled)}
+	{@const denied = deniedCapabilitiesOf(conn, gmailPilotEnabled, drivePilotEnabled)}
 	{@const isOAuth = entry.connectMethod === 'oauth'}
 	<DialogShell
 		title={name}
@@ -640,19 +653,22 @@ function capabilityAbout(capability: string): string {
 				{#if hasGmail && !canManageGmail}
 					<button type="button" class="btn-secondary text-xs" onclick={() => onAskAgain?.(conn.id, 'email')}>{$t('connections.google.gmailManage')}</button>
 				{/if}
-				{#if canManageGmail && needsGoogleCalendarConsent && onRequestGoogleCalendarWrites}
+				{#if hasDrive && !canManageDrive}
+					<button type="button" class="btn-secondary text-xs" onclick={() => onAskAgain?.(conn.id, 'files')}>{$t('connections.google.driveManage')}</button>
+				{/if}
+				{#if hasGoogleManagement && needsGoogleCalendarConsent && onRequestGoogleCalendarWrites}
 					<button type="button" class="btn-secondary text-xs" onclick={() => withPending('calendarWrites', () => onRequestGoogleCalendarWrites?.(conn.id))}>{$t('connections.google.optionalEditing')}</button>
 				{/if}
 				{#if entry.writable && showWriteSwitch}
 					<BehaviourRow
 						label={$t('connections.detail.letAlfyWrite')}
-						description={canManageGmail ? $t('connections.google.gmailWriteSub') : needsGoogleCalendarConsent
+						description={canManageDrive ? $t('connections.detail.letAlfyWriteSub') : canManageGmail ? $t('connections.google.gmailWriteSub') : needsGoogleCalendarConsent
 							? $t('connections.detail.googleWriteConsent')
 							: conn.provider === 'google' || (conn.provider === 'apple' && !conn.capabilities.includes('email'))
 							? $t('connections.detail.writeConfirmNoteCalendar')
 							: $t('connections.detail.letAlfyWriteSub')}
 						help={$t('connections.detail.letAlfyWriteHelp')}
-						checked={(canManageGmail || !needsGoogleCalendarConsent) && (conn.allowWrites || (needsWriteKey && writeKeyOpen))}
+						checked={(hasGoogleManagement || !needsGoogleCalendarConsent) && (conn.allowWrites || (needsWriteKey && writeKeyOpen))}
 						busy={isPending('allowWrites') || writeKeyBusy}
 						testId="behaviour-allow-writes"
 						onChange={(next) => onWritesSwitch(conn, next)}
@@ -699,7 +715,7 @@ function capabilityAbout(capability: string): string {
 					{/if}
 
 					{#if conn.allowWrites}
-						{#if entry.pathBasedWrites && (conn.provider !== 'onedrive' || microsoftCanWrite(conn, 'files'))}
+						{#if canManageDrive || (entry.pathBasedWrites && (conn.provider !== 'onedrive' || microsoftCanWrite(conn, 'files')))}
 							<div class="folder-box">
 								<p class="folder-label">{$t('connections.detail.foldersLabel')}</p>
 								{#if conn.writeAllowlist.length === 0}

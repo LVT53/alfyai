@@ -73,7 +73,7 @@ export interface ToolHealthEntry {
 	probeKey?: string;
 	// When set, the report includes the number of `connected` user_connections
 	// rows that serve this capability.
-	connectionCapability?: Capability;
+	connectionCapability?: Capability | "teams";
 }
 
 export type ToolHealthStatus = "healthy" | "degraded" | "unconfigured";
@@ -103,7 +103,9 @@ export interface ToolHealthSnapshot {
 export const TOOL_HEALTH_PROBE_TIMEOUT_MS = 5_000;
 export const TOOL_HEALTH_DEFAULT_MAX_AGE_MS = 5 * 60_000;
 
-export type ConnectedConnectionCounts = Partial<Record<Capability, number>>;
+export type ConnectedConnectionCounts = Partial<
+	Record<Capability | "teams", number>
+>;
 
 export interface ToolHealthDeps {
 	fetch: typeof fetch;

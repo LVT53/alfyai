@@ -10,6 +10,8 @@
 import {
 	Bike,
 	Calendar,
+	MessageSquare,
+	MessagesSquare,
 	Clapperboard,
 	Folder,
 	GitBranch,
@@ -35,6 +37,9 @@ const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
 	contacts: Users,
 	repos: GitBranch,
 	tasks: ListTodo,
+	teams_chat: MessageSquare,
+	teams_channels: MessagesSquare,
+	teams_files: Folder,
 };
 
 let { chip, provider }: { chip: CapabilityChip; provider: string } = $props();

@@ -1,4 +1,8 @@
 import {
+	isTeamsCapability,
+	microsoftReadGranted,
+} from "$lib/shared/microsoft-permissions";
+import {
 	isOptionalGoogleCapability,
 	optionalGoogleServices,
 } from "./providers/google-optional-services";
@@ -9,6 +13,10 @@ import { listConnectionsForUser } from "./store";
 function capabilityEnabled(conn: ConnectionPublic, capability: Capability) {
 	return (
 		conn.capabilities.includes(capability) &&
+		(!isTeamsCapability(capability) ||
+			(conn.provider === "onedrive" &&
+				conn.config.microsoftOrganizationAccount === true &&
+				microsoftReadGranted(conn.oauthScopes, capability))) &&
 		(!isOptionalGoogleCapability(capability) ||
 			conn.provider !== "google" ||
 			(optionalGoogleServices[capability].enabled(conn.userId) &&

@@ -71,6 +71,7 @@ import {
 } from "$lib/server/services/web-grounding";
 import { ToolCallRefusedError } from "$lib/server/utils/tool-refusal";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import { isTeamsCapability } from "$lib/shared/microsoft-permissions";
 import { DISPLAY_OUTPUT_KEY, REASON_PLACE_KEY } from "$lib/shared/tool-reasons";
 import type { TurnPictureIndex } from "../images/turn-pictures";
 import { createTurnTakes, type TurnTakes } from "../images/turn-takes";
@@ -267,6 +268,11 @@ import {
 	tasksToolInputSchema,
 } from "./tasks";
 import {
+	runTeamsTool,
+	sanitizeTeamsToolInput,
+	teamsToolInputSchema,
+} from "./teams";
+import {
 	applyDegradedToolHints,
 	collectDegradedToolHints,
 } from "./tool-health-hints";
@@ -302,6 +308,7 @@ export { createToolCallRecorder, recordToolCallEntry } from "./shared";
 // ── Context ────────────────────────────────────────────────────
 
 export interface CreateNormalChatToolsContext {
+	selectedAttachmentIds?: readonly string[];
 	userId: string;
 	conversationId: string;
 	turnId: string;
@@ -439,7 +446,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	files: {
 		description:
-			"List, search, read, and manage the user's connected file storage (Nextcloud or OneDrive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path; `stat` reads file or folder metadata. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, require Files.ReadWrite for OneDrive, and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. Results also appear to the user as file cards automatically (images with a preview), so never paste a file URL into the reply. With several accounts connected, pass `account` (provider, label, or email).",
+			"List, search, read, and manage the user's connected file storage (Nextcloud, OneDrive, or Google Drive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path; `stat` reads file or folder metadata. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, require write access for the selected service, and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. Results also appear to the user as file cards automatically (images with a preview), so never paste a file URL into the reply. For Teams channel files pass both teamId and channelId from Teams directory results with paths relative to the channel. To upload an attached file with its original bytes, use save with sourceId (use selected for exactly one current attachment) and omit content. Teams share links are organization-only. On Google Drive use the paths returned by list/search to distinguish same-name files. With several accounts connected, pass `account` (provider, label, or email).",
 		errorPrefix: "Files lookup failed",
 	},
 	calendar: {
@@ -476,6 +483,11 @@ const TOOL_TEXT: ToolText = {
 		description:
 			"Read the rider’s Bosch bikes, rides or distance totals between two ISO times. Ask the rider service now. State when a fallback is cached or history is incomplete. Do not use for directions or live bike location.",
 		errorPrefix: "Cycling lookup failed",
+	},
+	teams: {
+		description:
+			"Read work or school Microsoft Teams. List chats, joined teams and channels, read messages and threaded replies. Send a plain-text chat or channel post, reply, or add or remove your own reaction only after confirmation. Use files with teamId and channelId for channel files. Ask which account or channel when unclear. Do not use for email or public web searches.",
+		errorPrefix: "Microsoft Teams request failed",
 	},
 	repos: {
 		description:
@@ -824,7 +836,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// What this turn has made with it: its cards, takes and call count.
 	const turnTakes = ctx.turnTakes ?? createTurnTakes();
 	const includeFilesTool = Boolean(
-		ctx.enabledConnectionCapabilities?.has("files"),
+		ctx.enabledConnectionCapabilities?.has("files") ||
+			ctx.enabledConnectionCapabilities?.has("teams_files"),
 	);
 	const includeCalendarTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("calendar"),
@@ -845,6 +858,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		ctx.enabledConnectionCapabilities?.has("contacts"),
 	);
 	const includeCyclingTool = ctx.enabledConnectionCapabilities?.has("cycling");
+	const includeTeamsTool = Array.from(
+		ctx.enabledConnectionCapabilities ?? [],
+	).some(isTeamsCapability);
 	const includeReposTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("repos"),
 	);
@@ -2354,12 +2370,24 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									options,
 									recorder,
 									run: async () => {
+										const scope =
+											safeInput.teamId !== undefined ||
+											safeInput.channelId !== undefined
+												? "teams_files"
+												: "files";
+										if (!ctx.enabledConnectionCapabilities?.has(scope))
+											throw new Error(
+												"The selected file service is disabled for this turn.",
+											);
 										const { modelPayload, candidates, cards } =
 											await runFilesTool(
 												ctx.userId,
 												safeInput,
 												ctx.modelId ?? "model1",
 												ctx.conversationId,
+												...(safeInput.sourceId
+													? [ctx.selectedAttachmentIds ?? []]
+													: []),
 											);
 										return {
 											modelPayload,
@@ -2488,6 +2516,90 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "calendar",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeTeamsTool
+			? {
+					teams: asExecutableTool(
+						tool({
+							description: i18n.teams.description,
+							inputSchema: teamsToolInputSchema,
+							execute: async (
+								input: z.infer<typeof teamsToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeTeamsToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "teams",
+									timeoutMs: TOOL_TIMEOUTS_MS.teams,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runTeamsTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+											ctx.enabledConnectionCapabilities ?? new Set(),
+											ctx.conversationId,
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "teams",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													resultCount: candidates.length,
+
+													...reasonMetadataOf(modelPayload),
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.teams.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "teams" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "teams",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,

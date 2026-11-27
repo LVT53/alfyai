@@ -14,7 +14,10 @@ export type Capability =
 	| "media"
 	| "contacts"
 	| "repos"
-	| "tasks";
+	| "tasks"
+	| "teams_chat"
+	| "teams_channels"
+	| "teams_files";
 
 export type ConnectionTier = "proactive" | "explicit";
 
@@ -36,6 +39,9 @@ export const CAPABILITIES: readonly Capability[] = [
 	"contacts",
 	"repos",
 	"tasks",
+	"teams_chat",
+	"teams_channels",
+	"teams_files",
 ];
 
 // Catalog grouping (ADR-0051 Decision 2, slice E1). "product" = a concrete,
@@ -119,7 +125,15 @@ export const PROVIDER_META: Record<
 		group: "product",
 	},
 	onedrive: {
-		capabilities: ["files", "calendar", "email", "contacts"],
+		capabilities: [
+			"files",
+			"calendar",
+			"email",
+			"contacts",
+			"teams_chat",
+			"teams_channels",
+			"teams_files",
+		],
 		connectMethod: "oauth",
 		displayName: "Microsoft",
 		group: "product",
@@ -218,6 +232,21 @@ export const CAPABILITY_META: Record<
 		tier: "explicit",
 		providers: ["github"],
 		displayName: "Repositories",
+	},
+	teams_chat: {
+		tier: "explicit",
+		providers: ["onedrive"],
+		displayName: "Teams chats",
+	},
+	teams_channels: {
+		tier: "explicit",
+		providers: ["onedrive"],
+		displayName: "Teams channels",
+	},
+	teams_files: {
+		tier: "explicit",
+		providers: ["onedrive"],
+		displayName: "Teams channel files",
 	},
 	tasks: {
 		tier: "explicit",

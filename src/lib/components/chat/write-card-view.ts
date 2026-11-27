@@ -36,6 +36,30 @@ const FOLDER_QUESTIONS: Partial<Record<WriteCardKind, I18nKey>> = {
 	"files.share_link": "connections.writeConfirm.question.folderShare",
 };
 const KIND_COPY: Record<WriteCardKind, KindCopy> = {
+	"teams.send": {
+		icon: "teams",
+		question: "connections.writeConfirm.question.teams_send",
+		approve: "connections.writeConfirm.approve.teams_send",
+		done: "connections.writeConfirm.done.teams_send",
+	},
+	"teams.reply": {
+		icon: "teams",
+		question: "connections.writeConfirm.question.teams_reply",
+		approve: "connections.writeConfirm.approve.teams_reply",
+		done: "connections.writeConfirm.done.teams_reply",
+	},
+	"teams.set_reaction": {
+		icon: "teams",
+		question: "connections.writeConfirm.question.teams_set_reaction",
+		approve: "connections.writeConfirm.approve.teams_set_reaction",
+		done: "connections.writeConfirm.done.teams_set_reaction",
+	},
+	"teams.remove_reaction": {
+		icon: "teams",
+		question: "connections.writeConfirm.question.teams_remove_reaction",
+		approve: "connections.writeConfirm.approve.teams_remove_reaction",
+		done: "connections.writeConfirm.done.teams_remove_reaction",
+	},
 	"email.draft": {
 		question: "connections.writeConfirm.question.emailDraft",
 		approve: "connections.writeConfirm.approve.emailDraft",
@@ -184,6 +208,30 @@ const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
 			label: "connections.writeConfirm.fact.cancellationRecipients",
 			quiet: false,
 		},
+		teams_channel: {
+			label: "connections.writeConfirm.fact.teamsChannel",
+			quiet: false,
+		},
+		upload_source: {
+			label: "connections.writeConfirm.fact.uploadSource",
+			quiet: false,
+		},
+		upload_bytes: {
+			label: "connections.writeConfirm.fact.uploadSize",
+			quiet: true,
+		},
+		upload_destination: {
+			label: "connections.writeConfirm.fact.uploadDestination",
+			quiet: false,
+		},
+		teams_original: {
+			label: "connections.writeConfirm.fact.teamsOriginal",
+			quiet: false,
+		},
+		teams_reaction: {
+			label: "connections.writeConfirm.fact.teamsReaction",
+			quiet: false,
+		},
 		mail_label: {
 			label: "connections.writeConfirm.fact.mailLabel",
 			quiet: false,
@@ -199,6 +247,10 @@ const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
 		when: { quiet: false },
 		where: { quiet: true },
 		folder: { quiet: true },
+		drive_item: {
+			label: "connections.writeConfirm.fact.driveItem",
+			quiet: true,
+		},
 		new_name: { label: "connections.writeConfirm.fact.newName", quiet: false },
 		new_when: { label: "connections.writeConfirm.fact.newTime", quiet: false },
 		new_where: {
@@ -235,6 +287,10 @@ const RISK_COPY: Record<WriteCardRisk, { text: I18nKey; tone: WriteRiskTone }> =
 		cannot_undo: {
 			text: "connections.writeConfirm.risk.cannotUndo",
 			tone: "danger",
+		},
+		organization_link: {
+			text: "connections.writeConfirm.risk.teamsLink",
+			tone: "caution",
 		},
 		public_link: {
 			text: "connections.writeConfirm.risk.publicLink",
@@ -318,6 +374,12 @@ export function formatEventWhen(
 }
 
 function factValue(fact: WriteCardFact, language: string): string {
+	if (fact.key === "upload_bytes" && Number.isFinite(Number(fact.value)))
+		return new Intl.NumberFormat(language, {
+			style: "unit",
+			unit: "byte",
+			unitDisplay: "short",
+		}).format(Number(fact.value));
 	return fact.key === "when" || fact.key === "new_when" || fact.key === "sent"
 		? formatEventWhen(fact.value, fact.end, language)
 		: fact.value;
@@ -413,6 +475,8 @@ export function settledWriteNote(
 		return t("connections.writeConfirm.note.expired");
 	}
 	if (write.status === "failed") {
+		if (write.card?.kind.startsWith("teams."))
+			return t("connections.writeConfirm.note.teamsFailed");
 		if (
 			write.provider === "google" &&
 			(write.card?.kind === "email.send" ||

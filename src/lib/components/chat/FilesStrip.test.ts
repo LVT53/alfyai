@@ -116,16 +116,38 @@ async function viewerLoaded() {
 
 describe("FilesStrip", () => {
 	it.each([
-		["en", "Open in OneDrive"],
-		["hu", "Megnyitás a OneDrive-ban"],
+		[
+			"en",
+			"onedrive",
+			"Open in OneDrive",
+			"https://tenant.sharepoint.com/Report.pdf",
+		],
+		[
+			"en",
+			"google",
+			"Open in Google Drive",
+			"https://drive.google.com/file/d/file1/view",
+		],
+		[
+			"hu",
+			"onedrive",
+			"Megnyitás a OneDrive-ban",
+			"https://tenant.sharepoint.com/Report.pdf",
+		],
+		[
+			"hu",
+			"google",
+			"Megnyitás a Google Drive-ban",
+			"https://docs.google.com/document/d/file1/edit",
+		],
 	] as const)(
-		"opens a Microsoft document with provider-specific words in %s",
-		(lang, label) => {
+		"opens a file with provider-specific words in %s for %s",
+		(lang, provider, label, webUrl) => {
 			uiLanguage.set(lang);
 			const card = {
 				...documentCard("Report.pdf", 42),
-				provider: "onedrive" as const,
-				webUrl: "https://tenant.sharepoint.com/Report.pdf",
+				provider,
+				webUrl,
 			};
 			render(FilesStrip, { props: { cards: [card] } });
 			expect(
@@ -137,6 +159,23 @@ describe("FilesStrip", () => {
 		},
 	);
 
+	it("rejects unrelated Google links and never fetches thumbnails from a stored Drive result", () => {
+		const base = {
+			...documentCard("report.pdf", 42),
+			provider: "google" as const,
+			previewUrl: "https://example.com/private-image",
+		};
+		render(FilesStrip, {
+			props: {
+				cards: [
+					{ ...base, webUrl: "https://docs.google.com/url?q=x" },
+					{ ...base, webUrl: "https://drive.google.com/file/d/report/view" },
+				],
+			},
+		});
+		expect(screen.getAllByRole("link")).toHaveLength(1);
+		expect(screen.queryByRole("img")).toBeNull();
+	});
 	beforeEach(() => {
 		uiLanguage.set("en");
 		loader.loadImageLightbox.mockClear();
@@ -582,4 +621,28 @@ describe("FilesStrip's stylesheet", () => {
 		expect(more).not.toMatch(/#[0-9a-f]{3,8}\b/i);
 		expect(more).not.toMatch(/rgba?\(/);
 	});
+});
+
+it("downloads a Teams file only through its authenticated local route", () => {
+	const card = {
+		...documentCard("Slides.pdf", 42),
+		provider: "onedrive" as const,
+	};
+	const url =
+		"/api/connections/teams/files/download?connectionId=one&teamId=t&channelId=c&path=%2FSlides.pdf&itemId=item&revision=rev";
+	const view = render(FilesStrip, {
+		props: { cards: [{ ...card, downloadUrl: url }] },
+	});
+	expect(
+		screen.getByRole("link", { name: "Download Slides.pdf" }),
+	).toHaveAttribute("href", url);
+	view.unmount();
+	render(FilesStrip, {
+		props: {
+			cards: [{ ...card, downloadUrl: "https://external.example/" + url }],
+		},
+	});
+	expect(
+		screen.queryByRole("link", { name: "Download Slides.pdf" }),
+	).toBeNull();
 });

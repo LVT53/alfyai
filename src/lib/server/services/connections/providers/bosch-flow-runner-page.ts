@@ -1,5 +1,13 @@
 export const runnerWords = {
 	en: {
+		enable:
+			"Allow future AlfyAI cycling questions to fetch these fields while this helper is running",
+		enableService:
+			"Save my credentials on this server and allow AlfyAI cycling questions to fetch these fields after restarts",
+		enabled: "Bike data is fetched when you ask AlfyAI a cycling question.",
+		stopDemand: "Stop on-demand access",
+		noRefresh:
+			"Bosch did not issue a refresh token. Reauthorize before enabling unattended access.",
 		launch:
 			"Open the private setup link printed by the runner in your terminal.",
 		denied: "This request is unavailable.",

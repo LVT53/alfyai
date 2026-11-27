@@ -48,6 +48,21 @@ export const CONNECTOR_PHRASES: Readonly<
 		},
 		other: "toolRows.connector.cycling.other",
 	},
+	teams: {
+		actions: {
+			list_chats: "toolRows.connector.teams.list_chats",
+			list_teams: "toolRows.connector.teams.list_teams",
+			list_channels: "toolRows.connector.teams.list_channels",
+			list_messages: "toolRows.connector.teams.list_messages",
+			list_replies: "toolRows.connector.teams.list_replies",
+			read_message: "toolRows.connector.teams.read_message",
+			send: "toolRows.connector.teams.send",
+			reply: "toolRows.connector.teams.reply",
+			set_reaction: "toolRows.connector.teams.set_reaction",
+			remove_reaction: "toolRows.connector.teams.remove_reaction",
+		},
+		other: "toolRows.connector.teams.other",
+	},
 	contacts: {
 		actions: {
 			lookup: "toolRows.connector.contacts.lookup",
@@ -158,6 +173,7 @@ export function connectorPhraseKey(
 const COUNT_FIELDS: Readonly<Record<ConnectorTool, string>> = {
 	calendar: "eventCount",
 	cycling: "resultCount",
+	teams: "resultCount",
 	contacts: "contactCount",
 	email: "messageCount",
 	files: "resultCount",
@@ -188,6 +204,7 @@ export function connectorCountOf(
 const UNIT_KEYS: Readonly<Record<ConnectorTool, I18nKey>> = {
 	calendar: "toolRows.unit.events",
 	cycling: "toolRows.unit.found",
+	teams: "toolRows.unit.found",
 	contacts: "toolRows.unit.found",
 	email: "toolRows.unit.messages",
 	files: "toolRows.unit.found",
@@ -211,6 +228,7 @@ const THINGS_ICONS: Readonly<Partial<Record<ConnectorTool, ToolCallIconType>>> =
 	{
 		calendar: "calendar",
 		cycling: "cycling",
+		teams: "teams",
 		contacts: "contacts",
 		email: "email",
 		location: "location",

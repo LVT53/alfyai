@@ -34,6 +34,10 @@ export interface WritePreview {
 
 /** What the permission card asks. Finer than the operation: replacing a file and saving a new one are the same `files.put`. */
 export type WriteCardKind =
+	| "teams.send"
+	| "teams.reply"
+	| "teams.set_reaction"
+	| "teams.remove_reaction"
 	| "email.send"
 	| "email.draft"
 	| "email.edit_draft"
@@ -62,6 +66,12 @@ export type WriteCardFactKey =
 	| "cc"
 	| "bcc"
 	| "attachments"
+	| "teams_channel"
+	| "upload_source"
+	| "upload_bytes"
+	| "upload_destination"
+	| "teams_original"
+	| "teams_reaction"
 	| "mail_label"
 	| "cancellation_recipients"
 	| "from"
@@ -69,6 +79,7 @@ export type WriteCardFactKey =
 	| "when"
 	| "where"
 	| "folder"
+	| "drive_item"
 	| "new_name"
 	| "new_when"
 	| "new_where"
@@ -89,6 +100,7 @@ export type WriteCardRisk =
 	| "deletes_whole_series"
 	| "changes_whole_series"
 	| "cannot_undo"
+	| "organization_link"
 	| "public_link"
 	| "outside_allowed_folders";
 

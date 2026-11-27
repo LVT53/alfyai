@@ -1,4 +1,5 @@
 <script lang="ts">
+import { googleDriveDocumentUrl } from "$lib/shared/google-drive-links";
 import { oneDriveDocumentUrl } from "$lib/shared/onedrive-links";
 import { t } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -46,10 +47,12 @@ const isSettled = $derived(
 	write.status !== "pending" && write.status !== "executing",
 );
 const shareUrl = $derived(
-	write.status === "executed" &&
-		write.provider === "onedrive" &&
-		write.card?.kind === "files.share_link"
-		? oneDriveDocumentUrl(write.resultUrl)
+	write.status === "executed" && write.card?.kind === "files.share_link"
+		? write.provider === "google"
+			? googleDriveDocumentUrl(write.resultUrl)
+			: write.provider === "onedrive"
+				? oneDriveDocumentUrl(write.resultUrl)
+				: undefined
 		: undefined,
 );
 const note = $derived(settledWriteNote(write, $t));

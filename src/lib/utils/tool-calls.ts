@@ -36,6 +36,7 @@ const CONNECTION_WRITE_TOOL_IDENTIFIERS = [
 const CONNECTION_TOOL_LABEL_KEYS: Record<string, I18nKey> = {
 	calendar: "toolCalls.calendar",
 	cycling: "toolCalls.cycling",
+	teams: "toolCalls.teams",
 	contacts: "toolCalls.contacts",
 	email: "toolCalls.email",
 	files: "toolCalls.files",
@@ -334,6 +335,7 @@ export type ToolCallIconType =
 	| "ask"
 	| "calendar"
 	| "cycling"
+	| "teams"
 	| "contacts"
 	| "email"
 	| "files"
@@ -347,6 +349,7 @@ export type ToolCallIconType =
 const CONNECTION_TOOL_ICON_TYPES: Record<string, ToolCallIconType> = {
 	calendar: "calendar",
 	cycling: "cycling",
+	teams: "teams",
 	contacts: "contacts",
 	email: "email",
 	files: "files",

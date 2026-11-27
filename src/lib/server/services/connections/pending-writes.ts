@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { connectionPendingWrites } from "$lib/server/db/schema";
+import { googleDriveDocumentUrl } from "$lib/shared/google-drive-links";
 import { oneDriveDocumentUrl } from "$lib/shared/onedrive-links";
 
 // ---------------------------------------------------------------------------
@@ -113,12 +114,13 @@ function shareResult(
 	op: WriteOperation,
 	value: unknown,
 ): { resultUrl?: string } {
+	if (op.provider !== provider || op.action !== "files.share_link") return {};
 	const url =
-		provider === "onedrive" &&
-		op.provider === provider &&
-		op.action === "files.share_link"
-			? oneDriveDocumentUrl(value)
-			: undefined;
+		provider === "google"
+			? googleDriveDocumentUrl(value)
+			: provider === "onedrive"
+				? oneDriveDocumentUrl(value)
+				: undefined;
 	return url ? { resultUrl: url } : {};
 }
 

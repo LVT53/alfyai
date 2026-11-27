@@ -106,6 +106,7 @@ it("blocks foreign host/origin and requires exact consent before a summary reach
 	const decision =
 		/name="review" value="([^"]+)"/.exec(review)?.[1] ?? "missing";
 	expect(decision).not.toBe("missing");
+	expect(review).toContain("Allow future AlfyAI cycling questions");
 	expect(
 		fetch.mock.calls.some(([u]) => String(u).includes("ai.alfydesign.com")),
 	).toBe(false);

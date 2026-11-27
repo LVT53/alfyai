@@ -49,16 +49,27 @@ function card(overrides: Partial<WriteCard>): WriteCard {
 }
 
 it.each([
-	["en", "Open shared link"],
-	["hu", "Megosztott link megnyitása"],
+	["en", "onedrive", "https://1drv.ms/demo", "Open shared link"],
+	[
+		"en",
+		"google",
+		"https://drive.google.com/file/d/file1/view",
+		"Open shared link",
+	],
+	["hu", "onedrive", "https://1drv.ms/demo", "Megosztott link megnyitása"],
+	[
+		"hu",
+		"google",
+		"https://docs.google.com/document/d/file1/edit",
+		"Megosztott link megnyitása",
+	],
 ] as const)(
-	"shows the link returned by OneDrive after a share succeeds in %s",
-	(lang, label) => {
+	"shows the share link after success in %s for %s",
+	(lang, provider, url, label) => {
 		uiLanguage.set(lang);
-		const url = "https://1drv.ms/demo";
 		render(WriteConfirmCard, {
 			write: makeWrite({
-				provider: "onedrive",
+				provider,
 				status: "executed",
 				resultUrl: url,
 				card: card({ kind: "files.share_link" }),

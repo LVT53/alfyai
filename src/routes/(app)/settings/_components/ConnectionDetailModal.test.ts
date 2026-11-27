@@ -71,6 +71,41 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+describe("Google Drive management", () => {
+	it("requests additional access on this account and exposes the local switch and allowed folders only after grant", async () => {
+		const conn = makeConnection({
+			provider: "google",
+			capabilities: ["files"],
+			grantedCapabilities: ["files"],
+			oauthScopes: ["https://www.googleapis.com/auth/drive.readonly"],
+		});
+		const onAskAgain = vi.fn();
+		const onToggleAllowWrites = vi.fn();
+		const props = { drivePilotEnabled: true, onAskAgain, onToggleAllowWrites };
+		const view = render(
+			ConnectionDetailModal,
+			baseProps({ ...props, connection: conn }),
+		);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Request Google Drive management" }),
+		);
+		expect(onAskAgain).toHaveBeenCalledWith(conn.id, "files");
+		expect(screen.queryByTestId("behaviour-allow-writes")).toBeNull();
+		const granted = {
+			...conn,
+			oauthScopes: ["https://www.googleapis.com/auth/drive"],
+		};
+		await view.rerender(baseProps({ ...props, connection: granted }));
+		await fireEvent.click(
+			screen.getByRole("switch", { name: "Let Alfy write" }),
+		);
+		expect(onToggleAllowWrites).toHaveBeenCalledWith(conn.id, true);
+		await view.rerender(
+			baseProps({ ...props, connection: { ...granted, allowWrites: true } }),
+		);
+		expect(screen.getByRole("combobox")).toBeVisible();
+	});
+});
 describe("native Gmail permissions", () => {
 	it("keeps Gmail out of ordinary Google account details", () => {
 		render(

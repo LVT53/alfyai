@@ -868,7 +868,7 @@ describe("google write-executor — unsupported action", () => {
 		const op: WriteOperation = {
 			provider: "google",
 			connectionId: CONNECTION_ID,
-			action: "files.put",
+			action: "calendar.unknown_action",
 			summary: "n/a",
 			reversible: true,
 			destructive: false,

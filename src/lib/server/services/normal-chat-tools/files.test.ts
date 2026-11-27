@@ -230,7 +230,7 @@ describe("runFilesTool", () => {
 				sourceType: "document",
 				action: "search",
 				message:
-					"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.",
+					"You don't have a Files connection set up yet. Connect your file storage account in Settings to search or read files.",
 				results: [],
 				citations: [],
 			}),
@@ -2609,4 +2609,70 @@ describe("nextcloudWebUiUrl", () => {
 			"https://cloud.example.com/index.php/apps/files/?dir=%2FPhotos&scrollto=lake.jpg",
 		);
 	});
+});
+
+it("opens a Google Drive document by the exact selected account and shows its real title", async () => {
+	const google = makeConn({
+		provider: "google",
+		label: "Drive",
+		accountIdentifier: "pilot@example.com",
+	});
+	resolveConnectionsForCapabilityMock.mockResolvedValue([google]);
+	needsDisambiguationMock.mockReturnValue(false);
+	hasLocalDistillEnabledMock.mockResolvedValue(false);
+	isCloudModelMock.mockResolvedValue(false);
+	vi.spyOn(
+		await import("../connections/providers/google-drive-auth"),
+		"googleDriveGetAccessToken",
+	).mockResolvedValue("synthetic");
+	const api = vi
+		.spyOn(globalThis, "fetch")
+		.mockResolvedValueOnce(
+			Response.json({
+				id: "abc",
+				name: "Meeting notes",
+				version: "3",
+				mimeType: "application/vnd.google-apps.document",
+				parents: ["r"],
+			}),
+		)
+		.mockResolvedValueOnce(new Response("Discussion"));
+	try {
+		const result = await runFilesTool(
+			"user-1",
+			{ action: "read", path: "/@drive/abc", account: "pilot@example.com" },
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload.results[0]).toMatchObject({
+			name: "Meeting notes",
+			content: "Discussion",
+		});
+		expect(result.cards?.cards[0]).toMatchObject({
+			provider: "google",
+			name: "Meeting notes",
+		});
+		expect(api).toHaveBeenCalledTimes(2);
+	} finally {
+		api.mockRestore();
+	}
+});
+
+it("requires both Teams identifiers and restricts channel requests to the teams_files capability", async () => {
+	const bad = await runFilesTool(
+		"user-1",
+		{ action: "list", teamId: "team" },
+		LOCAL_MODEL_ID,
+	);
+	expect(bad.modelPayload.success).toBe(false);
+	expect(bad.modelPayload.message).toContain("channelId");
+	resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+	await runFilesTool(
+		"user-1",
+		{ action: "list", teamId: "team", channelId: "chan" },
+		LOCAL_MODEL_ID,
+	);
+	expect(resolveConnectionsForCapabilityMock).toHaveBeenLastCalledWith(
+		"user-1",
+		"teams_files",
+	);
 });

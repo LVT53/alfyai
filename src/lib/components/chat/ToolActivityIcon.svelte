@@ -23,6 +23,7 @@ import {
 	ListTodo,
 	Mail,
 	Bike,
+	MessagesSquare,
 	MapPin,
 	Sparkles,
 	Terminal,
@@ -61,6 +62,8 @@ let { iconType, size = 14 }: { iconType: ToolCallIconType; size?: number } =
 	<Users class="tool-activity-icon" data-tool-icon="contacts" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'cycling'}
 	<Bike class="tool-activity-icon" data-tool-icon="cycling" {size} strokeWidth={2} aria-hidden="true" />
+{:else if iconType === 'teams'}
+	<MessagesSquare class="tool-activity-icon" data-tool-icon="teams" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'email'}
 	<Mail class="tool-activity-icon" data-tool-icon="email" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'files'}

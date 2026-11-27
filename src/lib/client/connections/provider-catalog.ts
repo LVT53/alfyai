@@ -16,7 +16,10 @@ export type Capability =
 	| "media"
 	| "contacts"
 	| "repos"
-	| "tasks";
+	| "tasks"
+	| "teams_chat"
+	| "teams_channels"
+	| "teams_files";
 
 export type ConnectMethod =
 	| "oauth"
@@ -113,7 +116,7 @@ export const PROVIDER_CATALOG: Record<
 	},
 	google: {
 		displayName: "Google",
-		capabilities: ["calendar", "contacts", "email"],
+		capabilities: ["calendar", "contacts", "email", "files"],
 		connectMethod: "oauth",
 		writable: true,
 		pathBasedWrites: false,
@@ -190,7 +193,15 @@ export const PROVIDER_CATALOG: Record<
 	},
 	onedrive: {
 		displayName: "Microsoft",
-		capabilities: ["files", "calendar", "email", "contacts"],
+		capabilities: [
+			"files",
+			"calendar",
+			"email",
+			"contacts",
+			"teams_chat",
+			"teams_channels",
+			"teams_files",
+		],
 		connectMethod: "oauth",
 		writable: true,
 		pathBasedWrites: true,
@@ -261,12 +272,17 @@ export function isKnownProvider(
 export function getProviderCatalogEntry(
 	provider: string,
 	gmailPilotEnabled = false,
+	drivePilotEnabled = false,
 ): ProviderCatalogEntry {
-	if (provider === "google" && !gmailPilotEnabled) {
+	if (provider === "google") {
 		const entry = PROVIDER_CATALOG.google;
 		return {
 			...entry,
-			capabilities: entry.capabilities.filter((cap) => cap !== "email"),
+			capabilities: entry.capabilities.filter(
+				(cap) =>
+					(cap !== "email" || gmailPilotEnabled) &&
+					(cap !== "files" || drivePilotEnabled),
+			),
 		};
 	}
 	if (isKnownProvider(provider)) {

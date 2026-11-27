@@ -3,6 +3,7 @@
 const chatDict = {
 	en: {
 		"toolCalls.cycling": "Cycling",
+		"toolCalls.teams": "Teams",
 		"chat.observationUnavailable":
 			"The previous reply’s status is unavailable. Any partial answer is kept.",
 		"chat.output.activity": "Activity",
@@ -1165,6 +1166,8 @@ const chatDict = {
 		// The way from the compact strip's single card and its list rows to the
 		// file itself (FilesStrip.svelte).
 		"toolActivity.filesOpen": "Open in Nextcloud",
+		"toolActivity.filesOpenDrive": "Open in Google Drive",
+		"toolActivity.filesOpenFileDrive": "Open {name} in Google Drive",
 		"toolActivity.filesOpenOneDrive": "Open in OneDrive",
 		"toolActivity.filesOpenFileOneDrive": "Open {name} in OneDrive",
 		// The compact strip (FilesStrip.svelte): a picture tile's name at the
@@ -1172,6 +1175,7 @@ const chatDict = {
 		// and the chevron's open and closed states.
 		"toolActivity.filesOpenFile": "Open {name} in Nextcloud",
 		"toolActivity.filesShowAll": "Show all {count} files",
+		"toolActivity.teamsDownload": "Download {name}",
 		"toolActivity.filesOpenPicture": "Open {name}, picture {index} of {total}",
 		"toolActivity.filesShowList": "Show the file list",
 		"toolActivity.filesHideList": "Hide the file list",
@@ -1369,6 +1373,7 @@ const chatDict = {
 	},
 	hu: {
 		"toolCalls.cycling": "Kerékpározás",
+		"toolCalls.teams": "Teams",
 		"chat.observationUnavailable":
 			"A korábbi válasz állapota nem érhető el. A részleges válasz megmarad.",
 		"chat.output.activity": "Tevékenység",
@@ -2426,11 +2431,14 @@ const chatDict = {
 		"toolActivity.expandActivity": "Mutasd, mi történt",
 		// A kompakt sáv kártyájáról és listasorairól a fájlra magára.
 		"toolActivity.filesOpen": "Megnyitás a Nextcloudban",
+		"toolActivity.filesOpenDrive": "Megnyitás a Google Drive-ban",
+		"toolActivity.filesOpenFileDrive": "{name} megnyitása a Google Drive-ban",
 		"toolActivity.filesOpenOneDrive": "Megnyitás a OneDrive-ban",
 		"toolActivity.filesOpenFileOneDrive": "{name} megnyitása a OneDrive-ban",
 		// A kompakt sáv (FilesStrip.svelte).
 		"toolActivity.filesOpenFile": "{name} megnyitása a Nextcloudban",
 		"toolActivity.filesShowAll": "Mind a(z) {count} fájl megjelenítése",
+		"toolActivity.teamsDownload": "{name} letöltése",
 		"toolActivity.filesOpenPicture":
 			"{name} megnyitása, {index}. kép ({total} közül)",
 		"toolActivity.filesShowList": "A fájllista megjelenítése",

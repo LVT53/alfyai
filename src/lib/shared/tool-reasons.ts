@@ -38,6 +38,7 @@ export type SharedReasonCode = (typeof SHARED_REASON_CODES)[number];
 export const CONNECTOR_TOOL_NAMES = [
 	"calendar",
 	"cycling",
+	"teams",
 	"contacts",
 	"email",
 	"files",
@@ -104,6 +105,7 @@ export const TOOL_REASON_CODES = {
 		"online_meeting_notes",
 	],
 	cycling: [...CONNECTOR_REASON_CODES, "cached_rider_data"],
+	teams: CONNECTOR_REASON_CODES,
 	contacts: CONNECTOR_REASON_CODES,
 	email: CONNECTOR_REASON_CODES,
 	files: CONNECTOR_REASON_CODES,

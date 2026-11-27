@@ -490,5 +490,6 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 	connectionEntry("media", "media"),
 	connectionEntry("contacts", "contacts"),
 	connectionEntry("repos", "repos"),
+	connectionEntry("teams", "teams"),
 	connectionEntry("tasks", "tasks"),
 ];
