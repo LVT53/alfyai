@@ -995,7 +995,7 @@ function capabilityAbout(capability: string): string {
 	}
 
 	.detail-account {
-		margin-top: 0.125rem;
+		margin-top: var(--space-sm);
 		font-size: 0.75rem;
 		color: var(--text-muted);
 		overflow: hidden;

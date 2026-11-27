@@ -37,7 +37,7 @@ let {
 		display: flex;
 		align-items: flex-start;
 		gap: 0.6875rem;
-		margin-bottom: 0.875rem;
+		margin-bottom: var(--space-md);
 	}
 
 	.wizard-mark {
@@ -56,7 +56,7 @@ let {
 	.wizard-text {
 		display: flex;
 		flex-direction: column;
-		gap: 0.1875rem;
+		gap: var(--space-sm);
 		min-width: 0;
 	}
 

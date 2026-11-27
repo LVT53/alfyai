@@ -832,7 +832,7 @@ const providerName = $derived(
 					subtitle={$t('connections.wizard.bosch.subtitle')}
 				/>
 				<p class="wizard-help">{$t('connections.wizard.bosch.instructions')}</p>
-				<details>
+				<details class="bosch-setup">
 					<summary>{$t('connections.wizard.bosch.selfHost')}</summary>
 					<a href="/api/connections/bosch/runner" download="alfyai-bosch.mjs">
 						{$t('connections.wizard.bosch.download')}
@@ -1699,6 +1699,24 @@ const providerName = $derived(
 		color: var(--text-secondary);
 	}
 
+	.bosch-setup {
+		margin-block: var(--space-md);
+	}
+
+	.bosch-setup a,
+	.bosch-setup code {
+		display: block;
+		margin-block-start: var(--space-sm);
+	}
+
+	.capability-choices + .capability-choices {
+		margin-block-start: var(--space-md);
+	}
+
+	.capability-choices > legend:not(.sr-only) {
+		margin-block-end: var(--space-sm);
+	}
+
 	.wizard-field-help {
 		margin: 0.375rem 0 0 0;
 		font-size: 0.75rem;
@@ -1832,7 +1850,7 @@ const providerName = $derived(
 	.capability-copy {
 		display: flex;
 		flex-direction: column;
-		gap: 0.125rem;
+		gap: var(--space-xs);
 		min-width: 0;
 	}
 

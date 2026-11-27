@@ -445,6 +445,25 @@ test.describe("settings connections tab", () => {
 			await page.getByTestId("connections-add-bosch").click();
 			const dialog = page.getByRole("dialog");
 			await expect(dialog).toContainText("separate service for each rider");
+			const gaps = await dialog.locator(".wizard-head").evaluate((header) => {
+				const title = header
+					.querySelector(".wizard-title")
+					?.getBoundingClientRect();
+				const subtitle = header
+					.querySelector(".wizard-subtitle")
+					?.getBoundingClientRect();
+				const instructions = header.nextElementSibling?.getBoundingClientRect();
+				if (!title || !subtitle || !instructions) {
+					throw new Error("Missing wizard header or instructions");
+				}
+				return {
+					titleToSubtitle: subtitle.top - title.bottom,
+					headerToInstructions:
+						instructions.top - header.getBoundingClientRect().bottom,
+				};
+			});
+			expect(gaps.titleToSubtitle).toBeGreaterThanOrEqual(7.5);
+			expect(gaps.headerToInstructions).toBeGreaterThanOrEqual(15.5);
 			await dialog.getByText("Run the bridge yourself").click();
 			await expect(
 				dialog.getByRole("link", { name: "Download the bridge" }),

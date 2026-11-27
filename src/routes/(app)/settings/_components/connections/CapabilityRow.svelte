@@ -82,7 +82,7 @@ let {
 	}
 
 	.capability-description {
-		margin: 0.1875rem 0 0 0;
+		margin: var(--space-xs) 0 0;
 		font-size: 0.75rem;
 		line-height: 1.45;
 		color: var(--text-muted);
