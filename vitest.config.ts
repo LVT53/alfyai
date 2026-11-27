@@ -1,3 +1,4 @@
+import { boschRunnerAsset } from "./scripts/bosch-runner-asset.mjs";
 import { defineConfig } from 'vitest/config';
 import { sveltekit } from '@sveltejs/kit/vite';
 import {
@@ -7,7 +8,7 @@ import {
 } from './scripts/unit-test-selection.mjs';
 
 export default defineConfig({
-  plugins: [sveltekit() as any],
+  plugins: [boschRunnerAsset(), sveltekit() as any],
   test: {
     environment: 'node',
     include: UNIT_TEST_INCLUDE,

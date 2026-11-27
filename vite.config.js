@@ -1,3 +1,4 @@
+import { boschRunnerAsset } from "./scripts/bosch-runner-asset.mjs";
 import { sentrySvelteKit } from '@sentry/sveltekit';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
@@ -18,7 +19,7 @@ const sentryPlugins = await sentrySvelteKit({
 export default defineConfig({
 	// One optimizer cache per dev server when an e2e run starts several (tests/e2e/e2e-servers.ts); unset, the default.
 	cacheDir: process.env.VITE_CACHE_DIR || undefined,
-	plugins: [...sentryPlugins, sveltekit()],
+	plugins: [boschRunnerAsset(), ...sentryPlugins, sveltekit()],
 	build: {
 		// Lazy-loaded Shiki grammars compress well but can exceed Vite's default 500 kB warning threshold.
 		chunkSizeWarningLimit: 1300,
