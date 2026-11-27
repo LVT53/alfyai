@@ -3,7 +3,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
-import { findConnectionByAccount } from "../store";
+import { resolveActiveCapabilities } from "../resolve";
+import { findConnectionByAccount, updateConnection } from "../store";
 import {
 	loadBoschDetailForQuestion,
 	loadBoschForQuestion,
@@ -59,6 +60,22 @@ const token = async () =>
 		}),
 	);
 describe("hosted Bosch setup", () => {
+	it("offers cycling in new chats after consent, preserving the rider's later default and per-chat choices", async () => {
+		const login = async () => {
+			const { state } = await startBoschHostedSetup("one", input, callback);
+			await completeBoschHostedSetup("one", "code", state, callback, token);
+		};
+		await login();
+		expect(await resolveActiveCapabilities("one")).toEqual(
+			new Set(["cycling"]),
+		);
+		expect(await resolveActiveCapabilities("one", [])).toEqual(new Set());
+		const conn = await findConnectionByAccount("one", "bosch", "personal");
+		if (!conn) throw new Error("Expected hosted connection");
+		await updateConnection("one", conn.id, { defaultOn: false });
+		await login();
+		expect(await resolveActiveCapabilities("one")).toEqual(new Set());
+	});
 	it("binds each one-time callback to its rider and keeps a working helper until success", async () => {
 		const helper = await pairBoschBridge("one");
 		const { state, url } = await startBoschHostedSetup("one", input, callback);

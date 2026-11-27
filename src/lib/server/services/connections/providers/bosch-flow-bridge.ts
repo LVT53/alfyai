@@ -68,18 +68,21 @@ export async function pairBoschBridge(userId: string) {
 	const priorData = prior
 		? await getConnectionSecretSnapshot(userId, prior.id)
 		: null;
-	const previousSnapshot = priorData
-		? JSON.parse(priorData.value).snapshot
-		: null;
+	const previous = priorData ? JSON.parse(priorData.value) : null;
+	const awaitingConsent = !prior || previous?.awaitingConsent === true;
 	const encryptedValue = JSON.stringify({
 		keyHash: digest(secret).toString("hex"),
-		snapshot: previousSnapshot,
+		snapshot: previous?.snapshot ?? null,
+		...(awaitingConsent ? { awaitingConsent: true } : {}),
 	});
 	const connection = prior
 		? await updateConnection(
 				userId,
 				prior.id,
-				{ secret: encryptedValue, status: "connected" },
+				{
+					secret: encryptedValue,
+					status: awaitingConsent ? "disconnected" : "connected",
+				},
 				priorData?.version,
 			)
 		: await createConnection({
@@ -87,7 +90,8 @@ export async function pairBoschBridge(userId: string) {
 				provider: "bosch",
 				accountIdentifier: "personal",
 				label: "Bosch eBike Flow",
-				status: "connected",
+				status: "disconnected",
+				defaultOn: true,
 				capabilities: ["cycling"],
 				secret: encryptedValue,
 			}).catch(async (error: unknown) => {
@@ -138,14 +142,19 @@ async function authenticateBridge(bearer: string) {
 	const connection = await getConnection(userId, id);
 	if (
 		connection?.provider !== "bosch" ||
-		connection.status !== "connected" ||
+		(connection.status !== "connected" &&
+			connection.status !== "disconnected") ||
 		!connection.capabilities.includes("cycling")
 	)
 		return null;
 	const existing = await getConnectionSecretSnapshot(userId, id);
 	if (!existing) return null;
 	const saved = JSON.parse(existing.value);
-	if (typeof saved.keyHash !== "string") return null;
+	if (
+		typeof saved.keyHash !== "string" ||
+		(connection.status === "disconnected" && saved.awaitingConsent !== true)
+	)
+		return null;
 	const storedHash = Buffer.from(saved.keyHash, "hex");
 	if (
 		storedHash.length !== 32 ||
@@ -164,6 +173,26 @@ export async function pollBoschQuestion(
 ) {
 	const auth = await authenticateBridge(bearer);
 	if (!auth) return null;
+	// The helper polls only after the rider allows on-demand questions. A pairing
+	// code on its own grants no access. Leave the rider's default switch as set.
+	if (
+		auth.saved.awaitingConsent &&
+		!(await updateConnection(
+			auth.userId,
+			auth.id,
+			{
+				status: "connected",
+				secret: JSON.stringify({
+					keyHash: auth.saved.keyHash,
+					snapshot: auth.saved.snapshot,
+				}),
+			},
+			auth.existing.version,
+		))
+	) {
+		// A simultaneous upload or renewal changed the secret. Re-check it on the next poll.
+		return { requestId: null, retryAfterMs: 1000 };
+	}
 	const now = Date.now();
 	for (const [key, beat] of heartbeats) {
 		if (now - beat.time > 12000) heartbeats.delete(key);
@@ -250,7 +279,10 @@ export async function acceptBoschUpload(
 	const updated = await updateConnection(
 		userId,
 		id,
-		{ secret: JSON.stringify({ keyHash: saved.keyHash, snapshot }) },
+		{
+			secret: JSON.stringify({ keyHash: saved.keyHash, snapshot }),
+			...(saved.awaitingConsent ? { status: "connected" as const } : {}),
+		},
 		existing.version,
 	);
 	if (!updated) return 409;

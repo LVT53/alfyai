@@ -3,6 +3,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { resolveActiveCapabilities } from "../resolve";
+import { updateConnection } from "../store";
 import {
 	acceptBoschUpload,
 	loadBoschDetailForQuestion,
@@ -43,6 +45,26 @@ const bikeData = {
 	complete: true,
 };
 describe("personal Bosch rider pairing", () => {
+	it("offers a new helper only after the rider sends data or enables questions, preserving explicit choices", async () => {
+		const pair = await pairBoschBridge("one");
+		expect(await resolveActiveCapabilities("one")).toEqual(new Set());
+		expect(await resolveActiveCapabilities("one", ["cycling"])).toEqual(
+			new Set(),
+		);
+		await acceptBoschUpload(pair.pairingToken, async () => bikeData);
+		expect(await resolveActiveCapabilities("one")).toEqual(
+			new Set(["cycling"]),
+		);
+		await updateConnection("one", pair.connectionId, { defaultOn: false });
+		const renewed = await pairBoschBridge("one");
+		await pollBoschQuestion(renewed.pairingToken, null);
+		expect(await resolveActiveCapabilities("one")).toEqual(new Set());
+		const second = await pairBoschBridge("two");
+		await pollBoschQuestion(second.pairingToken, null);
+		expect(await resolveActiveCapabilities("two")).toEqual(
+			new Set(["cycling"]),
+		);
+	});
 	it("isolates rider snapshots and rejects keys rotated or mixed between riders", async () => {
 		const first = await pairBoschBridge("one");
 		const second = await pairBoschBridge("two");

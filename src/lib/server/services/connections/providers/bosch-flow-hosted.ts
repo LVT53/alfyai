@@ -173,6 +173,7 @@ export async function completeBoschHostedSetup(
 			provider: "bosch",
 			accountIdentifier: "personal",
 			label: "Bosch eBike Flow",
+			defaultOn: true,
 			capabilities: ["cycling"],
 			status: "connected",
 			secret,
