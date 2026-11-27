@@ -8,7 +8,10 @@ import {
 } from "$lib/client/api/connections";
 import BoschSetupSteps from "$lib/components/guide/BoschSetupSteps.svelte";
 import { t, type I18nKey } from "$lib/i18n";
-import { boschHostedGrants as groups, type BoschHostedGrant } from "$lib/shared/bosch-hosted";
+import {
+	boschHostedGrants as groups,
+	type BoschHostedGrant,
+} from "$lib/shared/bosch-hosted";
 import PasswordField from "../PasswordField.svelte";
 
 let {
@@ -16,8 +19,12 @@ let {
 	onSaved,
 	legacy,
 	needsReauth,
-}: { redirectTo: (url: string) => void; onSaved: () => void; legacy: Snippet; needsReauth: boolean } =
-	$props();
+}: {
+	redirectTo: (url: string) => void;
+	onSaved: () => void;
+	legacy: Snippet;
+	needsReauth: boolean;
+} = $props();
 let setup = $state<Awaited<ReturnType<typeof fetchHostedBoschSetup>> | null>(
 	null,
 );
