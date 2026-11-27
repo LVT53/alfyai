@@ -59,7 +59,7 @@ it("blocks foreign host/origin and requires exact consent before a summary reach
 	const request = (
 		path: string,
 		method = "GET",
-		fields?: Record<string, string>,
+		fields?: Record<string, string> | URLSearchParams,
 		origin = "http://127.0.0.1:47831",
 	) =>
 		session.handle(
@@ -108,7 +108,8 @@ it("blocks foreign host/origin and requires exact consent before a summary reach
 	const decision =
 		/name="review" value="([^"]+)"/.exec(review)?.[1] ?? "missing";
 	expect(decision).not.toBe("missing");
-	expect(review).toContain("Allow future AlfyAI cycling questions");
+	expect(review).toContain("Allow all supported data");
+	expect(review).toContain("fitness measurements and precise ride locations");
 	expect(
 		fetch.mock.calls.some(([u]) => String(u).includes("ai.alfydesign.com")),
 	).toBe(false);
@@ -129,6 +130,15 @@ it("blocks foreign host/origin and requires exact consent before a summary reach
 	expect(
 		(await request("/sync", "POST", { csrf, review: decision })).status,
 	).toBe(409);
+	const all = new URLSearchParams({ csrf, review: decision });
+	for (const grant of ["details", "fitness", "location"])
+		all.append("grant", grant);
+	expect((await request("/enable", "POST", all)).status).toBe(303);
+	await session.pollOnce();
+	const poll = fetch.mock.calls.at(-1);
+	expect(new Headers(poll?.[1]?.headers).get("X-Bosch-Grants")).toBe(
+		"details,fitness,location",
+	);
 });
 it("resumes only previously authorized demand polls and reads Bosch only when a question arrives", async () => {
 	let ask = false,
@@ -306,6 +316,32 @@ it("keeps old on-demand approvals summary-only until the rider selects individua
 				body: new URLSearchParams(grant ? { csrf, grant } : { csrf }),
 			}),
 		);
+	const allForm =
+		/<form[^>]*action="\/permissions"[^>]*>(?:(?!<\/form>)[\s\S])*?Allow all supported data<\/button><\/form>/.exec(
+			page,
+		)?.[0];
+	expect(allForm).toBeDefined();
+	const allFields = new URLSearchParams({ csrf });
+	for (const match of (allForm ?? "").matchAll(/name="grant" value="([^"]+)"/g))
+		allFields.append("grant", match[1]);
+	expect(
+		(
+			await runner.handle(
+				new Request(new URL("/permissions", origin), {
+					method: "POST",
+					headers: {
+						host,
+						cookie,
+						origin,
+						"content-type": "application/x-www-form-urlencoded",
+					},
+					body: allFields,
+				}),
+			)
+		).status,
+	).toBe(303);
+	await runner.pollOnce();
+	expect(headers().get("X-Bosch-Grants")).toBe("details,fitness,location");
 	expect((await set("unsupported")).status).toBe(400);
 	expect((await set("details")).status).toBe(303);
 	expect(persist).toHaveBeenLastCalledWith({

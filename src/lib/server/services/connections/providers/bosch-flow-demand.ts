@@ -58,6 +58,10 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 					AbortSignal.timeout(15000),
 				]),
 			});
+		const protocolHeaders = () => ({
+			"X-Bosch-Protocol": "2",
+			"X-Bosch-Grants": state.grants().join(","),
+		});
 		const disable = async () => {
 			if (ctx === control) {
 				stop();
@@ -65,12 +69,7 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 			}
 		};
 		try {
-			const poll = await call(pollUrl, {
-				headers: {
-					"X-Bosch-Protocol": "2",
-					"X-Bosch-Grants": state.grants().join(","),
-				},
-			});
+			const poll = await call(pollUrl, { headers: protocolHeaders() });
 			if (poll.status === 401 || poll.status === 403) {
 				await disable();
 				return 2000;
@@ -162,10 +161,17 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 			return sent.ok ? delay : 5000;
 		} catch (e) {
 			if (requestId && !ctx.signal.aborted && cache?.requestId !== requestId) {
-				await call(pollUrl, { headers: { "X-Bosch-Failed": requestId } }).catch(
-					() => undefined,
-				);
 				const code = typeof e === "object" && e && "code" in e ? e.code : "";
+				await call(pollUrl, {
+					headers: {
+						...protocolHeaders(),
+						"X-Bosch-Failed": requestId,
+						...(detailRequest &&
+						(code === "not_found" || code === "access_denied")
+							? { "X-Bosch-Failure-Code": code }
+							: {}),
+					},
+				}).catch(() => undefined);
 				if (
 					code === "authorization_failed" ||
 					code === "expired" ||

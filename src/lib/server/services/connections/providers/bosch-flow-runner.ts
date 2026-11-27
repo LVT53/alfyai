@@ -280,6 +280,11 @@ export function createBoschRunner(options: Options = {}) {
 				prepared = { snapshot, review: approvedReview, pairing: saved.pairing };
 				return redirect("/");
 			}
+			const grantsForSubmission = () => {
+				const values = fields.getAll("grant");
+				const selected = knownGrants.filter((grant) => values.includes(grant));
+				return selected.length === values.length ? selected : null;
+			};
 			if (u.pathname === "/enable" && req.method === "POST") {
 				if (
 					!account ||
@@ -287,6 +292,8 @@ export function createBoschRunner(options: Options = {}) {
 					!same(fields.get("review"), approvedReview)
 				)
 					return message(409, word.stale);
+				const selected = grantsForSubmission();
+				if (!selected) return message(400, word.invalid);
 				if (options.service) {
 					if (!account.refreshToken || !options.persist)
 						return message(400, word.noRefresh);
@@ -295,10 +302,12 @@ export function createBoschRunner(options: Options = {}) {
 						pairing: account.pairing,
 						refreshToken: account.refreshToken,
 						onDemand: true,
+						dataGrants: selected,
 					};
 					await options.persist(next);
 					saved = next;
 				}
+				dataGrants = selected;
 				demand.start();
 				approvedReview = null;
 				prepared = null;
@@ -307,10 +316,8 @@ export function createBoschRunner(options: Options = {}) {
 			}
 			if (u.pathname === "/permissions" && req.method === "POST") {
 				if (!demand.enabled() || !account) return message(409, word.stale);
-				const values = fields.getAll("grant");
-				const selected = knownGrants.filter((grant) => values.includes(grant));
-				if (selected.length !== values.length)
-					return message(400, word.invalid);
+				const selected = grantsForSubmission();
+				if (!selected) return message(400, word.invalid);
 				await demand.stopAndWait();
 				try {
 					if (options.service && saved) {
