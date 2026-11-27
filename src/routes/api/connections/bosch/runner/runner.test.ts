@@ -1,3 +1,4 @@
+// @always-run: boots the runner bundled from its Node entry point by the Vite asset plugin
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";

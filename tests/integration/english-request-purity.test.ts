@@ -786,6 +786,8 @@ const HUNGARIAN_BY_DESIGN: Record<string, string> = {
 		"document cues, matched against the person’s message",
 
 	// UI copy and chrome: shown to a person, never sent to a model
+	"lib/server/services/connections/providers/bosch-flow-runner-page.ts":
+		"hu setup and consent text on the standalone rider helper page",
 	"lib/server/services/skills/user-skills.ts":
 		"hu skill texts, shown in the UI",
 	"lib/server/services/browser-push.ts": "hu notification text",
