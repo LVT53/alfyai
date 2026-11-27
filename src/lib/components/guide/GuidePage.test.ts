@@ -122,6 +122,36 @@ describe("the guide page", () => {
 		}
 	});
 
+	it.each(["en", "hu"] as const)(
+		"opens the hosted Bosch pairing steps from connected accounts in %s",
+		async (language) => {
+			uiLanguage.set(language);
+			render(GuidePage);
+			const row = within(rowOf("connectedAccounts"));
+			await fireEvent.click(
+				row.getByText(
+					language === "en"
+						? "Set up Bosch eBike Flow in 4 steps"
+						: "A Bosch eBike Flow beállítása 4 lépésben",
+				),
+			);
+			const steps = row.getByRole("list");
+			expect(steps).toHaveTextContent(
+				language === "en" ? "AlfyAI pairing key" : "AlfyAI párosítási kulcs",
+			);
+			expect(steps).toHaveTextContent(
+				language === "en" ? "Bosch client ID" : "Bosch kliensazonosító",
+			);
+			expect(steps).toHaveTextContent(
+				language === "en" ? "Sign in with Bosch" : "Bejelentkezés a Boschnál",
+			);
+			expect(steps).toHaveTextContent(
+				language === "en"
+					? "leave the client secret blank"
+					: "titkos kulcsát hagyd üresen",
+			);
+		},
+	);
 	it("says what it is for under the title", () => {
 		render(GuidePage);
 

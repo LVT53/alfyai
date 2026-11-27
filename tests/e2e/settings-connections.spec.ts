@@ -468,8 +468,8 @@ test.describe("settings connections tab", () => {
 			await expect(
 				dialog.getByRole("link", { name: "Download the bridge" }),
 			).toHaveAttribute("href", "/api/connections/bosch/runner");
-			await dialog.getByRole("button", { name: "Create pairing code" }).click();
-			await expect(dialog.getByLabel("Your pairing code")).toHaveValue(
+			await dialog.getByRole("button", { name: "Create pairing key" }).click();
+			await expect(dialog.getByLabel("AlfyAI pairing key")).toHaveValue(
 				"synthetic-code",
 			);
 			await dialog

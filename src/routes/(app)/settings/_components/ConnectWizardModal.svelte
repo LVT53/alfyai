@@ -1,4 +1,5 @@
 <script lang="ts">
+import BoschSetupSteps from "$lib/components/guide/BoschSetupSteps.svelte";
 // Connections redesign — the connect/reconnect wizard.
 //
 // One chassis, one variant per provider (see wizard-variant.ts, which is
@@ -832,6 +833,7 @@ const providerName = $derived(
 					subtitle={$t('connections.wizard.bosch.subtitle')}
 				/>
 				<p class="wizard-help">{$t('connections.wizard.bosch.instructions')}</p>
+				<BoschSetupSteps />
 				<details class="bosch-setup">
 					<summary>{$t('connections.wizard.bosch.selfHost')}</summary>
 					<a href="/api/connections/bosch/runner" download="alfyai-bosch.mjs">

@@ -3,19 +3,34 @@
 
 const connectionsDict = {
 	en: {
+		"connections.wizard.bosch.authorize":
+			"Select “Sign in with Bosch”, review the fields in the preview, then choose to save your credentials on this server and allow future cycling questions to fetch those fields.",
+		"connections.wizard.bosch.steps": "Set up Bosch eBike Flow in 4 steps",
+		"connections.wizard.bosch.register":
+			"Choose “I am a user”, review “Data processing consent”, then select “Confirm”.",
+		"connections.wizard.bosch.client":
+			"Open “Client application”, give your app a name you’ll recognize and enter these two addresses.",
+		"connections.wizard.bosch.submitClient":
+			"Leave “Confidential client” off (PKCE), select “Submit” and keep your client ID.",
+		"connections.wizard.bosch.enable":
+			"Choose “Bosch Smart System” and sign in with the same SingleKey ID. Find your app, select “Enable service” and review which bike data you are sharing. Bosch then returns you to AlfyAI Settings.",
+		"connections.wizard.bosch.pair":
+			"In AlfyAI, create a pairing key. Open your private rider setup page using the link from your operator. Paste the key into “AlfyAI pairing key” and your public client ID into “Bosch client ID”. With “Confidential client” off, leave the client secret blank.",
+		"connections.wizard.bosch.hosting":
+			"Using a third-party host? Before pairing, give Bosch advance notice under section 1.1.3 of the individual agreement and confirm your setup meets the credential rules in section 5.8.",
 		"connections.capability.cycling": "Cycling",
 		"connections.wizard.bosch.subtitle":
 			"Pair your personal Bosch eBike Flow bridge.",
 		"connections.wizard.bosch.instructions":
-			"Your AlfyAI operator sets up a separate service for each rider. Open the private setup page they provide, enter your pairing code, and authorize your own Bosch account. The server stays online to read your bikes and rides when you ask.",
+			"Your operator installs a separate service for each rider. If yours is ready, follow the steps below. You don’t need to download or run the bridge.",
 		"connections.wizard.bosch.selfHost": "Run the bridge yourself",
 		"connections.wizard.bosch.download": "Download the bridge",
-		"connections.wizard.bosch.code": "Your pairing code",
+		"connections.wizard.bosch.code": "AlfyAI pairing key",
 		"connections.wizard.bosch.oneTime":
-			"Enter this code on your private setup page. It is shown only here.",
+			"Copy this key into “AlfyAI pairing key” on your private rider setup page. It is shown only here.",
 		"connections.wizard.bosch.rotate":
-			"Creating a new code disconnects the previous bridge. Your synced rides are kept.",
-		"connections.wizard.bosch.create": "Create pairing code",
+			"Creating a new key disconnects the previous bridge. Your synced rides are kept.",
+		"connections.wizard.bosch.create": "Create pairing key",
 		"connections.writeConfirm.fact.teamsChannel": "Channel",
 		"connections.capability.teams": "Teams",
 		"connections.writeConfirm.risk.teamsLink":
@@ -756,19 +771,35 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.wizard.bosch.authorize":
+			"Válaszd a „Bejelentkezés a Boschnál” gombot, majd nézd át az előnézet mezőit. Engedélyezd a hitelesítő adatok mentését ezen a szerveren és az adatlekérést a későbbi kerékpáros kérdéseidhez.",
+		"connections.wizard.bosch.steps":
+			"A Bosch eBike Flow beállítása 4 lépésben",
+		"connections.wizard.bosch.register":
+			"Válaszd az „I am a user” lehetőséget, olvasd el a „Data processing consent” nyilatkozatot, majd válaszd a „Confirm” gombot.",
+		"connections.wizard.bosch.client":
+			"Nyisd meg a „Client application” űrlapot, adj az alkalmazásnak egy könnyen felismerhető nevet, és írd be ezt a két címet.",
+		"connections.wizard.bosch.submitClient":
+			"Hagyd kikapcsolva a „Confidential client” beállítást (PKCE), válaszd a „Submit” gombot, és őrizd meg az ügyfélazonosítódat (client ID).",
+		"connections.wizard.bosch.enable":
+			"Válaszd a „Bosch Smart System” lehetőséget, és ugyanazzal a SingleKey ID-val jelentkezz be. A saját alkalmazásod sorában válaszd az „Enable service” lehetőséget, és ellenőrizd, mely adatokat osztod meg. A Bosch ezután visszairányít az AlfyAI beállításaihoz.",
+		"connections.wizard.bosch.pair":
+			"Hozz létre párosítási kulcsot az AlfyAI-ban. Az üzemeltetőtől kapott hivatkozással nyisd meg a saját beállítási oldaladat. A kulcsot az „AlfyAI párosítási kulcs”, a nyilvános kliensazonosítódat a „Bosch kliensazonosító” mezőbe másold. Ha a „Confidential client” ki van kapcsolva, a kliens titkos kulcsát hagyd üresen.",
+		"connections.wizard.bosch.hosting":
+			"Külső üzemeltetőt veszel igénybe? Párosítás előtt értesítsd a Boscht az egyéni megállapodás 1.1.3. pontja szerint, és ellenőrizd, hogy a beállítás megfelel-e az 5.8. pont hozzáférési adatokra vonatkozó feltételeinek.",
 		"connections.capability.cycling": "Kerékpározás",
 		"connections.wizard.bosch.subtitle":
 			"Párosítsd a saját Bosch eBike Flow-hidadat.",
 		"connections.wizard.bosch.instructions":
-			"Az AlfyAI üzemeltetője minden kerékpároshoz külön szolgáltatást állít be. Nyisd meg a tőle kapott privát beállítási oldalt, add meg a párosítási kódot, és engedélyezd a hozzáférést a saját Bosch-fiókodban. Ha kérdezel, a szerver lekéri a kerékpárjaid vagy útjaid adatait.",
+			"Az AlfyAI üzemeltetője minden kerékpároshoz külön szolgáltatást állít be. Ha a tiéd már készen áll, kövesd az alábbi lépéseket. A saját gépeden semmit sem kell telepítened vagy futtatnod.",
 		"connections.wizard.bosch.selfHost": "A híd futtatása saját gépen",
 		"connections.wizard.bosch.download": "A híd letöltése",
-		"connections.wizard.bosch.code": "Párosítási kódod",
+		"connections.wizard.bosch.code": "AlfyAI párosítási kulcs",
 		"connections.wizard.bosch.oneTime":
-			"A kódot a privát beállítási oldalon add meg. Csak itt látható.",
+			"Másold a kulcsot a saját beállítási oldaladon az „AlfyAI párosítási kulcs” mezőbe. Csak itt látható.",
 		"connections.wizard.bosch.rotate":
-			"Új kód létrehozásakor a régi híd hozzáférése megszűnik. A szinkronizált utak megmaradnak.",
-		"connections.wizard.bosch.create": "Párosítási kód létrehozása",
+			"Új kulcs létrehozásakor a régi híd hozzáférése megszűnik. A szinkronizált utak megmaradnak.",
+		"connections.wizard.bosch.create": "Párosítási kulcs létrehozása",
 		"connections.writeConfirm.fact.teamsChannel": "Csatorna",
 		"connections.capability.teams": "Teams",
 		"connections.writeConfirm.risk.teamsLink":

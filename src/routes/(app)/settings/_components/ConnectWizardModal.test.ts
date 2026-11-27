@@ -2,6 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "$lib/client/api/http";
+import { uiLanguage } from "$lib/stores/settings";
 import ConnectWizardModal from "./ConnectWizardModal.svelte";
 
 vi.mock("$lib/client/api/connections", () => ({
@@ -86,6 +87,51 @@ describe("ConnectWizardModal", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it.each(["en", "hu"] as const)(
+		"shows the rider the four individual setup steps in %s",
+		async (locale) => {
+			uiLanguage.set(locale);
+			try {
+				render(ConnectWizardModal, baseProps({ provider: "bosch" }));
+				const summary = screen.getByText(
+					locale === "en"
+						? "Set up Bosch eBike Flow in 4 steps"
+						: "A Bosch eBike Flow beállítása 4 lépésben",
+				);
+				const details = summary.closest("details");
+				expect(details).not.toHaveAttribute("open");
+				await fireEvent.click(summary);
+				expect(details).toHaveAttribute("open");
+				expect(screen.getAllByRole("listitem")).toHaveLength(4);
+				expect(
+					screen.getByRole("link", { name: "Bosch Partner Portal" }),
+				).toHaveAttribute("href", "https://portal.bosch-ebike.com/data-act");
+				expect(
+					screen.getByRole("link", { name: "Bosch Flow" }),
+				).toHaveAttribute("href", "https://flow.bosch-ebike.com/data-act");
+				for (const label of [
+					"I am a user",
+					"Data processing consent",
+					"Confirm",
+					"Client application",
+					"Login URL",
+					"Redirect URI",
+					"Confidential client",
+					"Submit",
+					"SingleKey ID",
+					"Enable service",
+					"https://ai.alfydesign.com/settings",
+					"http://127.0.0.1:47831/callback",
+					"1.1.3",
+					"5.8",
+				])
+					expect(details).toHaveTextContent(label);
+				expect(startBoschPairing).not.toHaveBeenCalled();
+			} finally {
+				uiLanguage.set("en");
+			}
+		},
+	);
 	it("pairs only on request and displays the local runner and code until the rider closes", async () => {
 		vi.mocked(startBoschPairing).mockResolvedValue({
 			connectionId: "c",
@@ -103,9 +149,9 @@ describe("ConnectWizardModal", () => {
 		);
 		expect(startBoschPairing).not.toHaveBeenCalled();
 		await fireEvent.click(
-			screen.getByRole("button", { name: "Create pairing code" }),
+			screen.getByRole("button", { name: "Create pairing key" }),
 		);
-		expect(await screen.findByLabelText("Your pairing code")).toHaveValue(
+		expect(await screen.findByLabelText("AlfyAI pairing key")).toHaveValue(
 			"synthetic-secret",
 		);
 		expect(onConnected).toHaveBeenCalledOnce();

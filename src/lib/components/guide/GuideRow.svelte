@@ -1,4 +1,5 @@
 <script lang="ts">
+import BoschSetupSteps from "./BoschSetupSteps.svelte";
 /**
  * One entry of the guide: its name (with NEW while it is new), one line, and the
  * action at the right, Try it, Show me or nothing.
@@ -99,6 +100,7 @@ function handleClick() {
 				{/if}
 			</p>
 			<p class="guide-row__line">{line}{#if extraLine} {extraLine}{/if}</p>
+			{#if entry.id === "connectedAccounts"}<BoschSetupSteps />{/if}
 		</div>
 		{#if entry.action.kind === 'tryIt'}
 			<button
