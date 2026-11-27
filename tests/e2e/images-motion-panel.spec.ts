@@ -1290,7 +1290,18 @@ const HISTORY_PICTURE_PART =
 /** What History's motion is made of: the shell's own animations, what moved, what shifted, what ran long. */
 function measureHistory(run: MotionRun) {
 	const real = run.transitions.filter((entry) => entry.duration >= 1);
-	const start = run.inputAt ?? 0;
+	const start = run.inputAt;
+	if (start === null) throw new Error("History recording missed the input");
+	// The recorder starts before Playwright locates and presses the control and
+	// stays on through settle(). Keep the raw timeline for diagnosis, and hold
+	// the same 50 ms budget from the input through the last animation and the
+	// following 120 ms of settling, as measurePanel does above. Include frames
+	// straddling the input or end as well as frames wholly inside the window.
+	const motionEnd =
+		Math.max(
+			start,
+			...[...real, ...run.animations].map((entry) => entry.t + entry.duration),
+		) + 120;
 	const opacityOf = (name: string) =>
 		run.frames
 			.filter((frame) => frame.tracked[name] != null)
@@ -1305,7 +1316,12 @@ function measureHistory(run: MotionRun) {
 		cls: shiftSum(run),
 		clsNoInput: shiftSum(run, { ignoreRecentInput: true }),
 		shifts: run.shifts,
-		longFrames: run.longFrames,
+		inputAt: start,
+		motionEnd,
+		longFramesAll: run.longFrames,
+		longFrames: run.longFrames.filter(
+			(frame) => frame.t + frame.duration >= start && frame.t <= motionEnd,
+		),
 		slotShownMs: shownAt("slot"),
 		sheetShownMs: shownAt("sheet"),
 		slotOpacity: opacityOf("slot").map((frame) =>
@@ -1335,6 +1351,28 @@ function measureHistory(run: MotionRun) {
 }
 
 type HistoryMetrics = ReturnType<typeof measureHistory>;
+test("History's frame budget includes both animation boundaries and excludes Playwright setup and teardown", () => {
+	const at = (t: number) => ({ t, duration: 80 });
+	const frames = [at(10), at(100), at(250), at(375), at(500)];
+	const measured = measureHistory({
+		inputAt: 150,
+		frames: [],
+		shifts: [],
+		longFrames: frames,
+		transitions: [],
+		animations: [
+			{
+				t: 175,
+				target: "history",
+				duration: 100,
+				properties: ["opacity"],
+				easing: "linear",
+			},
+		],
+	});
+	expect(measured.longFramesAll).toEqual(frames);
+	expect(measured.longFrames).toEqual([frames[1], frames[2], frames[3]]);
+});
 
 /** The picture's own pieces animate only transform and opacity (MOTION-PARITY 3). */
 function unsafeHistoryTransitions(metrics: HistoryMetrics) {
