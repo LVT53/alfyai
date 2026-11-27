@@ -6,9 +6,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 DynamicUser=yes
+User=abosch-%i
 StateDirectory=alfyai-bosch-%i
 StateDirectoryMode=0700
 UMask=0077
+Environment=ALFYAI_BOSCH_STATE_DIR=/var/lib/alfyai-bosch-%i/rider
 EnvironmentFile=/etc/alfyai-bosch/%i.env
 ExecStart=/usr/bin/node /opt/alfyai-bosch/alfyai-bosch.mjs --service
 Restart=always
