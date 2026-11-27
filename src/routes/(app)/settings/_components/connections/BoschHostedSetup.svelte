@@ -8,16 +8,16 @@ import {
 } from "$lib/client/api/connections";
 import BoschSetupSteps from "$lib/components/guide/BoschSetupSteps.svelte";
 import { t, type I18nKey } from "$lib/i18n";
-import type { BoschHostedGrant } from "$lib/shared/bosch-hosted";
+import { boschHostedGrants as groups, type BoschHostedGrant } from "$lib/shared/bosch-hosted";
 import PasswordField from "../PasswordField.svelte";
 
 let {
 	redirectTo,
 	onSaved,
 	legacy,
-}: { redirectTo: (url: string) => void; onSaved: () => void; legacy: Snippet } =
+	needsReauth,
+}: { redirectTo: (url: string) => void; onSaved: () => void; legacy: Snippet; needsReauth: boolean } =
 	$props();
-const groups = ["details", "fitness", "location"] as const;
 let setup = $state<Awaited<ReturnType<typeof fetchHostedBoschSetup>> | null>(
 	null,
 );
@@ -40,7 +40,7 @@ async function load() {
 		if (lifetime.signal.aborted) return;
 		setup = info;
 		grants = [...info.grants];
-		authorize = info.mode === "none";
+		authorize = info.mode === "none" || (info.mode === "hosted" && needsReauth);
 	} catch {
 		if (!lifetime.signal.aborted) failure = "connections.wizard.bosch.loadFail";
 	}

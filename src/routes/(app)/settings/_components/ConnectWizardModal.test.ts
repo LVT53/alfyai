@@ -186,6 +186,25 @@ describe("ConnectWizardModal", () => {
 		});
 		expect(startBoschPairing).not.toHaveBeenCalled();
 	});
+	it("takes an expired hosted connection directly to sign-in, keeping current permissions", async () => {
+		vi.mocked(fetchHostedBoschSetup).mockResolvedValue({
+			mode: "hosted",
+			grants: ["location"],
+			callbackUrl: "https://ai.example/callback",
+		});
+		render(
+			ConnectWizardModal,
+			baseProps({
+				provider: "bosch",
+				reconnectConnectionId: "synthetic",
+				reconnectConnection: { status: "needs_reauth" },
+			}),
+		);
+		expect(
+			await screen.findByRole("button", { name: "Sign in with Bosch" }),
+		).toBeDisabled();
+		expect(screen.getByLabelText("Precise ride locations")).toBeChecked();
+	});
 	it("saves hosted permissions without requesting another Bosch sign-in", async () => {
 		vi.mocked(fetchHostedBoschSetup).mockResolvedValue({
 			mode: "hosted",

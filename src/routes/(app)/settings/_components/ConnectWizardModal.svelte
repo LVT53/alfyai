@@ -832,7 +832,7 @@ const providerName = $derived(
 					title={$t('connections.wizard.titleConnect', { provider: providerName })}
 					subtitle={$t('connections.wizard.bosch.subtitle')}
 				/>
-				<BoschHostedSetup {redirectTo} onSaved={() => { onConnected(); onClose(); }}>
+				<BoschHostedSetup {redirectTo} needsReauth={initialReconnectConnection?.status === "needs_reauth"} onSaved={() => { onConnected(); onClose(); }}>
 					{#snippet legacy()}
 						<div class="bosch-setup">
 							<a href="/api/connections/bosch/runner" download="alfyai-bosch.mjs">
