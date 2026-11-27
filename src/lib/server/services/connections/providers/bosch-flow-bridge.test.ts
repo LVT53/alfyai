@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import {
 	acceptBoschUpload,
+	loadBoschForQuestion,
 	pairBoschBridge,
+	pollBoschQuestion,
 	readBoschSnapshot,
 } from "./bosch-flow-bridge";
 
@@ -64,6 +66,40 @@ describe("personal Bosch rider pairing", () => {
 		expect(await readBoschSnapshot("one", rotated.connectionId)).toMatchObject(
 			bikeData,
 		);
+	});
+	it("a question triggers a fresh read only on its rider's helper", async () => {
+		const first = await pairBoschBridge("one");
+		const second = await pairBoschBridge("two");
+		expect(await loadBoschForQuestion("one", first.connectionId)).toEqual({
+			snapshot: null,
+			fresh: false,
+		});
+		expect(await pollBoschQuestion(first.pairingToken, null)).toMatchObject({
+			requestId: null,
+		});
+		const answer = loadBoschForQuestion("one", first.connectionId);
+		let id: string | null = null;
+		await vi.waitFor(async () => {
+			id =
+				(await pollBoschQuestion(first.pairingToken, null))?.requestId ?? null;
+			expect(id).toBeTruthy();
+		});
+		expect(await pollBoschQuestion(second.pairingToken, null)).toMatchObject({
+			requestId: null,
+		});
+		expect(
+			await acceptBoschUpload(second.pairingToken, async () => bikeData, id),
+		).toBe(409);
+		expect(
+			await acceptBoschUpload(first.pairingToken, async () => bikeData, id),
+		).toBe(204);
+		expect(await answer).toMatchObject({ fresh: true, snapshot: bikeData });
+		expect(await pollBoschQuestion(first.pairingToken, null)).toMatchObject({
+			requestId: null,
+		});
+		expect(
+			await acceptBoschUpload(first.pairingToken, async () => bikeData, id),
+		).toBe(409);
 	});
 	it("discards an in-flight upload if the rider replaces the key during transfer", async () => {
 		const pair = await pairBoschBridge("one");

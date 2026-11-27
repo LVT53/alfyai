@@ -183,9 +183,11 @@ Set `GMAIL_TEST_USER_IDS` to a comma-separated list of AlfyAI user IDs and enabl
 
 Each rider registers under **I am a user** in the [Bosch Data Act portal](https://portal.bosch-ebike.com/data-act), creates a personal Smart System client, and releases their own bike data to themselves in the [Flow portal](https://flow.bosch-ebike.com/data-act). Use the loopback callback `http://127.0.0.1:47831/callback` for the local helper.
 
-From **Settings → Connections → Bosch eBike Flow**, pair your AlfyAI account and download the helper. On a computer with Node.js 22 or later, run `node alfyai-bosch.mjs` and follow its local setup page. Enter your personal Bosch client details there and sign in on Bosch’s site. Review the bike names, ride dates, and distances before sharing the summary with your AlfyAI account.
+For an always-on installation, run one private server helper per rider using `deploy/bosch/alfyai-bosch@.service` and Node.js 22 or later. Install the released helper as `/opt/alfyai-bosch/alfyai-bosch.mjs`. In `/etc/alfyai-bosch/<instance>.env` set `ALFYAI_BOSCH_PORT` to a distinct loopback port and `ALFYAI_BOSCH_BROWSER_PORT=47831`. Enable and start `alfyai-bosch@<instance>.service`. The unit assigns a private state directory and service identity to that rider.
 
-Chat can answer from the latest uploaded snapshot. Run the helper again to share newer rides. Each rider pairs their own AlfyAI account. Pairing again replaces that account’s previous upload key. Removing the connection removes its stored snapshot. Bosch credentials and GPS tracks stay out of the uploaded summary.
+The operator gives the rider access to their instance’s setup page through an SSH tunnel from browser port 47831 to that instance’s port. Its initial setup URL is in the private state directory's `setup-url` file. In **Settings → Connections → Bosch eBike Flow**, pair the rider’s AlfyAI account. Enter the pairing key and that rider’s Bosch application details on their private setup page. Sign in with Bosch, review the fields, and authorize future questions there. Each rider must grant their own access.
+
+While that service is available, a cycling question requests a new Bosch snapshot. Idle checks for questions do not read bike or ride data from Bosch. The server can answer from the last snapshot with its sync time if the rider’s helper cannot complete a fresh read. The summaries contain bike names and ride times and distances. Pairing again replaces that account’s upload key, and removing the connection removes its stored snapshot.
 
 
 ## Development

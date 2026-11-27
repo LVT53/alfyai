@@ -1,0 +1,26 @@
+[Unit]
+Description=AlfyAI personal Bosch eBike Flow helper (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=alfyai-bosch-%i
+StateDirectoryMode=0700
+UMask=0077
+EnvironmentFile=/etc/alfyai-bosch/%i.env
+ExecStart=/usr/bin/node /opt/alfyai-bosch/alfyai-bosch.mjs --service
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
