@@ -53,6 +53,7 @@ let {
 	onToggleCapability,
 	onToggleAllowWrites,
 	onRequestGoogleCalendarWrites,
+	gmailPilotEnabled = false,
 	// Immich only: makes the write key from the account's password. Not wrapped
 	// in runChange, because the dialog says on the spot what went wrong (a wrong
 	// password is not a change that "didn't save"); the switch that follows it is.
@@ -92,6 +93,7 @@ let {
 		next: boolean,
 	) => void | Promise<void>;
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
+	gmailPilotEnabled?: boolean;
 	onRequestGoogleCalendarWrites?: (id: string) => Promise<void>;
 	onEnableImmichWrites?: (id: string, password: string) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
@@ -272,9 +274,9 @@ $effect(() => {
 	if (loading || partialGrantChecked || connections.length === 0) return;
 	partialGrantChecked = true;
 	for (const conn of connections) {
-		const requested = takeRequestedCapabilities(conn.provider);
+		const requested = takeRequestedCapabilities(conn.provider, conn.id);
 		if (!requested) continue;
-		const granted = grantedCapabilitiesOf(conn);
+		const granted = grantedCapabilitiesOf(conn, gmailPilotEnabled);
 		const missing = missingFromGrant(requested, granted);
 		if (missing.length === 0) continue;
 		partialGrant = {
@@ -395,6 +397,7 @@ function nameList(capabilities: string[]): string {
 				{#each connections as conn (conn.id)}
 					<ConnectionRow
 						connection={conn}
+						{gmailPilotEnabled}
 						{formatters}
 						onOpenDetail={openDetail}
 						onRecover={onReconnect}
@@ -404,11 +407,12 @@ function nameList(capabilities: string[]): string {
 		</section>
 	{/if}
 
-	<AddConnectionGrid {connectedProviders} {onStartConnect} />
+	<AddConnectionGrid {connectedProviders} {onStartConnect} {gmailPilotEnabled} />
 </div>
 
 <ConnectionDetailModal
 	connection={selectedConnection}
+	{gmailPilotEnabled}
 	{formatters}
 	{changeFailure}
 	onDismissChangeFailure={() => (changeFailure = null)}

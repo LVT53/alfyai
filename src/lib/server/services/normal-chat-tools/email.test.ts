@@ -1,3 +1,19 @@
+import { gmailCanModify } from "../connections/providers/gmail";
+import {
+	gmailMailFolders,
+	gmailMailMetadata,
+	gmailReadThread,
+} from "../connections/providers/gmail-mail";
+
+vi.mock("../connections/providers/gmail-mail", () => ({
+	gmailReadThread: vi.fn(),
+	gmailMailList: vi.fn(),
+	gmailMailCount: vi.fn(),
+	gmailMailMetadata: vi.fn(),
+	gmailMailFolders: vi.fn(),
+}));
+vi.mock("../connections/providers/gmail", () => ({ gmailCanModify: vi.fn() }));
+
 import {
 	outlookMailMetadata,
 	outlookReadMail,
@@ -1685,5 +1701,78 @@ describe("Outlook email tool routing", () => {
 			uid: "draft",
 			etag: "v1",
 		});
+	});
+});
+
+describe("native Gmail", () => {
+	const gmail = () =>
+		makeConn({
+			provider: "google",
+			capabilities: ["email"],
+			label: "Personal Gmail",
+			allowWrites: true,
+		});
+	it("reads the returned Gmail thread id through the normal email tool", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([gmail()]);
+		vi.mocked(gmailReadThread).mockResolvedValueOnce({
+			messages: [
+				{
+					uid: "m",
+					threadId: "t",
+					from: "x@example.com",
+					subject: "Subject",
+					seen: false,
+					date: "2026-12-01",
+					snippet: "",
+				},
+			],
+			text: "Thread text",
+			truncated: false,
+		});
+		const result = await runEmailTool(
+			"user-1",
+			{ action: "read_thread", threadId: "t" },
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			text: "Thread text",
+			messages: [{ uid: "m", threadId: "t" }],
+		});
+		expect(imapReadMessageMock).not.toHaveBeenCalled();
+	});
+	it("records a confirmed label proposal without disclosing private labels or subjects to the model", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([gmail()]);
+		vi.mocked(gmailCanModify).mockReturnValue(true);
+		vi.mocked(gmailMailFolders).mockResolvedValueOnce([
+			{ name: "Finance", path: "Label_5", type: "user" },
+		]);
+		vi.mocked(gmailMailMetadata).mockResolvedValueOnce({
+			header: {
+				uid: "m",
+				threadId: "t",
+				from: "",
+				subject: "Private subject",
+				seen: false,
+				date: "",
+				snippet: "",
+			},
+			isDraft: false,
+			etag: "m",
+			messageId: "",
+			references: "",
+		});
+		const result = await runEmailTool(
+			"user-1",
+			{ action: "label", uid: "m", labelId: "Label_5", value: true },
+			LOCAL_MODEL_ID,
+		);
+		expect(result.modelPayload.pendingWriteId).toBeTruthy();
+		expect(JSON.stringify(result.modelPayload)).not.toMatch(
+			/Finance|Private subject/,
+		);
+		expect(createPendingWriteMock.mock.calls.at(-1)?.[1].op.action).toBe(
+			"email.label",
+		);
 	});
 });

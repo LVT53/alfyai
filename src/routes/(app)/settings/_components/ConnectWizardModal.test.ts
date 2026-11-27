@@ -106,6 +106,7 @@ describe("ConnectWizardModal", () => {
 			expect(
 				screen.getByRole("heading", { name: "Connect Google" }),
 			).toBeInTheDocument();
+			expect(screen.queryByRole("checkbox", { name: "Gmail" })).toBeNull();
 			expect(screen.getByLabelText("Calendar")).toBeChecked();
 			expect(screen.getByLabelText("Contacts")).toBeChecked();
 
@@ -244,6 +245,70 @@ describe("ConnectWizardModal", () => {
 				screen.getByRole("heading", { name: "Reconnect Google" }),
 			).toBeInTheDocument();
 		});
+	});
+
+	it("requires separate explicit choices for Gmail reading and management in the pilot", async () => {
+		mockStartGoogleConnect.mockResolvedValue({ authUrl: "/google" });
+		render(
+			ConnectWizardModal,
+			baseProps({
+				provider: "google",
+				gmailPilotEnabled: true,
+				redirectTo: vi.fn(),
+			}),
+		);
+		const gmail = screen.getByRole("checkbox", { name: "Gmail" });
+		expect(gmail).not.toBeChecked();
+		expect(
+			screen.queryByRole("checkbox", { name: "Request Gmail management" }),
+		).toBeNull();
+		await fireEvent.click(gmail);
+		const manage = screen.getByRole("checkbox", {
+			name: "Request Gmail management",
+		});
+		expect(manage).not.toBeChecked();
+		await fireEvent.click(manage);
+		await fireEvent.click(gmail);
+		await fireEvent.click(gmail);
+		expect(
+			screen.getByRole("checkbox", { name: "Request Gmail management" }),
+		).not.toBeChecked();
+		await fireEvent.click(
+			screen.getByRole("checkbox", { name: "Request Gmail management" }),
+		);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Continue to Google" }),
+		);
+		expect(mockStartGoogleConnect).toHaveBeenCalledWith(
+			["calendar", "contacts", "email"],
+			undefined,
+			undefined,
+			{ requestGmailEditing: true },
+		);
+	});
+	it("binds a Gmail read upgrade to its current account without requesting management or other services", async () => {
+		mockStartGoogleConnect.mockResolvedValue({ authUrl: "/google" });
+		render(
+			ConnectWizardModal,
+			baseProps({
+				provider: "google",
+				gmailPilotEnabled: true,
+				reconnectConnectionId: "account-2",
+				requestedCapabilities: ["email"],
+				redirectTo: vi.fn(),
+			}),
+		);
+		expect(screen.getByLabelText("Gmail")).toBeChecked();
+		expect(screen.getByLabelText("Calendar")).not.toBeChecked();
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Continue to Google" }),
+		);
+		expect(mockStartGoogleConnect).toHaveBeenCalledWith(
+			["email"],
+			undefined,
+			undefined,
+			{ googleConnectionId: "account-2" },
+		);
 	});
 
 	it("shows optional Google event editing only for eligible initial calendar consent", async () => {
@@ -855,6 +920,32 @@ describe("ConnectWizardModal", () => {
 	});
 
 	describe("app-password (Apple)", () => {
+		it("opens the same Apple connect flow from Email with only Mail selected", async () => {
+			render(ConnectWizardModal, baseProps({ provider: "imap" }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: "iCloud Mail" }),
+			);
+			expect(screen.getByRole("checkbox", { name: "Email" })).toBeChecked();
+			expect(
+				screen.getByRole("checkbox", { name: "Calendar" }),
+			).not.toBeChecked();
+			await fireEvent.input(screen.getByLabelText("Apple ID"), {
+				target: { value: "sample@icloud.com" },
+			});
+			await fireEvent.input(screen.getByLabelText("App-specific password"), {
+				target: { value: "test-only" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+			expect(mockStartAppleConnect).toHaveBeenCalledWith(
+				{
+					appleId: "sample@icloud.com",
+					appPassword: "test-only",
+					mailAddress: "sample@icloud.com",
+					capabilities: ["email"],
+				},
+				expect.any(AbortSignal),
+			);
+		});
 		it("submits appleId/appPassword and calls onConnected on success", async () => {
 			mockStartAppleConnect.mockResolvedValue({
 				connection: { id: "conn-apple", provider: "apple" },
@@ -873,7 +964,11 @@ describe("ConnectWizardModal", () => {
 
 			await waitFor(() => {
 				expect(mockStartAppleConnect).toHaveBeenCalledWith(
-					{ appleId: "me@icloud.com", appPassword: "abcd-efgh-ijkl-mnop" },
+					{
+						appleId: "me@icloud.com",
+						appPassword: "abcd-efgh-ijkl-mnop",
+						capabilities: ["calendar"],
+					},
 					expect.any(AbortSignal),
 				);
 			});

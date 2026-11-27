@@ -158,6 +158,7 @@ export type ImapOpt = { createClient?: ImapClientFactory };
 // ---------------------------------------------------------------------------
 
 export type ImapConnectionConfig = {
+	imapUsername?: string;
 	email: string;
 	imapHost: string;
 	imapPort: number;
@@ -342,6 +343,32 @@ async function upsertImapConnection(params: {
 // exposes "this box's own mail host", so v1 treats every connect as manual —
 // `imapHost` is required from the caller; only `imapPort`/`imapSecure` get
 // sane defaults (993/true).
+export async function verifyImapMailbox(
+	options: ImapClientOptions,
+	opts?: ImapOpt,
+): Promise<void> {
+	const createClient = opts?.createClient ?? createDefaultImapClient;
+	const client = createClient(options);
+
+	try {
+		await client.connect();
+		// SELECT/STATUS INBOX validates both the credentials AND that the
+		// mailbox is reachable, matching the issue's "LOGIN + SELECT/STATUS"
+		// connect-time validation requirement.
+		await client.mailboxOpen(INBOX, { readOnly: true });
+	} catch (err) {
+		if (isAuthFailure(err)) {
+			throw new ImapError("Invalid mailbox credentials", "invalid_credentials");
+		}
+		throw new ImapError(
+			"Could not connect to the mailbox. Check the host, port, and TLS setting.",
+			"connection_failed",
+		);
+	} finally {
+		await closeClient(client);
+	}
+}
+
 export async function imapConnect(
 	params: {
 		userId: string;
@@ -372,29 +399,10 @@ export async function imapConnect(
 		throw new ImapError("A mailbox password is required", "invalid_config");
 	}
 
-	const createClient = params.createClient ?? createDefaultImapClient;
-	const client = createClient(
+	await verifyImapMailbox(
 		buildClientOptions(imapHost, imapPort, imapSecure, email, password),
+		params,
 	);
-
-	try {
-		await client.connect();
-		// SELECT/STATUS INBOX validates both the credentials AND that the
-		// mailbox is reachable, matching the issue's "LOGIN + SELECT/STATUS"
-		// connect-time validation requirement.
-		await client.mailboxOpen(INBOX, { readOnly: true });
-	} catch (err) {
-		if (isAuthFailure(err)) {
-			throw new ImapError("Invalid mailbox credentials", "invalid_credentials");
-		}
-		throw new ImapError(
-			"Could not connect to the mailbox. Check the host, port, and TLS setting.",
-			"connection_failed",
-		);
-	} finally {
-		await closeClient(client);
-	}
-
 	const config: ImapConnectionConfig = {
 		email,
 		imapHost,
@@ -429,6 +437,26 @@ export type EmailHeader = {
 // SAME stored config shape (including smtpHost/smtpPort, used only by the
 // send action) rather than re-parsing conn.config itself.
 export function imapConfig(conn: ConnectionPublic): ImapConnectionConfig {
+	if (conn.provider === "apple") {
+		const email = conn.config.mailAddress;
+		const imapUsername = conn.config.mailUsername;
+		if (
+			!conn.capabilities.includes("email") ||
+			typeof email !== "string" ||
+			typeof imapUsername !== "string"
+		) {
+			throw new ImapError("iCloud Mail is not enabled", "invalid_config");
+		}
+		return {
+			email,
+			imapUsername,
+			imapHost: "imap.mail.me.com",
+			imapPort: 993,
+			imapSecure: true,
+			smtpHost: "smtp.mail.me.com",
+			smtpPort: 587,
+		};
+	}
 	const email = typeof conn.config.email === "string" ? conn.config.email : "";
 	const imapHost =
 		typeof conn.config.imapHost === "string" ? conn.config.imapHost : "";
@@ -552,11 +580,17 @@ async function withImapConnection<T>(
 			"needs_reauth",
 		);
 	}
-	const { email, imapHost, imapPort, imapSecure } = imapConfig(conn);
+	const {
+		email,
+		imapUsername = email,
+		imapHost,
+		imapPort,
+		imapSecure,
+	} = imapConfig(conn);
 
 	const createClient = opts?.createClient ?? createDefaultImapClient;
 	const client = createClient(
-		buildClientOptions(imapHost, imapPort, imapSecure, email, password),
+		buildClientOptions(imapHost, imapPort, imapSecure, imapUsername, password),
 	);
 
 	try {
@@ -944,7 +978,7 @@ function decodeBodyBuffer(
 	return buffer.toString(bufferEncoding);
 }
 
-function stripHtml(html: string): string {
+export function stripMailHtml(html: string): string {
 	return html
 		.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
 		.replace(/<br\s*\/?>/gi, "\n")
@@ -1052,7 +1086,7 @@ export async function imapReadMessage(
 				textPart.encoding,
 				textPart.charset,
 			);
-			const plainText = textPart.html ? stripHtml(decoded) : decoded;
+			const plainText = textPart.html ? stripMailHtml(decoded) : decoded;
 			return {
 				header,
 				text: truncate(plainText, MAX_BODY_TEXT_CHARS),
@@ -1129,7 +1163,7 @@ async function checkHealth(
 			config.imapHost,
 			config.imapPort,
 			config.imapSecure,
-			config.email,
+			config.imapUsername ?? config.email,
 			secret,
 		),
 	);

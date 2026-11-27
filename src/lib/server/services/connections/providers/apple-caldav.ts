@@ -59,7 +59,7 @@ import {
 	findConnectionByAccount,
 	getConnection,
 	getConnectionSecret,
-	setConnectionSecret,
+	listConnectionsForUser,
 	updateConnection,
 } from "../store";
 import {
@@ -67,13 +67,20 @@ import {
 	type WriteExecutionResult,
 } from "../write-executors";
 import { idempotencyKey, type WriteOperation } from "../write-guard";
-
 // Type-only — ContactMatch is owned by contacts.ts (5.8's shared resolver hub,
 // see its module doc comment); this is erased at compile time so it creates no
 // runtime circular dependency with contacts.ts importing appleSearchContacts
 // from this module.
 import type { ContactMatch } from "./contacts";
 import type { CalendarEvent } from "./google-calendar";
+import {
+	buildClientOptions,
+	ImapError,
+	type ImapOpt,
+	imapAdapter,
+	verifyImapMailbox,
+} from "./imap";
+import { executeImapWrite } from "./imap-write";
 
 export type { CalendarEvent } from "./google-calendar";
 
@@ -403,54 +410,123 @@ async function upsertAppleConnection(params: {
 	userId: string;
 	appleId: string;
 	appPassword: string;
-	config: AppleCalDavConfig;
+	config: Record<string, unknown>;
+	capabilities?: string[];
+	connectionId?: string;
 }): Promise<ConnectionPublic> {
-	const existing = await findConnectionByAccount(
-		params.userId,
-		"apple",
-		params.appleId,
-	);
-	if (existing) {
-		await setConnectionSecret(params.userId, existing.id, params.appPassword);
+	async function refresh(existing: ConnectionPublic) {
+		if (
+			existing.config.mailAddress &&
+			params.config.mailAddress &&
+			existing.config.mailAddress !== params.config.mailAddress
+		)
+			throw new AppleCalDavError(
+				"Reconnect with the iCloud Mail address already linked to this account",
+				"invalid_config",
+			);
 		const updated = await updateConnection(params.userId, existing.id, {
+			secret: params.appPassword,
 			status: "connected",
 			statusDetail: null,
-			config: params.config,
+			config: { ...existing.config, ...params.config },
+			...(params.capabilities
+				? {
+						capabilities: params.connectionId
+							? params.capabilities
+							: [
+									...new Set([
+										...existing.capabilities,
+										...params.capabilities,
+									]),
+								],
+					}
+				: {}),
 		});
 		if (!updated) throw new Error("Failed to update existing Apple connection");
 		return updated;
 	}
-
+	const canonicalId = params.appleId.trim().toLowerCase();
+	const lookup = () =>
+		findConnectionByAccount(params.userId, "apple", canonicalId);
+	let existing = params.connectionId
+		? await getConnection(params.userId, params.connectionId)
+		: await lookup();
+	if (
+		params.connectionId &&
+		(existing?.provider !== "apple" ||
+			existing.accountIdentifier.toLowerCase() !== canonicalId)
+	) {
+		throw new AppleCalDavError(
+			"Apple account does not match the selected connection",
+			"invalid_config",
+		);
+	}
+	if (!existing) {
+		// Older rows retained the case typed in Settings.
+		const matches = (await listConnectionsForUser(params.userId)).filter(
+			(conn) =>
+				conn.provider === "apple" &&
+				conn.accountIdentifier.toLowerCase() === canonicalId,
+		);
+		if (matches.length > 1)
+			throw new AppleCalDavError(
+				"Select the Apple connection to reconnect in Settings",
+				"invalid_config",
+			);
+		existing = matches[0] ?? null;
+	}
+	if (existing) return refresh(existing);
 	try {
 		return await createConnection({
 			userId: params.userId,
 			provider: "apple",
 			label: "Apple iCloud",
-			accountIdentifier: params.appleId,
-			capabilities: ["calendar"],
+			accountIdentifier: canonicalId,
+			capabilities: params.capabilities ?? ["calendar"],
 			status: "connected",
 			secret: params.appPassword,
 			config: params.config,
 		});
 	} catch (err) {
 		if (!isUniqueConstraintError(err)) throw err;
-		// Lost a race with a concurrent connect attempt that created the row
-		// first.
-		const raced = await findConnectionByAccount(
-			params.userId,
-			"apple",
-			params.appleId,
-		);
+		const raced = await lookup();
 		if (!raced) throw err;
-		await setConnectionSecret(params.userId, raced.id, params.appPassword);
-		const updated = await updateConnection(params.userId, raced.id, {
-			status: "connected",
-			statusDetail: null,
-			config: params.config,
-		});
-		if (!updated) throw err;
-		return updated;
+		return refresh(raced);
 	}
+}
+
+async function discoverMail(address: string, password: string, opts: ImapOpt) {
+	const email = address.trim().toLowerCase();
+	if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+		throw new AppleCalDavError(
+			"Enter your iCloud Mail address",
+			"invalid_config",
+		);
+	const [name, domain] = email.split("@");
+	// A local-part login proves ownership only on Apple's own mail domains.
+	// A custom domain must authenticate as the complete mailbox address.
+	const usernames = ["icloud.com", "me.com", "mac.com"].includes(domain)
+		? [name, email]
+		: [email];
+	for (const username of usernames) {
+		try {
+			await verifyImapMailbox(
+				buildClientOptions("imap.mail.me.com", 993, true, username, password),
+				opts,
+			);
+			return { mailAddress: email, mailUsername: username };
+		} catch (err) {
+			if (!(err instanceof ImapError) || err.code !== "invalid_credentials")
+				throw new AppleCalDavError(
+					"Could not reach iCloud Mail",
+					"request_failed",
+				);
+		}
+	}
+	throw new AppleCalDavError(
+		"iCloud Mail rejected the mailbox address or app-specific password",
+		"invalid_credentials",
+	);
 }
 
 export async function appleConnect(
@@ -458,20 +534,60 @@ export async function appleConnect(
 		userId: string;
 		appleId: string;
 		appPassword: string;
-	} & FetchOpt,
+		capabilities?: string[];
+		mailAddress?: string;
+		connectionId?: string;
+	} & FetchOpt &
+		ImapOpt,
 ): Promise<{ connection: ConnectionPublic }> {
 	const fetchImpl = params.fetch ?? fetch;
-	const config = await discoverAppleCalendars(
-		fetchImpl,
-		params.appleId,
-		params.appPassword,
-	);
-	const connection = await upsertAppleConnection({
-		userId: params.userId,
-		appleId: params.appleId,
-		appPassword: params.appPassword,
-		config,
-	});
+	const caps = params.capabilities ?? ["calendar"];
+	const config: Record<string, unknown> = { appleId: params.appleId };
+	if (
+		!caps.length ||
+		caps.some((cap) => !["calendar", "contacts", "email"].includes(cap))
+	)
+		throw new AppleCalDavError(
+			"Select at least one supported iCloud service",
+			"invalid_config",
+		);
+	if (
+		caps.length === 1 &&
+		caps[0] === "email" &&
+		params.mailAddress &&
+		params.mailAddress.trim().toLowerCase() !==
+			params.appleId.trim().toLowerCase()
+	) {
+		await discoverPrincipalUrl(
+			fetchImpl,
+			basicAuthHeader(params.appleId, params.appPassword),
+		);
+	}
+	if (caps.includes("calendar"))
+		Object.assign(
+			config,
+			await discoverAppleCalendars(
+				fetchImpl,
+				params.appleId,
+				params.appPassword,
+			),
+		);
+	if (caps.includes("contacts") && !caps.includes("calendar"))
+		config.addressbookUrls = await discoverAppleAddressbooks(
+			fetchImpl,
+			params.appleId,
+			params.appPassword,
+		);
+	if (caps.includes("email"))
+		Object.assign(
+			config,
+			await discoverMail(
+				params.mailAddress ?? params.appleId,
+				params.appPassword,
+				params,
+			),
+		);
+	const connection = await upsertAppleConnection({ ...params, config });
 	return { connection };
 }
 
@@ -770,11 +886,44 @@ export async function appleSearchContacts(
 async function checkHealth(
 	secret: string,
 	conn: ConnectionPublic,
-	opts?: FetchOpt,
+	opts?: FetchOpt & ImapOpt,
 ): Promise<{
 	status: "connected" | "needs_reauth" | "error";
 	detail: string | null;
 }> {
+	// A manual credential check can verify a mail-only connection even after
+	// the user switches Mail off. Tool reads still require the enabled service.
+	if (
+		conn.capabilities.includes("email") ||
+		(conn.config.mailUsername &&
+			!conn.config.principalUrl &&
+			!conn.config.addressbookUrls)
+	) {
+		const mail = await imapAdapter.checkHealth(
+			secret,
+			{ ...conn, capabilities: ["email"] },
+			opts,
+		);
+		if (mail.status !== "connected" || !conn.config.principalUrl) return mail;
+	}
+	if (!conn.config.principalUrl && Array.isArray(conn.config.addressbookUrls)) {
+		try {
+			await discoverAddressbookPrincipalUrl(
+				opts?.fetch ?? fetch,
+				basicAuthHeader(appleIdOf(conn), secret),
+			);
+			return { status: "connected", detail: null };
+		} catch (error) {
+			return {
+				status:
+					error instanceof AppleCalDavError &&
+					error.code === "invalid_credentials"
+						? "needs_reauth"
+						: "error",
+				detail: "Could not verify iCloud Contacts",
+			};
+		}
+	}
 	const fetchImpl = opts?.fetch ?? fetch;
 	const principalUrl =
 		typeof conn.config.principalUrl === "string"
@@ -1386,6 +1535,8 @@ async function getAuthOrReauth(
 	if (!conn) {
 		return { ok: false, result: { ok: false, reason: "connection_not_found" } };
 	}
+	if (conn.provider !== "apple" || !conn.capabilities.includes("calendar"))
+		return { ok: false, result: { ok: false, reason: "writes_disabled" } };
 	const appPassword = await getConnectionSecret(userId, connectionId);
 	if (!appPassword) {
 		return { ok: false, result: { ok: false, reason: "needs_reauth" } };
@@ -1555,6 +1706,16 @@ async function executeDelete(
 registerWriteExecutor({
 	provider: "apple",
 	async execute(userId, connectionId, op, content, opts) {
+		if (op.action.startsWith("email.")) {
+			const conn = await getConnection(userId, connectionId);
+			if (
+				conn?.provider !== "apple" ||
+				!conn.capabilities.includes("email") ||
+				!conn.config.mailUsername
+			)
+				return { ok: false, reason: "writes_disabled" };
+			return executeImapWrite(userId, connectionId, op, content, opts);
+		}
 		const parsed = parseContent(content);
 		if (!parsed) return { ok: false, reason: "unsupported_operation" };
 

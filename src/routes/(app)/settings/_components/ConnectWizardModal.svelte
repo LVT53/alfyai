@@ -74,6 +74,7 @@ let {
 	requestedCapabilities = [],
 	isAdmin = false,
 	canRequestGoogleCalendarEditing = false,
+	gmailPilotEnabled = false,
 	onOpenAdminIntegrations,
 	onClose,
 	onConnected,
@@ -96,6 +97,7 @@ let {
 	requestedCapabilities?: string[];
 	isAdmin?: boolean;
 	canRequestGoogleCalendarEditing?: boolean;
+	gmailPilotEnabled?: boolean;
 	onOpenAdminIntegrations?: () => void;
 	onClose: () => void;
 	onConnected: () => void;
@@ -116,7 +118,7 @@ const initialRequestedCapabilities = untrack(() => requestedCapabilities);
 let visible = $state(false);
 
 const providerEntry = initialProvider
-	? getProviderCatalogEntry(initialProvider)
+	? untrack(() => getProviderCatalogEntry(initialProvider, gmailPilotEnabled))
 	: null;
 const isReconnect = !!initialReconnectConnectionId;
 const variant = connectWizardVariant(initialProvider);
@@ -199,7 +201,15 @@ let selectedCapabilities = $state<Set<Capability>>(
 				)
 			: initialProvider === "onedrive"
 				? ["files"]
-				: (providerEntry?.capabilities ?? []),
+				: initialProvider === "google"
+					? (
+							(initialReconnectConnection?.capabilities as
+								| Capability[]
+								| undefined) ??
+							providerEntry?.capabilities.filter((cap) => cap !== "email") ??
+							[]
+						).filter((cap) => providerEntry?.capabilities.includes(cap))
+					: (providerEntry?.capabilities ?? []),
 	),
 );
 const microsoftWriteChoices = Object.keys(
@@ -223,6 +233,7 @@ function toggleMicrosoftWrite(permission: MicrosoftWritePermission) {
 	selectedWrites = next;
 }
 let requestCalendarEditing = $state(false);
+let requestGmailEditing = $state(false);
 let oauthNotConfigured = $state(false);
 
 function toggleCapability(capability: Capability) {
@@ -230,6 +241,7 @@ function toggleCapability(capability: Capability) {
 	if (next.has(capability)) {
 		next.delete(capability);
 		if (capability === "calendar") requestCalendarEditing = false;
+		if (capability === "email") requestGmailEditing = false;
 		selectedWrites = new Set(
 			[...selectedWrites].filter(
 				(permission) => microsoftWriteCapability(permission) !== capability,
@@ -237,6 +249,36 @@ function toggleCapability(capability: Capability) {
 		);
 	} else next.add(capability);
 	selectedCapabilities = next;
+}
+
+function startGoogleOAuth(requested: Capability[]) {
+	const calendarEditing =
+		canRequestGoogleCalendarEditing &&
+		!initialReconnectConnectionId &&
+		requested.includes("calendar") &&
+		requestCalendarEditing;
+	const gmailEditing =
+		gmailPilotEnabled && requested.includes("email") && requestGmailEditing;
+	if (
+		gmailPilotEnabled &&
+		requested.includes("email") &&
+		(gmailEditing || initialReconnectConnectionId)
+	) {
+		return startGoogleConnect(
+			requested,
+			undefined,
+			calendarEditing || undefined,
+			{
+				...(initialReconnectConnectionId
+					? { googleConnectionId: initialReconnectConnectionId }
+					: {}),
+				...(gmailEditing ? { requestGmailEditing: true } : {}),
+			},
+		);
+	}
+	return calendarEditing
+		? startGoogleConnect(requested, undefined, true)
+		: startGoogleConnect(requested);
 }
 
 async function submitOAuth() {
@@ -259,15 +301,14 @@ async function submitOAuth() {
 							...(writes.length ? { writePermissions: writes } : {}),
 						})
 					: await startOneDriveConnect(requested)
-				: canRequestGoogleCalendarEditing &&
-						!initialReconnectConnectionId &&
-						selectedCapabilities.has("calendar") &&
-						requestCalendarEditing
-					? await startGoogleConnect(requested, undefined, true)
-					: await startGoogleConnect(requested);
+				: await startGoogleOAuth(requested);
 		// Written down BEFORE the browser leaves, because after the round trip
 		// nothing else knows what was asked for — only what was granted.
-		rememberRequestedCapabilities(initialProvider, requested);
+		rememberRequestedCapabilities(
+			initialProvider,
+			requested,
+			initialReconnectConnectionId,
+		);
 		redirectTo(authUrl);
 	} catch (err) {
 		if (err instanceof ApiError && err.status === 501) {
@@ -489,13 +530,30 @@ let appleId = $state(
 		(initialReconnectConnection?.accountIdentifier ?? ""),
 );
 let appleAppPassword = $state("");
+let appleMailAddress = $state(reconnectConfigString("mailAddress"));
+const appleServiceChoices = ["calendar", "contacts", "email"] as const;
+let appleServices = $state<string[]>(
+	initialRequestedCapabilities.length
+		? [...initialRequestedCapabilities]
+		: [...(initialReconnectConnection?.capabilities ?? ["calendar"])],
+);
 let appleShowPassword = $state(false);
 
 const submitApple = (event: Event) => {
 	event.preventDefault();
 	return submitCredentials((signal) =>
 		startAppleConnect(
-			{ appleId: appleId.trim(), appPassword: appleAppPassword.trim() },
+			{
+				appleId: appleId.trim(),
+				appPassword: appleAppPassword.trim(),
+				capabilities: appleServices,
+				...(initialReconnectConnectionId
+					? { connectionId: initialReconnectConnectionId }
+					: {}),
+				...(appleServices.includes("email")
+					? { mailAddress: appleMailAddress.trim() || appleId.trim() }
+					: {}),
+			},
 			signal,
 		).then(() => undefined),
 	);
@@ -529,6 +587,7 @@ let emailStep = $state<"choose" | MailPath>(initialMailStep(isReconnect));
 
 function chooseEmailPath(path: MailPath) {
 	emailStep = path;
+	if (path === "icloud") appleServices = ["email"];
 	clearError();
 }
 
@@ -779,7 +838,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 						<legend class="sr-only">{$t('connections.capabilities.label')}</legend>
 						{#each providerEntry.capabilities as capability (capability)}
 							{@const checked = selectedCapabilities.has(capability)}
-							{@const capabilityName = $t(
+							{@const capabilityName = initialProvider === 'google' && capability === 'email' ? 'Gmail' : $t(
 								`connections.capability.${capability}` as Parameters<typeof $t>[0],
 							)}
 							<label class="capability-choice">
@@ -801,7 +860,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 								<span class="capability-copy">
 									<span class="capability-name">{capabilityName}</span>
 									<span class="capability-about">
-										{$t(`connections.capabilityAbout.${capability}` as Parameters<typeof $t>[0])}
+										{initialProvider === 'google' && capability === 'email' ? $t('connections.google.gmailReadAbout') : $t(`connections.capabilityAbout.${capability}` as Parameters<typeof $t>[0])}
 									</span>
 								</span>
 							</label>
@@ -815,6 +874,13 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 								<span class="capability-name">{$t('connections.google.optionalEditing')}</span>
 								<span class="capability-about">{$t('connections.google.optionalEditingAbout')}</span>
 							</span>
+						</label>
+					{/if}
+					{#if initialProvider === 'google' && gmailPilotEnabled && selectedCapabilities.has('email')}
+						<label class="capability-choice">
+							<input type="checkbox" class="sr-only" bind:checked={requestGmailEditing} aria-label={$t('connections.google.gmailManage')} />
+							<span class="capability-box" class:checked={requestGmailEditing} aria-hidden="true">{#if requestGmailEditing}<Check size={12} strokeWidth={3} />{/if}</span>
+							<span class="capability-copy"><span class="capability-name">{$t('connections.google.gmailManage')}</span><span class="capability-about">{$t('connections.google.gmailManageAbout')}</span></span>
 						</label>
 					{/if}
 					{#if initialProvider === 'onedrive' && microsoftWriteChoices.some(permission => selectedCapabilities.has(microsoftWriteCapability(permission)))}
@@ -1261,10 +1327,10 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 					</form>
 				{/if}
 
-			{:else if variant === 'apple'}
+			{:else if variant === 'apple' || (variant === 'mail' && emailStep === 'icloud')}
 				<WizardHeader
 					provider="apple"
-					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					title={$t('connections.wizard.titleConnect', { provider: 'Apple iCloud' })}
 					subtitle={$t('connections.wizard.apple.subtitle')}
 				/>
 				{#if submitting}
@@ -1275,8 +1341,18 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 							<label class="settings-label" for="wizard-apple-id">
 								{$t('connections.wizard.apple.appleIdLabel')}
 							</label>
-							<input id="wizard-apple-id" type="email" class="settings-input" bind:value={appleId} />
+							<input id="wizard-apple-id" type="email" class="settings-input" readonly={isReconnect} bind:value={appleId} />
 						</div>
+						<fieldset class="mb-3">
+							<legend class="settings-label">{$t('connections.capabilities.label')}</legend>
+							{#each appleServiceChoices as service (service)}
+								<label class="flex items-center gap-2"><input type="checkbox" value={service} bind:group={appleServices} />{$t(`connections.capability.${service}`)}</label>
+							{/each}
+						</fieldset>
+						{#if appleServices.includes('email')}
+							<label class="settings-label" for="wizard-icloud-mail">{$t('connections.wizard.apple.mailAddress')}</label>
+							<input id="wizard-icloud-mail" class="settings-input mb-3" type="email" placeholder={appleId} bind:value={appleMailAddress} />
+						{/if}
 						<PasswordField
 							id="wizard-apple-app-password"
 							label={$t('connections.wizard.apple.appPasswordLabel')}
@@ -1298,6 +1374,9 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 						</p>
 						{@render errorBlock()}
 						<div class="wizard-foot">
+							{#if variant === 'mail'}
+								<button type="button" class="btn-secondary" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
+							{/if}
 							<span class="wizard-foot-spacer"></span>
 							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
 								{$t('common.cancel')}
@@ -1305,7 +1384,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 							<button
 								type="submit"
 								class="btn-primary w-full whitespace-nowrap sm:w-auto"
-								disabled={!appleId.trim() || !appleAppPassword.trim()}
+								disabled={!appleServices.length || !appleId.trim() || !appleAppPassword.trim()}
 							>
 								{$t('connections.actions.connect')}
 							</button>
@@ -1406,6 +1485,10 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 								<span class="path-name">{$t('connections.wizard.email.path.gmail.name')}</span>
 								<span class="path-sub">{$t('connections.wizard.email.path.gmail.description2')}</span>
 							</span>
+						</button>
+						<button type="button" class="path-option" onclick={() => chooseEmailPath('icloud')}>
+							<span class="path-mark"><BrandIcon provider="apple" size={14} ariaHidden /></span>
+							<span class="path-name">iCloud Mail</span>
 						</button>
 						<button type="button" class="path-option" onclick={() => chooseEmailPath('other')}>
 							<span class="path-mark"><BrandIcon provider="imap" size={14} ariaHidden /></span>

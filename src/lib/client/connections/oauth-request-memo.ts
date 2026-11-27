@@ -28,11 +28,15 @@ function storage(): Storage | null {
 export function rememberRequestedCapabilities(
 	provider: string,
 	capabilities: string[],
+	connectionId?: string | null,
 ): void {
 	const store = storage();
 	if (!store) return;
 	try {
-		store.setItem(KEY_PREFIX + provider, JSON.stringify(capabilities));
+		store.setItem(
+			KEY_PREFIX + (connectionId ? `${provider}:${connectionId}` : provider),
+			JSON.stringify(capabilities),
+		);
 	} catch {
 		/* quota or blocked — see storage() */
 	}
@@ -43,14 +47,20 @@ export function rememberRequestedCapabilities(
  * notice is about the connect that just happened, so a second visit to the
  * tab must not show it again.
  */
-export function takeRequestedCapabilities(provider: string): string[] | null {
+export function takeRequestedCapabilities(
+	provider: string,
+	connectionId?: string,
+): string[] | null {
 	const store = storage();
 	if (!store) return null;
 	const key = KEY_PREFIX + provider;
 	let raw: string | null = null;
 	try {
-		raw = store.getItem(key);
-		store.removeItem(key);
+		const targetedKey = `${key}:${connectionId}`;
+		const found =
+			connectionId && store.getItem(targetedKey) !== null ? targetedKey : key;
+		raw = store.getItem(found);
+		store.removeItem(found);
 	} catch {
 		return null;
 	}

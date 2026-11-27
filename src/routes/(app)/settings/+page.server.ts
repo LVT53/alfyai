@@ -11,7 +11,10 @@ import {
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { adminConfig, users } from "$lib/server/db/schema";
-import { googleCalendarWriteReviewEnabled } from "$lib/server/env";
+import {
+	gmailPilotEnabled,
+	googleCalendarWriteReviewEnabled,
+} from "$lib/server/env";
 import type { UserSettings } from "$lib/server/services/auth-types";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
 import {
@@ -92,6 +95,7 @@ export const load: ServerLoad = async (event) => {
 	if (!isAdmin) {
 		return {
 			userSettings,
+			gmailPilotEnabled: gmailPilotEnabled(userRow.id),
 			googleCalendarWriteReviewEnabled: googleCalendarWriteReviewEnabled(
 				userRow.id,
 			),
@@ -114,6 +118,7 @@ export const load: ServerLoad = async (event) => {
 
 	return {
 		userSettings,
+		gmailPilotEnabled: gmailPilotEnabled(userRow.id),
 		googleCalendarWriteReviewEnabled: googleCalendarWriteReviewEnabled(
 			userRow.id,
 		),

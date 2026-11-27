@@ -61,6 +61,8 @@ export const CONNECTOR_PHRASES: Readonly<
 
 			trash: "toolRows.connector.email.trash",
 			flag: "toolRows.connector.email.flag",
+			label: "toolRows.connector.email.label",
+			read_thread: "toolRows.connector.email.read_thread",
 		},
 		other: "toolRows.connector.email.other",
 	},

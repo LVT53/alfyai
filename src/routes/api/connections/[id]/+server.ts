@@ -2,7 +2,9 @@ import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { requireOwnedConnection } from "$lib/server/api/ownership";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
+import { gmailPilotEnabled } from "$lib/server/env";
 import { grantedCapabilitiesFor } from "$lib/server/services/connections/granted";
+import { gmailCanModify } from "$lib/server/services/connections/providers/gmail";
 import {
 	type Capability,
 	PROVIDER_META,
@@ -16,6 +18,7 @@ import {
 	setWriteAllowlist,
 } from "$lib/server/services/connections/store";
 import { normalizeAllowlistPath } from "$lib/server/services/connections/write-guard";
+import { gmailReadGranted } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import {
 	MICROSOFT_WRITE_SCOPES,
@@ -65,19 +68,31 @@ export const PATCH: RequestHandler = async (event) => {
 	if (body.allowWrites !== undefined && typeof body.allowWrites !== "boolean") {
 		return createJsonErrorResponse("allowWrites must be a boolean", 400);
 	}
+	const enabledCapabilities = isStringArray(body.capabilities)
+		? body.capabilities
+		: connection.capabilities;
 	if (
 		body.allowWrites === true &&
 		connection.provider === "google" &&
-		(connection.capabilities.includes("calendar") ||
-			(Array.isArray(body.capabilities) &&
-				body.capabilities.includes("calendar"))) &&
-		!connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE)
+		enabledCapabilities.some((cap) => cap === "email" || cap === "calendar")
 	) {
-		return createJsonErrorResponse(
-			"Google Calendar event editing requires Google’s consent",
-			403,
-		);
+		const calendarWrite =
+			enabledCapabilities.includes("calendar") &&
+			connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE);
+		const gmailWrite = gmailCanModify({
+			...connection,
+			capabilities: enabledCapabilities,
+			allowWrites: true,
+		});
+		if (!calendarWrite && !gmailWrite)
+			return createJsonErrorResponse(
+				enabledCapabilities.includes("calendar")
+					? "Google Calendar event editing requires Google’s consent"
+					: "Gmail editing requires consent",
+				403,
+			);
 	}
+
 	if (
 		body.allowWrites === true &&
 		connection.provider === "onedrive" &&
@@ -120,6 +135,24 @@ export const PATCH: RequestHandler = async (event) => {
 				400,
 			);
 		}
+		if (
+			connection.provider === "apple" &&
+			body.capabilities.some(
+				(cap) =>
+					!(grantedCapabilitiesFor(connection) as string[]).includes(cap),
+			)
+		) {
+			return createJsonErrorResponse(
+				"Reconnect to enable the requested iCloud service",
+				400,
+			);
+		}
+		if (
+			connection.provider === "google" &&
+			body.capabilities.includes("email") &&
+			(!gmailPilotEnabled(userId) || !gmailReadGranted(connection.oauthScopes))
+		)
+			return createJsonErrorResponse("Reconnect to grant Gmail access", 403);
 		if (connection.provider === "onedrive") {
 			const granted = new Set<string>(grantedCapabilitiesFor(connection));
 			if (body.capabilities.some((cap) => !granted.has(cap))) {

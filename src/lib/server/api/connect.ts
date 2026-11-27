@@ -130,6 +130,8 @@ export async function handleOAuthConnectStart<R>(opts: {
 		capabilities: Capability[];
 		calendarWriteConnectionId?: string;
 		requestCalendarEditing?: boolean;
+		requestGmailEditing?: boolean;
+		googleConnectionId?: string;
 		connectionId?: string;
 		writePermissions?: MicrosoftWritePermission[];
 	}) => Promise<R>;
@@ -141,6 +143,8 @@ export async function handleOAuthConnectStart<R>(opts: {
 	let body: {
 		capabilities?: unknown;
 		requestCalendarEditing?: unknown;
+		requestGmailEditing?: unknown;
+		googleConnectionId?: unknown;
 		calendarWriteConnectionId?: unknown;
 		connectionId?: unknown;
 		writePermissions?: unknown;
@@ -179,6 +183,19 @@ export async function handleOAuthConnectStart<R>(opts: {
 			"Invalid Google Calendar editing selection",
 			400,
 		);
+	const gmailEditing = opts.acceptsCalendarWriteTarget
+		? body.requestGmailEditing
+		: undefined;
+	const googleId = opts.acceptsCalendarWriteTarget
+		? body.googleConnectionId
+		: undefined;
+	if (gmailEditing !== undefined && typeof gmailEditing !== "boolean")
+		return createJsonErrorResponse("Invalid Gmail editing selection", 400);
+	if (
+		googleId !== undefined &&
+		(typeof googleId !== "string" || !googleId.trim())
+	)
+		return createJsonErrorResponse("Invalid Google connection ID", 400);
 	const writeId = opts.acceptsCalendarWriteTarget
 		? body.calendarWriteConnectionId
 		: undefined;
@@ -196,6 +213,8 @@ export async function handleOAuthConnectStart<R>(opts: {
 			capabilities,
 			...(typeof target === "string" ? { connectionId: target } : {}),
 			...(Array.isArray(writes) ? { writePermissions: writes } : {}),
+			...(gmailEditing === true ? { requestGmailEditing: true } : {}),
+			...(typeof googleId === "string" ? { googleConnectionId: googleId } : {}),
 			...(requestEditing === true ? { requestCalendarEditing: true } : {}),
 			...(typeof writeId === "string"
 				? { calendarWriteConnectionId: writeId }

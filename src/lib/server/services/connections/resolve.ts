@@ -1,6 +1,17 @@
+import { gmailPilotEnabled } from "$lib/server/env";
+import { gmailReadGranted } from "$lib/shared/gmail-scopes";
 import { CAPABILITIES, CAPABILITY_META, type Capability } from "./registry";
 import type { ConnectionPublic } from "./store";
 import { listConnectionsForUser } from "./store";
+
+function capabilityEnabled(conn: ConnectionPublic, capability: Capability) {
+	return (
+		conn.capabilities.includes(capability) &&
+		(capability !== "email" ||
+			conn.provider !== "google" ||
+			(gmailPilotEnabled(conn.userId) && gmailReadGranted(conn.oauthScopes)))
+	);
+}
 
 // A connection serves a capability iff: its provider is listed under that
 // capability in CAPABILITY_META, AND its status === "connected", AND the
@@ -17,7 +28,7 @@ export async function resolveConnectionsForCapability(
 			(conn) =>
 				providers.includes(conn.provider) &&
 				(conn.status === "connected" || options?.includeUnavailable === true) &&
-				conn.capabilities.includes(capability),
+				capabilityEnabled(conn, capability),
 		)
 		.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
 }
@@ -55,6 +66,7 @@ function matchConnectionSelector(
 	const accountIdentifier = conn.accountIdentifier.toLowerCase();
 	if (
 		provider === needle ||
+		(provider === "google" && needle === "gmail") ||
 		label === needle ||
 		(provider === "onedrive" &&
 			[
@@ -97,7 +109,12 @@ export function matchingConnections(
 	const needle = selector?.trim().toLowerCase();
 	if (!needle) return [];
 	const identifiers = connections.filter(
-		(conn) => conn.accountIdentifier.toLowerCase() === needle,
+		(conn) =>
+			conn.accountIdentifier.toLowerCase() === needle ||
+			(conn.provider === "apple" &&
+				conn.capabilities.includes("email") &&
+				typeof conn.config.mailAddress === "string" &&
+				conn.config.mailAddress.toLowerCase() === needle),
 	);
 	if (identifiers.length) return identifiers;
 	const exact = connections.filter(
@@ -147,7 +164,7 @@ export async function getEnabledConnectionCapabilities(
 			(conn) =>
 				providers.includes(conn.provider) &&
 				conn.status === "connected" &&
-				conn.capabilities.includes(capability),
+				capabilityEnabled(conn, capability),
 		);
 		if (isServed) enabled.add(capability);
 	}
@@ -170,7 +187,7 @@ export async function getDefaultOnCapabilities(
 			(conn) =>
 				providers.includes(conn.provider) &&
 				conn.status === "connected" &&
-				conn.capabilities.includes(capability) &&
+				capabilityEnabled(conn, capability) &&
 				conn.defaultOn,
 		);
 		if (isDefaultOn) enabled.add(capability);

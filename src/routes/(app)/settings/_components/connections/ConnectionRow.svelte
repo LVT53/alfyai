@@ -24,11 +24,13 @@ import ConnectionStatusCell from "./ConnectionStatusCell.svelte";
 let {
 	connection,
 	formatters,
+	gmailPilotEnabled = false,
 	onOpenDetail,
 	onRecover,
 }: {
 	connection: ConnectionPublic;
 	formatters: GrammarFormatters;
+	gmailPilotEnabled?: boolean;
 	onOpenDetail: (id: string) => void;
 	onRecover: (id: string) => void;
 } = $props();
@@ -48,7 +50,7 @@ const detailsLabel = $derived(
 		.join(" · "),
 );
 const grammar = $derived(connectionStatusGrammar(connection, formatters));
-const chips = $derived(capabilityChipsOf(connection));
+const chips = $derived(capabilityChipsOf(connection, gmailPilotEnabled));
 </script>
 
 <div class="connection-row" data-testid={`connection-row-${connection.id}`}>

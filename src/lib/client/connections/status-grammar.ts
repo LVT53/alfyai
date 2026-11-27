@@ -214,8 +214,12 @@ export function grantedCapabilitiesOf(
 	conn: Pick<ConnectionPublic, "provider"> & {
 		grantedCapabilities?: string[];
 	},
+	gmailPilotEnabled = false,
 ): Capability[] {
-	const catalogue = getProviderCatalogEntry(conn.provider).capabilities;
+	const catalogue = getProviderCatalogEntry(
+		conn.provider,
+		gmailPilotEnabled,
+	).capabilities;
 	if (!conn.grantedCapabilities) return [...catalogue];
 	const granted = new Set(conn.grantedCapabilities);
 	return catalogue.filter((capability) => granted.has(capability));
@@ -226,11 +230,13 @@ export function deniedCapabilitiesOf(
 	conn: Pick<ConnectionPublic, "provider"> & {
 		grantedCapabilities?: string[];
 	},
+	gmailPilotEnabled = false,
 ): Capability[] {
-	const granted = new Set(grantedCapabilitiesOf(conn));
-	return getProviderCatalogEntry(conn.provider).capabilities.filter(
-		(capability) => !granted.has(capability),
-	);
+	const granted = new Set(grantedCapabilitiesOf(conn, gmailPilotEnabled));
+	return getProviderCatalogEntry(
+		conn.provider,
+		gmailPilotEnabled,
+	).capabilities.filter((capability) => !granted.has(capability));
 }
 
 export type CapabilityChipState = "on" | "off" | "denied";
@@ -255,9 +261,10 @@ export function capabilityChipsOf(
 		ConnectionPublic,
 		"provider" | "capabilities" | "allowWrites" | "writeAllowlist"
 	> & { grantedCapabilities?: string[] },
+	gmailPilotEnabled = false,
 ): CapabilityChip[] {
-	const entry = getProviderCatalogEntry(conn.provider);
-	const granted = new Set(grantedCapabilitiesOf(conn));
+	const entry = getProviderCatalogEntry(conn.provider, gmailPilotEnabled);
+	const granted = new Set(grantedCapabilitiesOf(conn, gmailPilotEnabled));
 	const enabled = new Set(conn.capabilities);
 
 	const chips: CapabilityChip[] = entry.capabilities.map((capability) => ({

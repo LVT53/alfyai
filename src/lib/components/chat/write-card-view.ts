@@ -78,6 +78,18 @@ const KIND_COPY: Record<WriteCardKind, KindCopy> = {
 		done: "connections.writeConfirm.done.emailMarkUnread",
 		icon: "email",
 	},
+	"email.add_label": {
+		question: "connections.writeConfirm.question.emailAddLabel",
+		approve: "connections.writeConfirm.approve.emailAddLabel",
+		done: "connections.writeConfirm.done.emailAddLabel",
+		icon: "email",
+	},
+	"email.remove_label": {
+		question: "connections.writeConfirm.question.emailRemoveLabel",
+		approve: "connections.writeConfirm.approve.emailRemoveLabel",
+		done: "connections.writeConfirm.done.emailRemoveLabel",
+		icon: "email",
+	},
 	"email.flag": {
 		question: "connections.writeConfirm.question.emailFlag",
 		approve: "connections.writeConfirm.approve.emailFlag",
@@ -170,6 +182,10 @@ const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
 		to: { label: "connections.writeConfirm.fact.to", quiet: false },
 		cancellation_recipients: {
 			label: "connections.writeConfirm.fact.cancellationRecipients",
+			quiet: false,
+		},
+		mail_label: {
+			label: "connections.writeConfirm.fact.mailLabel",
 			quiet: false,
 		},
 		bcc: { label: "connections.writeConfirm.fact.bcc", quiet: false },
@@ -397,6 +413,12 @@ export function settledWriteNote(
 		return t("connections.writeConfirm.note.expired");
 	}
 	if (write.status === "failed") {
+		if (
+			write.provider === "google" &&
+			(write.card?.kind === "email.send" ||
+				write.card?.kind === "email.send_draft")
+		)
+			return t("connections.writeConfirm.note.gmailSendFailed");
 		if (
 			write.provider === "onedrive" &&
 			(write.card?.kind === "email.send" ||

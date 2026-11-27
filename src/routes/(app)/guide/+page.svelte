@@ -1,8 +1,9 @@
 <script lang="ts">
 import GuidePage from "$lib/components/guide/GuidePage.svelte";
 import { t } from "$lib/i18n";
-import type { Snapshot } from "./$types";
+import type { PageProps, Snapshot } from "./$types";
 
+let { data }: PageProps = $props();
 let scroller = $state<HTMLDivElement | null>(null);
 
 // The page scrolls inside `guide-scroller` and the window never moves, which is
@@ -37,7 +38,7 @@ export const snapshot: Snapshot<number> = {
 				</h1>
 			</div>
 
-			<GuidePage />
+			<GuidePage gmailPilotEnabled={data.gmailPilotEnabled} />
 		</div>
 	</div>
 </div>

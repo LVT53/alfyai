@@ -191,6 +191,14 @@ const connectionsDict = {
 			"This request didn't match your session. Please try again.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"Google couldn't complete the connection. Please try again.",
+		"connections.google.gmailBlurb": "Gmail, Calendar and Contacts",
+		"connections.google.gmailManage": "Request Gmail management",
+		"connections.google.gmailManageAbout":
+			"Manage drafts, labels and messages, including sending. Each change requires your confirmation in chat.",
+		"connections.google.gmailReadAbout":
+			"Read and search messages and threads in this Gmail account.",
+		"connections.google.gmailWriteSub":
+			"Confirm each email change or send in chat.",
 		"connections.google.optionalEditing": "Request Google Calendar editing",
 		"connections.google.optionalEditingAbout":
 			"After connecting, turn on Let Alfy write when you are ready. Each change asks for confirmation.",
@@ -266,6 +274,8 @@ const connectionsDict = {
 			"Mark this email as read?",
 		"connections.writeConfirm.question.emailMarkUnread":
 			"Mark this email as unread?",
+		"connections.writeConfirm.question.emailAddLabel": "Apply this label?",
+		"connections.writeConfirm.question.emailRemoveLabel": "Remove this label?",
 		"connections.writeConfirm.question.emailFlag": "Flag this email?",
 		"connections.writeConfirm.question.emailUnflag":
 			"Remove the flag from this email?",
@@ -298,6 +308,8 @@ const connectionsDict = {
 		"connections.writeConfirm.approve.emailTrash": "Move to Trash",
 		"connections.writeConfirm.approve.emailMarkRead": "Mark as read",
 		"connections.writeConfirm.approve.emailMarkUnread": "Mark as unread",
+		"connections.writeConfirm.approve.emailAddLabel": "Apply label",
+		"connections.writeConfirm.approve.emailRemoveLabel": "Remove label",
 		"connections.writeConfirm.approve.emailFlag": "Flag",
 		"connections.writeConfirm.approve.emailUnflag": "Remove flag",
 		"connections.writeConfirm.approve.calendarCreate": "Add event",
@@ -317,10 +329,12 @@ const connectionsDict = {
 		"connections.writeConfirm.done.emailSend": "Sent",
 		"connections.writeConfirm.done.emailDraft": "Draft saved",
 		"connections.writeConfirm.done.emailEditDraft": "Draft updated",
-		"connections.writeConfirm.done.emailSendDraft": "Submitted to Outlook",
+		"connections.writeConfirm.done.emailSendDraft": "Submitted for sending",
 		"connections.writeConfirm.done.emailTrash": "Moved to Trash",
 		"connections.writeConfirm.done.emailMarkRead": "Marked as read",
 		"connections.writeConfirm.done.emailMarkUnread": "Marked as unread",
+		"connections.writeConfirm.done.emailAddLabel": "Label applied",
+		"connections.writeConfirm.done.emailRemoveLabel": "Label removed",
 		"connections.writeConfirm.done.emailFlag": "Flagged",
 		"connections.writeConfirm.done.emailUnflag": "Flag removed",
 		"connections.writeConfirm.done.calendarCreate": "Added",
@@ -349,12 +363,15 @@ const connectionsDict = {
 		// unregistered provider, `unsupported_operation`) where nothing was
 		// sent; "may not have gone through" still tells the truth there.
 		// Check the account before trying again.
+		"connections.writeConfirm.note.gmailSendFailed":
+			"Check Sent in Gmail before sending again.",
 		"connections.writeConfirm.note.outlookSendFailed":
 			"Check Sent Items in Outlook before sending again. If the email is there, Outlook already accepted it.",
 		"connections.writeConfirm.note.failed":
 			"This may not have gone through. Check the connected account before trying again.",
 
 		"connections.writeConfirm.fact.to": "To",
+		"connections.writeConfirm.fact.mailLabel": "Label",
 		"connections.writeConfirm.fact.cc": "Cc",
 		"connections.writeConfirm.fact.cancellationRecipients":
 			"Attendees Outlook will send cancellation notices to",
@@ -449,7 +466,8 @@ const connectionsDict = {
 		"connections.provider.immich.blurb": "Your photo library",
 		"connections.provider.imap.blurb": "Read and draft your mail",
 		"connections.provider.google.blurb": "Your calendar and contacts",
-		"connections.provider.apple.blurb": "Your calendar and contacts",
+		"connections.provider.apple.blurb":
+			"Your iCloud calendar, contacts and mail",
 		"connections.provider.plex.blurb": "Films and shows you own",
 		"connections.provider.owntracks.blurb":
 			"Where you are, from your own phone",
@@ -647,6 +665,10 @@ const connectionsDict = {
 			"OwnTracks needs the address of your recorder before anyone can connect it. Ask whoever runs this server to add it.",
 		"connections.wizard.notSetUp.trail":
 			"Administration → System → Advanced → Integrations",
+		"connections.detail.appleEnableSub":
+			"Choose this service and verify your Apple account.",
+		"connections.wizard.apple.mailAddress":
+			"iCloud Mail address (if different from your Apple ID)",
 		"connections.wizard.apple.subtitle":
 			"Apple needs a password made just for Alfy, not your usual one.",
 		"connections.wizard.immich.subtitle":
@@ -870,6 +892,14 @@ const connectionsDict = {
 			"Ez a kérés nem egyezett a munkameneteddel. Kérjük, próbáld újra.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"A Google nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
+		"connections.google.gmailBlurb": "Gmail, Naptár és Névjegyek",
+		"connections.google.gmailManage": "Gmail-kezelési engedély kérése",
+		"connections.google.gmailManageAbout":
+			"Piszkozatok, címkék és üzenetek kezelése, beleértve a küldést is. Minden módosítást a csevegésben hagysz jóvá.",
+		"connections.google.gmailReadAbout":
+			"Üzenetek és beszélgetések olvasása és keresése ebben a Gmail-fiókban.",
+		"connections.google.gmailWriteSub":
+			"A levelek módosítását és küldését a csevegésben hagyod jóvá.",
 		"connections.google.optionalEditing":
 			"Google Naptár szerkesztési engedélyének kérése",
 		"connections.google.optionalEditingAbout":
@@ -948,6 +978,10 @@ const connectionsDict = {
 			"Olvasottnak jelöljem ezt az e-mailt?",
 		"connections.writeConfirm.question.emailMarkUnread":
 			"Olvasatlannak jelöljem ezt az e-mailt?",
+		"connections.writeConfirm.question.emailAddLabel":
+			"Alkalmazzam ezt a címkét?",
+		"connections.writeConfirm.question.emailRemoveLabel":
+			"Eltávolítsam ezt a címkét?",
 		"connections.writeConfirm.question.emailFlag":
 			"Megjelöljem ezt az e-mailt?",
 		"connections.writeConfirm.question.emailUnflag":
@@ -986,6 +1020,8 @@ const connectionsDict = {
 		"connections.writeConfirm.approve.emailTrash": "Kukába",
 		"connections.writeConfirm.approve.emailMarkRead": "Olvasott",
 		"connections.writeConfirm.approve.emailMarkUnread": "Olvasatlan",
+		"connections.writeConfirm.approve.emailAddLabel": "Címke alkalmazása",
+		"connections.writeConfirm.approve.emailRemoveLabel": "Címke eltávolítása",
 		"connections.writeConfirm.approve.emailFlag": "Megjelölés",
 		"connections.writeConfirm.approve.emailUnflag": "Jelölés levétele",
 		"connections.writeConfirm.approve.calendarCreate": "Felvétel",
@@ -1004,10 +1040,12 @@ const connectionsDict = {
 		"connections.writeConfirm.done.emailSend": "Elküldve",
 		"connections.writeConfirm.done.emailDraft": "Piszkozat mentve",
 		"connections.writeConfirm.done.emailEditDraft": "Piszkozat módosítva",
-		"connections.writeConfirm.done.emailSendDraft": "Átadva az Outlooknak",
+		"connections.writeConfirm.done.emailSendDraft": "Küldésre átadva",
 		"connections.writeConfirm.done.emailTrash": "A kukában",
 		"connections.writeConfirm.done.emailMarkRead": "Olvasottnak jelölve",
 		"connections.writeConfirm.done.emailMarkUnread": "Olvasatlannak jelölve",
+		"connections.writeConfirm.done.emailAddLabel": "Címke alkalmazva",
+		"connections.writeConfirm.done.emailRemoveLabel": "Címke eltávolítva",
 		"connections.writeConfirm.done.emailFlag": "Megjelölve",
 		"connections.writeConfirm.done.emailUnflag": "Jelölés levéve",
 		"connections.writeConfirm.done.calendarCreate": "Felvéve",
@@ -1026,12 +1064,15 @@ const connectionsDict = {
 		"connections.writeConfirm.status.expired": "Lejárt",
 		"connections.writeConfirm.note.expired":
 			"Ez a kérés lejárt. Kérd újra, ha még kell.",
+		"connections.writeConfirm.note.gmailSendFailed":
+			"Újraküldés előtt ellenőrizd az Elküldött mappát a Gmailben.",
 		"connections.writeConfirm.note.outlookSendFailed":
 			"Újraküldés előtt ellenőrizd az Elküldött elemek mappát az Outlookban. Ha ott van a levél, az Outlook már elfogadta.",
 		"connections.writeConfirm.note.failed":
 			"Lehet, hogy nem ment át. Nézd meg a csatlakoztatott fiókot, mielőtt újra próbálod.",
 
 		"connections.writeConfirm.fact.to": "Címzett",
+		"connections.writeConfirm.fact.mailLabel": "Címke",
 		"connections.writeConfirm.fact.cc": "Másolat",
 		"connections.writeConfirm.fact.cancellationRecipients":
 			"Résztvevők száma, akiknek az Outlook lemondási értesítést küld",
@@ -1111,7 +1152,8 @@ const connectionsDict = {
 		"connections.provider.immich.blurb": "A fényképtárad",
 		"connections.provider.imap.blurb": "Leveleid olvasása és fogalmazása",
 		"connections.provider.google.blurb": "A naptárad és névjegyeid",
-		"connections.provider.apple.blurb": "A naptárad és névjegyeid",
+		"connections.provider.apple.blurb":
+			"iCloud-naptárad, névjegyeid és leveleid",
 		"connections.provider.plex.blurb": "A saját filmjeid és sorozataid",
 		"connections.provider.owntracks.blurb": "Hol vagy — a saját telefonodról",
 		"connections.provider.github.blurb": "A tárolóid és hibajegyeid",
@@ -1297,6 +1339,10 @@ const connectionsDict = {
 			"Az OwnTracks csatlakoztatásához előbb meg kell adni a rekorder címét. Kérd meg azt, aki ezt a szervert üzemelteti, hogy adja meg.",
 		"connections.wizard.notSetUp.trail":
 			"Adminisztráció → Rendszer → Speciális → Integrációk",
+		"connections.detail.appleEnableSub":
+			"Válaszd ki a szolgáltatást, majd igazold az Apple-fiókodat.",
+		"connections.wizard.apple.mailAddress":
+			"iCloud Mail-cím (ha eltér az Apple ID-tól)",
 		"connections.wizard.apple.subtitle":
 			"Az Apple-höz kifejezetten az Alfy számára készített jelszó kell, nem a szokásos.",
 		"connections.wizard.immich.subtitle":

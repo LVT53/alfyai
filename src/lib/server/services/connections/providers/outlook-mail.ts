@@ -5,7 +5,11 @@ import { microsoftGraphRequest } from "./microsoft-graph";
 import { OneDriveError, onedriveGetAccessTokenForRead } from "./onedrive";
 
 type Options = { fetch?: typeof fetch };
-type Criteria = ImapSearchCriteria & { folder?: string; unseenOnly?: boolean };
+type Criteria = ImapSearchCriteria & {
+	folder?: string;
+	unseenOnly?: boolean;
+	limit?: number;
+};
 const sender = z.object({
 	emailAddress: z.object({ address: z.string(), name: z.string().nullish() }),
 });
@@ -182,7 +186,7 @@ export async function outlookMailList(
 	const messages = [];
 	for await (const item of matching(conn, criteria, opts)) {
 		messages.push(item);
-		if (messages.length >= 25) break;
+		if (messages.length >= Math.min(criteria.limit ?? 25, 25)) break;
 	}
 	return messages;
 }

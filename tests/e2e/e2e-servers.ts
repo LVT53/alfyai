@@ -27,6 +27,7 @@ import {
 	SHIPPED_ARTIFACT_TOUR_TYPES,
 } from "../../src/lib/shared/artifacts/tours";
 import {
+	E2E_GMAIL_PILOT_ID,
 	E2E_HOST,
 	type E2eServerMode,
 	e2eBaseUrl,
@@ -283,6 +284,7 @@ export function serverCommand(
 		PLAYWRIGHT_TEST: "1",
 		// Browser fixtures cover the optional Google consent control.
 		GOOGLE_CALENDAR_EVENT_EDITING_ENABLED: "true",
+		GMAIL_TEST_USER_IDS: E2E_GMAIL_PILOT_ID,
 		// The explicit-picture filter's classifier is the stub here (honoured only
 		// with PLAYWRIGHT_TEST): it flags one marker colour, so no spec needs the
 		// model file or an explicit picture (images-picture-filter.spec.ts).

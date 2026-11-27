@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 
+import { E2E_GMAIL_PILOT_ID } from "./e2e-env";
 import { expectTopmost, login, waitForMotionToSettle } from "./helpers";
 
 // Connections redesign — a smoke test of the tab's four states, the connect
@@ -360,6 +361,57 @@ test.describe("settings connections tab", () => {
 		]);
 	});
 
+	test("offers native Gmail only to the pilot and requests only the chosen access", async ({
+		page,
+	}) => {
+		const { db } = await import("../../src/lib/server/db");
+		const { users } = await import("../../src/lib/server/db/schema");
+		const { eq } = await import("drizzle-orm");
+		const { hash } = await import("bcryptjs");
+		const email = "gmail-pilot@local";
+		const password = "synthetic-pilot-password";
+		await db.insert(users).values({
+			id: E2E_GMAIL_PILOT_ID,
+			email,
+			passwordHash: await hash(password, 4),
+		});
+		try {
+			await login(page, email, password);
+			await stubConnections(page, []);
+			await openConnectionsTab(page);
+			await page.getByTestId("connections-add-google").click();
+			const dialog = page.getByRole("dialog");
+			const gmail = dialog.getByRole("checkbox", {
+				name: "Gmail",
+				exact: true,
+			});
+			await expect(gmail).not.toBeChecked();
+			await gmail.press("Space");
+			await dialog
+				.getByRole("checkbox", { name: "Calendar", exact: true })
+				.press("Space");
+			await dialog
+				.getByRole("checkbox", { name: "Contacts", exact: true })
+				.press("Space");
+			const manage = dialog.getByRole("checkbox", {
+				name: "Request Gmail management",
+			});
+			await expect(manage).not.toBeChecked();
+			await manage.press("Space");
+			const endpoint = "**/api/connections/google/start";
+			await page.route(endpoint, (route) =>
+				route.fulfill({ json: { authUrl: "/about" } }),
+			);
+			const sent = page.waitForRequest(endpoint);
+			await dialog.getByRole("button", { name: "Continue to Google" }).click();
+			expect((await sent).postDataJSON()).toEqual({
+				capabilities: ["email"],
+				requestGmailEditing: true,
+			});
+		} finally {
+			await db.delete(users).where(eq(users.id, E2E_GMAIL_PILOT_ID));
+		}
+	});
 	test.describe("the connect wizard", () => {
 		test.beforeEach(async ({ page }) => {
 			await login(page);
@@ -416,6 +468,9 @@ test.describe("settings connections tab", () => {
 			page,
 		}) => {
 			await page.getByTestId("connections-add-google").click();
+			await expect(
+				page.getByRole("checkbox", { name: "Gmail", exact: true }),
+			).toHaveCount(0);
 			await expect(
 				page.getByRole("heading", { name: "Connect Google" }),
 			).toBeVisible();
@@ -521,6 +576,46 @@ test.describe("settings connections tab", () => {
 
 			await page.getByText("Somewhere else").click();
 			await expect(page.getByLabel("IMAP server")).toBeVisible();
+		});
+
+		test("connects iCloud Mail from Email without requesting Calendar or Contacts", async ({
+			page,
+		}) => {
+			const endpoint = "**/api/connections/apple/start";
+			await page.route(endpoint, (route) =>
+				route.fulfill({
+					json: { connection: connection({ provider: "apple" }) },
+				}),
+			);
+			await page.getByTestId("connections-add-imap").click();
+			const dialog = page.getByRole("dialog");
+			await dialog.getByRole("button", { name: "iCloud Mail" }).click();
+			await expect(
+				dialog.getByRole("checkbox", { name: "Email" }),
+			).toBeChecked();
+			await expect(
+				dialog.getByRole("checkbox", { name: "Calendar" }),
+			).not.toBeChecked();
+			await expect(
+				dialog.getByRole("checkbox", { name: "Contacts" }),
+			).not.toBeChecked();
+			await dialog
+				.getByLabel("Apple ID", { exact: true })
+				.fill("sample@icloud.com");
+			await dialog
+				.getByLabel("App-specific password", { exact: true })
+				.fill("test-only");
+			const request = page.waitForRequest(endpoint);
+			await dialog
+				.getByRole("button", { name: "Connect", exact: true })
+				.click();
+			expect((await request).postDataJSON()).toEqual({
+				appleId: "sample@icloud.com",
+				appPassword: "test-only",
+				mailAddress: "sample@icloud.com",
+				capabilities: ["email"],
+			});
+			await expect(dialog).toHaveCount(0);
 		});
 
 		test("asks for a Nextcloud address", async ({ page }) => {

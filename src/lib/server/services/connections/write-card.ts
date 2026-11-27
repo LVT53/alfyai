@@ -128,6 +128,13 @@ function emailCard(
 			message: cut(payload?.body, MESSAGE_LIMIT),
 		};
 	}
+	if (op.action === "email.label" && typeof payload?.value === "boolean")
+		return {
+			kind: payload.value ? "email.add_label" : "email.remove_label",
+			subject: text(op.target?.label) ?? "",
+			facts: fact("mail_label", payload.labelName),
+			message: null,
+		};
 	if (op.action === "email.trash") {
 		return {
 			kind: "email.trash",

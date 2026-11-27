@@ -1197,7 +1197,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "email",
-      "description": "Read IMAP or Outlook mail. List recent messages, search free text, sender, subject or dates, count matches (defaults to unread), list_folders or read a uid and attachment metadata. The default folder is Inbox. Pass the folder path and account from the result. IMAP uses numeric uids, Outlook uses opaque strings. Do not use for attachment contents or stored documents (files), or calendar events (calendar). Send, trash or flag a message only with enabled writes. Each proposal needs confirmation. Sent mail cannot be unsent. Outlook supports draft and edit_draft without sending. Use send_draft with only the saved draft uid to review and send it in place. For a reply pass the original uid with send. Confirm recipient, subject and body before sending.",
+      "description": "Read IMAP, Apple, Outlook or Gmail. List recent messages, search free text, sender, subject or dates, count matches (defaults to unread), list_folders or read a uid and attachment metadata. The default folder is Inbox. Pass the folder path and account from the result. IMAP and Apple use numeric uids. Gmail and Outlook use opaque strings. Do not use for attachment contents or stored documents (files), or calendar events (calendar). Send, trash or flag a message only with enabled writes. Each proposal needs confirmation. Sent mail cannot be unsent. Gmail and Outlook support draft and edit_draft without sending. Use send_draft with only the saved draft uid to review and send it in place. For a reply pass the original uid with send. With Gmail, read_thread takes a threadId from a message. Use list_folders to find a labelId (the label path), then label with uid, labelId and value to add or remove that user label. Confirm recipient, subject and body before sending.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1209,6 +1209,8 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
               "count",
               "read",
               "list_folders",
+              "read_thread",
+              "label",
               "send",
               "draft",
               "edit_draft",
@@ -1218,6 +1220,12 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             ]
           },
           "query": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "labelId": {
             "type": "string"
           },
           "unseenOnly": {

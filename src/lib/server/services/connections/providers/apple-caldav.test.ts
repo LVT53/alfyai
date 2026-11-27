@@ -153,6 +153,118 @@ function discoveryFetchMock(appPassword = "app-specific-pw") {
 }
 
 describe("appleConnect", () => {
+	it("opts an existing Apple connection into Mail after probing its inbox read-only; SMTP uses the full address and requires STARTTLS", async () => {
+		seedUser("userA");
+		const { appleConnect } = await import("./apple-caldav");
+		const { getWriteExecutor } = await import("../write-executors");
+		const base = {
+			userId: "userA",
+			appleId: "alice@icloud.com",
+			appPassword: "app-specific-pw",
+		};
+		const prior = await appleConnect({ ...base, fetch: discoveryFetchMock() });
+		expect(prior.connection.grantedCapabilities).not.toContain("email");
+		const mailboxOpen = vi.fn(async () => ({ exists: 0 }));
+		const createClient = vi.fn(
+			(options: import("./imap").ImapClientOptions) =>
+				({
+					connect: async () => {
+						if (options.auth.user === "alice")
+							throw { authenticationFailed: true };
+					},
+					mailboxOpen,
+					logout: vi.fn(),
+					close: vi.fn(),
+				}) as unknown as import("./imap").ImapFlowLike,
+		);
+		const { connection } = await appleConnect({
+			...base,
+			appleId: "ALICE@icloud.com",
+			capabilities: ["email"],
+			createClient,
+		});
+		expect(connection.id).toBe(prior.connection.id);
+		expect(connection.capabilities).toEqual(["calendar", "email"]);
+		expect(
+			createClient.mock.calls.map(([options]) => options.auth.user),
+		).toEqual(["alice", "alice@icloud.com"]);
+		expect(createClient.mock.calls[0][0]).toMatchObject({
+			host: "imap.mail.me.com",
+			port: 993,
+			secure: true,
+		});
+		expect(mailboxOpen).toHaveBeenCalledWith("INBOX", { readOnly: true });
+		const sendMail = vi.fn();
+		const createTransport = vi.fn(() => ({ sendMail, close: vi.fn() }));
+		const opts = { fetch: vi.fn(), createTransport };
+		const sent = await getWriteExecutor("apple")?.execute(
+			"userA",
+			connection.id,
+			{
+				provider: "apple",
+				connectionId: connection.id,
+				action: "email.send",
+				summary: "Send sample",
+				reversible: false,
+				destructive: false,
+			},
+			JSON.stringify({
+				to: "test@example.com",
+				subject: "Sample",
+				body: "Example",
+			}),
+			opts,
+		);
+		expect(sent?.ok).toBe(true);
+		expect(createTransport).toHaveBeenCalledWith({
+			host: "smtp.mail.me.com",
+			port: 587,
+			secure: false,
+			requireTLS: true,
+			auth: { user: "alice@icloud.com", pass: base.appPassword },
+		});
+		expect(sendMail).toHaveBeenCalledOnce();
+	});
+
+	it("keeps Calendar credentials intact when the optional mailbox rejects both username forms", async () => {
+		seedUser("userA");
+		const { appleConnect } = await import("./apple-caldav");
+		const { getConnection, getConnectionSecret } = await import("../store");
+		const base = {
+			userId: "userA",
+			appleId: "alice@icloud.com",
+			appPassword: "app-specific-pw",
+		};
+		const { connection } = await appleConnect({
+			...base,
+			fetch: discoveryFetchMock(),
+		});
+		const createClient = vi.fn(
+			() =>
+				({
+					connect: async () => {
+						throw { authenticationFailed: true };
+					},
+					logout: vi.fn(),
+					close: vi.fn(),
+				}) as unknown as import("./imap").ImapFlowLike,
+		);
+		await expect(
+			appleConnect({
+				...base,
+				appPassword: "rejected",
+				capabilities: ["email"],
+				connectionId: connection.id,
+				createClient,
+			}),
+		).rejects.toMatchObject({ code: "invalid_credentials" });
+		expect(await getConnectionSecret("userA", connection.id)).toBe(
+			"app-specific-pw",
+		);
+		expect((await getConnection("userA", connection.id))?.capabilities).toEqual(
+			["calendar"],
+		);
+	});
 	it("follows an iCloud partition redirect during discovery and stores principal/home/calendar URLs + encrypted secret", async () => {
 		seedUser("userA");
 		const { appleConnect } = await import("./apple-caldav");

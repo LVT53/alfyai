@@ -135,6 +135,7 @@ export type NodemailerTransportOptions = {
 	host: string;
 	port: number;
 	secure: boolean;
+	requireTLS?: boolean;
 	auth: { user: string; pass: string };
 };
 
@@ -321,11 +322,17 @@ async function withImapWriteConnection<T>(
 	if (!conn) return { ok: false, reason: "connection_not_found" };
 	const password = await getConnectionSecret(userId, connectionId);
 	if (!password) return { ok: false, reason: "needs_reauth" };
-	const { email, imapHost, imapPort, imapSecure } = imapConfig(conn);
+	const {
+		email,
+		imapUsername = email,
+		imapHost,
+		imapPort,
+		imapSecure,
+	} = imapConfig(conn);
 
 	const createClient = opts?.createClient ?? createDefaultImapWriteClient;
 	const client = createClient(
-		buildClientOptions(imapHost, imapPort, imapSecure, email, password),
+		buildClientOptions(imapHost, imapPort, imapSecure, imapUsername, password),
 	);
 
 	try {
@@ -485,6 +492,7 @@ async function executeSend(
 		host: smtpHost,
 		port: smtpPort,
 		secure: smtpPort === 465,
+		...(conn.provider === "apple" ? { requireTLS: true } : {}),
 		auth: { user: email, pass: password },
 	});
 
@@ -530,18 +538,23 @@ async function executeSend(
 // exact import path).
 // ---------------------------------------------------------------------------
 
-registerWriteExecutor({
-	provider: "imap",
-	async execute(userId, connectionId, op, content, opts?: ImapWriteOpt) {
-		switch (op.action) {
-			case "email.send":
-				return executeSend(userId, connectionId, op, content, opts);
-			case "email.trash":
-				return executeTrash(userId, connectionId, content, opts);
-			case "email.flag":
-				return executeFlag(userId, connectionId, content, opts);
-			default:
-				return { ok: false, reason: "unsupported_operation" };
-		}
-	},
-});
+export async function executeImapWrite(
+	userId: string,
+	connectionId: string,
+	op: WriteOperation,
+	content: string,
+	opts?: ImapWriteOpt,
+): Promise<WriteExecutionResult> {
+	switch (op.action) {
+		case "email.send":
+			return executeSend(userId, connectionId, op, content, opts);
+		case "email.trash":
+			return executeTrash(userId, connectionId, content, opts);
+		case "email.flag":
+			return executeFlag(userId, connectionId, content, opts);
+		default:
+			return { ok: false, reason: "unsupported_operation" };
+	}
+}
+
+registerWriteExecutor({ provider: "imap", execute: executeImapWrite });

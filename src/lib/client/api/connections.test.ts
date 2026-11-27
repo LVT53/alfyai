@@ -120,6 +120,24 @@ describe("startGoogleConnect", () => {
 			}),
 		);
 	});
+	it("sends the Gmail management choice only to the targeted Google account", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse({ authUrl: "/google" }));
+		vi.stubGlobal("fetch", fetchMock);
+		await startGoogleConnect(["email"], undefined, undefined, {
+			googleConnectionId: "account-2",
+			requestGmailEditing: true,
+		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/google/start",
+			expect.objectContaining({
+				body: JSON.stringify({
+					capabilities: ["email"],
+					googleConnectionId: "account-2",
+					requestGmailEditing: true,
+				}),
+			}),
+		);
+	});
 	it("throws with the not-configured status on a 501", async () => {
 		const fetchMock = vi.fn(async () =>
 			jsonResponse({ error: "Google OAuth is not configured" }, 501),

@@ -34,6 +34,12 @@ describe("oauth request memo", () => {
 		expect(takeRequestedCapabilities("google")).toEqual(["calendar"]);
 	});
 
+	it("keeps targeted upgrades with the selected account", () => {
+		rememberRequestedCapabilities("google", ["email"], "second");
+		expect(takeRequestedCapabilities("google", "first")).toBeNull();
+		expect(takeRequestedCapabilities("google", "second")).toEqual(["email"]);
+	});
+
 	it("returns nothing when nothing was remembered", () => {
 		expect(takeRequestedCapabilities("google")).toBeNull();
 	});

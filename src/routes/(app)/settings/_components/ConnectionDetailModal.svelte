@@ -43,6 +43,7 @@ import {
 	microsoftCanWrite,
 	type MicrosoftWritePermission,
 } from "$lib/shared/microsoft-permissions";
+import { GMAIL_MODIFY_SCOPE } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import BehaviourRow from "./connections/BehaviourRow.svelte";
 import CapabilityRow from "./connections/CapabilityRow.svelte";
@@ -64,6 +65,7 @@ let {
 	onToggleCapability,
 	onToggleAllowWrites,
 	onRequestGoogleCalendarWrites,
+	gmailPilotEnabled = false,
 	onEnableImmichWrites,
 	onToggleDefaultOn,
 	onUpdateWriteAllowlist,
@@ -90,6 +92,7 @@ let {
 		next: boolean,
 	) => void | Promise<void>;
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
+	gmailPilotEnabled?: boolean;
 	onRequestGoogleCalendarWrites?: (id: string) => void | Promise<void>;
 	// Makes the key an Immich account writes with, from its password. Rejects
 	// when Immich turns the password away or cannot be reached.
@@ -153,6 +156,25 @@ const needsGoogleCalendarConsent = $derived(
 		!connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE),
 );
 
+const hasGmail = $derived(
+	gmailPilotEnabled &&
+		connection?.provider === "google" &&
+		connection.capabilities.includes("email"),
+);
+const canManageGmail = $derived(
+	hasGmail && connection?.oauthScopes.includes(GMAIL_MODIFY_SCOPE),
+);
+const canEditCalendar = $derived(
+	connection?.capabilities.includes("calendar") &&
+		connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE),
+);
+const showWriteSwitch = $derived(
+	canManageGmail ||
+		(needsGoogleCalendarConsent
+			? !!onRequestGoogleCalendarWrites
+			: !hasGmail || canEditCalendar),
+);
+
 function closeWriteKeyForm() {
 	writeKeyOpen = false;
 	writeKeyPassword = "";
@@ -171,7 +193,12 @@ async function onWritesSwitch(conn: ConnectionPublic, next: boolean) {
 		onReconnect?.(conn.id);
 		return;
 	}
-	if (next && needsGoogleCalendarConsent && onRequestGoogleCalendarWrites) {
+	if (
+		next &&
+		!canManageGmail &&
+		needsGoogleCalendarConsent &&
+		onRequestGoogleCalendarWrites
+	) {
 		const requestConsent = onRequestGoogleCalendarWrites;
 		await withPending("allowWrites", () => requestConsent(conn.id));
 		return;
@@ -423,6 +450,7 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 }
 
 function capabilityLabel(provider: string, capability: string): string {
+	if (provider === "google" && capability === "email") return "Gmail";
 	// Plex's library is films and shows, not "media".
 	if (provider === "plex" && capability === "media") {
 		return $t("connections.capability.mediaPlex");
@@ -439,10 +467,10 @@ function capabilityAbout(capability: string): string {
 
 {#if connection}
 	{@const conn = connection}
-	{@const entry = getProviderCatalogEntry(conn.provider)}
+	{@const entry = getProviderCatalogEntry(conn.provider, gmailPilotEnabled)}
 	{@const grammar = connectionStatusGrammar(conn, formatters)}
-	{@const granted = grantedCapabilitiesOf(conn)}
-	{@const denied = deniedCapabilitiesOf(conn)}
+	{@const granted = grantedCapabilitiesOf(conn, gmailPilotEnabled)}
+	{@const denied = deniedCapabilitiesOf(conn, gmailPilotEnabled)}
 	{@const isOAuth = entry.connectMethod === 'oauth'}
 	<DialogShell
 		title={entry.displayName}
@@ -569,11 +597,11 @@ function capabilityAbout(capability: string): string {
 					{#each denied as capability (capability)}
 						<CapabilityRow
 							label={capabilityLabel(conn.provider, capability)}
-							description={isOAuth
+							description={conn.provider === 'apple' ? $t('connections.detail.appleEnableSub') : isOAuth
 								? $t('connections.detail.deniedSub')
 								: $t('connections.detail.deniedSubDiscovered')}
 							granted={false}
-							askAgainLabel={isOAuth
+							askAgainLabel={conn.provider === 'apple' ? $t('connections.actions.connect') : isOAuth
 								? $t('connections.actions.askAgain')
 								: $t('connections.actions.lookAgain')}
 							testId={`capability-${capability}`}
@@ -605,16 +633,22 @@ function capabilityAbout(capability: string): string {
 						withPending('defaultOn', () => onToggleDefaultOn(conn.id, next))}
 				/>
 
-				{#if entry.writable && (!needsGoogleCalendarConsent || onRequestGoogleCalendarWrites)}
+				{#if hasGmail && !canManageGmail}
+					<button type="button" class="btn-secondary text-xs" onclick={() => onAskAgain?.(conn.id, 'email')}>{$t('connections.google.gmailManage')}</button>
+				{/if}
+				{#if canManageGmail && needsGoogleCalendarConsent && onRequestGoogleCalendarWrites}
+					<button type="button" class="btn-secondary text-xs" onclick={() => withPending('calendarWrites', () => onRequestGoogleCalendarWrites?.(conn.id))}>{$t('connections.google.optionalEditing')}</button>
+				{/if}
+				{#if entry.writable && showWriteSwitch}
 					<BehaviourRow
 						label={$t('connections.detail.letAlfyWrite')}
-						description={needsGoogleCalendarConsent
+						description={canManageGmail ? $t('connections.google.gmailWriteSub') : needsGoogleCalendarConsent
 							? $t('connections.detail.googleWriteConsent')
-							: conn.provider === 'google' || conn.provider === 'apple'
+							: conn.provider === 'google' || (conn.provider === 'apple' && !conn.capabilities.includes('email'))
 							? $t('connections.detail.writeConfirmNoteCalendar')
 							: $t('connections.detail.letAlfyWriteSub')}
 						help={$t('connections.detail.letAlfyWriteHelp')}
-						checked={!needsGoogleCalendarConsent && (conn.allowWrites || (needsWriteKey && writeKeyOpen))}
+						checked={(canManageGmail || !needsGoogleCalendarConsent) && (conn.allowWrites || (needsWriteKey && writeKeyOpen))}
 						busy={isPending('allowWrites') || writeKeyBusy}
 						testId="behaviour-allow-writes"
 						onChange={(next) => onWritesSwitch(conn, next)}

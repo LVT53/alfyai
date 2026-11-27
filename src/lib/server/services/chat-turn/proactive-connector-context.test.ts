@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
 	appleListEvents: vi.fn(),
 	caldavListEvents: vi.fn(),
 	imapListRecent: vi.fn(),
+	gmailMailList: vi.fn(),
+	outlookMailList: vi.fn(),
 	decideLocalDistillForPrompt: vi.fn(),
 	isConversationIncognito: vi.fn(),
 }));
@@ -22,6 +24,12 @@ vi.mock("../connections/providers/apple-caldav", () => ({
 }));
 vi.mock("../connections/providers/caldav-tasks", () => ({
 	caldavListEvents: mocks.caldavListEvents,
+}));
+vi.mock("../connections/providers/gmail-mail", () => ({
+	gmailMailList: mocks.gmailMailList,
+}));
+vi.mock("../connections/providers/outlook-mail", () => ({
+	outlookMailList: mocks.outlookMailList,
 }));
 vi.mock("../connections/providers/imap", () => ({
 	imapListRecent: mocks.imapListRecent,
@@ -219,6 +227,28 @@ describe("buildProactiveConnectorContext", () => {
 		).resolves.toBeNull();
 	});
 
+	it.each([
+		["google", "gmailMailList"],
+		["onedrive", "outlookMailList"],
+	] as const)(
+		"reads unread headers through the %s adapter",
+		async (provider, adapter) => {
+			const conn = connection({ provider, capabilities: ["email"] });
+			mocks.resolveConnectionsForCapability.mockResolvedValue([conn]);
+			mocks[adapter].mockResolvedValue([{ from: "Test", subject: "Mail" }]);
+			const result = await buildProactiveConnectorContext({
+				...baseParams,
+				message: "Any unread emails?",
+				activeCapabilities: new Set(["email"]),
+			});
+			expect(result?.block).toContain("Mail");
+			expect(mocks[adapter]).toHaveBeenCalledWith(
+				conn,
+				expect.objectContaining({ unseenOnly: true }),
+			);
+			expect(mocks.imapListRecent).not.toHaveBeenCalled();
+		},
+	);
 	it("injects a compact recent-unread email block via imapListRecent(unseenOnly)", async () => {
 		mocks.resolveConnectionsForCapability.mockImplementation(
 			async (_userId: string, capability: string) =>

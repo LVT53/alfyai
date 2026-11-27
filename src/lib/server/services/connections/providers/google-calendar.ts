@@ -15,17 +15,19 @@
 // createPendingWrite.
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import {
 	bearerAuthHeader,
 	ConnectionHttpError,
 	providerFetch,
 } from "../provider-http";
-import { updateConnection } from "../store";
+import { getConnection, updateConnection } from "../store";
 import {
 	registerWriteExecutor,
 	type WriteExecutionResult,
 } from "../write-executors";
 import { idempotencyKey, type WriteOperation } from "../write-guard";
+import { executeGmailMailWrite } from "./gmail-mail-writes";
 import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
 
 type FetchOpt = { fetch?: typeof fetch };
@@ -922,12 +924,22 @@ async function executeDelete(
 registerWriteExecutor({
 	provider: "google",
 	async execute(userId, connectionId, op, content, opts) {
+		if (op.action.startsWith("email."))
+			return executeGmailMailWrite(userId, connectionId, op, content, opts);
 		const parsed = parseContent(content);
 		if (!parsed) return { ok: false, reason: "unsupported_operation" };
 		if (!validGoogleEventTimes(parsed.event?.start, parsed.event?.end)) {
 			return { ok: false, reason: "invalid_event_time" };
 		}
 
+		const current = await getConnection(userId, connectionId);
+		if (
+			current?.provider !== "google" ||
+			!current.allowWrites ||
+			!current.capabilities.includes("calendar") ||
+			!current.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE)
+		)
+			return { ok: false, reason: "not_allowed" };
 		const tokenResult = await getAccessTokenOrReauth(
 			userId,
 			connectionId,

@@ -1,4 +1,14 @@
 import { z } from "zod";
+import { gmailCanModify } from "$lib/server/services/connections/providers/gmail";
+import {
+	gmailDraftSnapshot,
+	gmailMailCount,
+	gmailMailFolders,
+	gmailMailList,
+	gmailMailMetadata,
+	gmailReadMail,
+	gmailReadThread,
+} from "$lib/server/services/connections/providers/gmail-mail";
 import {
 	outlookMailCount,
 	outlookMailFolders,
@@ -9,7 +19,10 @@ import {
 } from "$lib/server/services/connections/providers/outlook-mail";
 import { microsoftCanWrite } from "$lib/shared/microsoft-permissions";
 
-type MailHeader = Omit<EmailHeader, "uid"> & { uid: number | string };
+type MailHeader = Omit<EmailHeader, "uid"> & {
+	uid: number | string;
+	threadId?: string;
+};
 
 import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
@@ -53,6 +66,8 @@ export const emailToolInputSchema = z.object({
 		"count",
 		"read",
 		"list_folders",
+		"read_thread",
+		"label",
 		"send",
 		"draft",
 		"edit_draft",
@@ -61,6 +76,8 @@ export const emailToolInputSchema = z.object({
 		"flag",
 	]),
 	query: z.string().optional(),
+	threadId: z.string().min(1).optional(),
+	labelId: z.string().min(1).optional(),
 	unseenOnly: z.boolean().optional(),
 	uid: z.union([z.number(), z.string().min(1)]).optional(),
 	// Folder scoping (B4): which mailbox the read actions (recent/search/read/
@@ -101,6 +118,8 @@ export type EmailToolInput = z.infer<typeof emailToolInputSchema>;
 export function sanitizeEmailToolInput(input: EmailToolInput): EmailToolInput {
 	return {
 		action: input.action,
+		...(input.threadId ? { threadId: input.threadId } : {}),
+		...(input.labelId ? { labelId: input.labelId } : {}),
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.unseenOnly !== undefined ? { unseenOnly: input.unseenOnly } : {}),
 		...(input.uid !== undefined ? { uid: input.uid } : {}),
@@ -128,6 +147,7 @@ export type EmailCitation = { label: string; url: string };
 // stripping `content`. `uid`/`date`/`seen` are structural metadata, not
 // message content, and are never stripped.
 export type EmailToolHeaderItem = {
+	threadId?: string;
 	uid: number | string;
 	from?: string;
 	subject?: string;
@@ -188,6 +208,7 @@ export type EmailToolOutcome = {
 function toToolHeaderItem(header: MailHeader): EmailToolHeaderItem {
 	return {
 		uid: header.uid,
+		...(header.threadId ? { threadId: header.threadId } : {}),
 		...(header.from ? { from: header.from } : {}),
 		...(header.subject ? { subject: header.subject } : {}),
 		date: header.date,
@@ -474,7 +495,7 @@ function distillEmailReadOutcome(params: {
 
 	const rawTextParts: string[] = [];
 	for (const item of outcome.modelPayload.messages) {
-		const descriptors = [item.from, item.subject].filter(
+		const descriptors = [item.from, item.subject, item.snippet].filter(
 			(value): value is string => Boolean(value),
 		);
 		if (descriptors.length > 0) {
@@ -555,12 +576,14 @@ type EmailWriteAction =
 	| "flag"
 	| "draft"
 	| "edit_draft"
-	| "send_draft";
+	| "send_draft"
+	| "label";
 
 function isEmailWriteAction(
 	action: EmailToolInput["action"],
 ): action is EmailWriteAction {
 	return (
+		action === "label" ||
 		action === "send" ||
 		action === "draft" ||
 		action === "edit_draft" ||
@@ -584,6 +607,8 @@ async function previewMail(
 ) {
 	if (conn.provider === "onedrive" && typeof uid === "string")
 		return outlookMailMetadata(conn, uid, folder);
+	if (conn.provider === "google" && typeof uid === "string")
+		return gmailMailMetadata(conn, uid, folder);
 	return readMail(userId, conn, uid, folder);
 }
 async function readMail(
@@ -594,7 +619,12 @@ async function readMail(
 ) {
 	if (conn.provider === "onedrive" && typeof uid === "string")
 		return outlookReadMail(conn, uid, folder);
-	if (conn.provider === "imap" && typeof uid === "number")
+	if (conn.provider === "google" && typeof uid === "string")
+		return gmailReadMail(conn, uid, folder);
+	if (
+		(conn.provider === "imap" || conn.provider === "apple") &&
+		typeof uid === "number"
+	)
 		return imapReadMessage(userId, conn.id, {
 			uid,
 			...(folder ? { folder } : {}),
@@ -605,6 +635,9 @@ async function readMail(
 	);
 }
 
+function hasNativeMail(conn: ConnectionPublic) {
+	return conn.provider === "onedrive" || conn.provider === "google";
+}
 async function proposeSend(
 	userId: string,
 	conversationId: string | undefined,
@@ -648,7 +681,15 @@ async function proposeSend(
 			success: false,
 			action,
 			reason: "request_adjusted",
-			message: "Choose an Outlook draft by its uid before editing it.",
+			message: "Choose a draft by its uid before editing it.",
+		});
+	if (action === "draft" && input.uid !== undefined)
+		return buildPayload({
+			success: false,
+			action,
+			reason: "request_adjusted",
+			message:
+				"Use edit_draft for an existing draft, or omit the uid to create a new draft.",
 		});
 	if (input.uid !== undefined) {
 		try {
@@ -659,8 +700,23 @@ async function proposeSend(
 						success: false,
 						action,
 						reason: "request_adjusted",
-						message: "Choose an existing Outlook draft to edit.",
+						message: "Choose an existing draft to edit.",
 					});
+				if (
+					conn.provider === "google" &&
+					input.body !== undefined &&
+					typeof input.uid === "string"
+				) {
+					const draft = await gmailDraftSnapshot(conn, input.uid);
+					if (!draft.plainText)
+						return buildPayload({
+							success: false,
+							action,
+							reason: "request_adjusted",
+							message:
+								"Edit this draft’s rich-text body in Gmail to preserve its formatting and attachments. Its recipients and subject can still be edited here.",
+						});
+				}
 				etag = result.etag;
 				draftName = result.header.subject;
 			}
@@ -676,7 +732,7 @@ async function proposeSend(
 				rawReplySubject = result.header.subject;
 			}
 		} catch (err) {
-			if (conn.provider === "onedrive") {
+			if (hasNativeMail(conn)) {
 				const failure = mapAdapterError(err);
 				return buildPayload({
 					success: false,
@@ -692,7 +748,7 @@ async function proposeSend(
 
 	const content = {
 		to: input.to,
-		...(conn.provider === "onedrive" && input.uid !== undefined
+		...(hasNativeMail(conn) && input.uid !== undefined
 			? { uid: input.uid }
 			: {}),
 		...(etag ? { etag } : {}),
@@ -702,7 +758,7 @@ async function proposeSend(
 		...(input.inReplyTo ? { inReplyTo: input.inReplyTo } : {}),
 	};
 
-	const title = input.subject || draftName || "Outlook draft";
+	const title = input.subject || draftName || "Mail draft";
 	const recipient = input.to ? ` to ${input.to}` : "";
 	const op: WriteOperation = {
 		provider: conn.provider,
@@ -710,9 +766,7 @@ async function proposeSend(
 		action: `email.${action}`,
 		summary: `${action === "send" ? "Send" : action === "draft" ? "Create draft" : "Edit draft"} "${title}"${recipient}`,
 		target: {
-			...(conn.provider === "onedrive" &&
-			input.uid !== undefined &&
-			action !== "draft"
+			...(hasNativeMail(conn) && input.uid !== undefined && action !== "draft"
 				? { id: String(input.uid) }
 				: {}),
 			label: input.to ? `${title} → ${input.to}` : title,
@@ -775,12 +829,12 @@ async function proposeSend(
 					op,
 					rawPreview: preview,
 					subject: draftName,
-					withheldTitle: "Edit an Outlook draft",
+					withheldTitle: "Edit a draft",
 				})
 			: undefined;
 	const message = withAmbiguityPrefix(
 		action !== "send"
-			? `The Outlook draft is ready for your confirmation. Approving saves it without sending.`
+			? `The draft is ready for your confirmation. Approving saves it without sending.`
 			: `I've prepared an email to ${input.to} with subject "${input.subject}", but it has NOT been sent yet — it is PENDING and awaiting your explicit confirmation. Sending cannot be undone once confirmed.${replySegment}`,
 		ambiguous,
 		conn,
@@ -823,9 +877,7 @@ async function readTargetMessage(
 ): Promise<TargetMessage> {
 	const [{ header }, uidValidity] = await Promise.all([
 		previewMail(userId, conn, uid),
-		conn.provider === "onedrive"
-			? null
-			: imapGetInboxUidValidity(userId, conn.id),
+		hasNativeMail(conn) ? null : imapGetInboxUidValidity(userId, conn.id),
 	]);
 	return {
 		subject: header.subject || CONNECTOR_PLACEHOLDER_TITLES.noSubject,
@@ -1091,13 +1143,14 @@ async function emailWriteOutcome(
 		(action === "draft" ||
 			action === "edit_draft" ||
 			action === "send_draft") &&
-		conn.provider !== "onedrive"
+		!hasNativeMail(conn)
 	)
 		return buildPayload({
 			success: false,
 			action,
 			reason: "not_supported",
-			message: "Saving or editing drafts is available for Outlook mailboxes.",
+			message:
+				"Saving or editing drafts is available for Gmail and Outlook mailboxes.",
 		});
 	if (
 		conn.provider === "onedrive" &&
@@ -1113,6 +1166,83 @@ async function emailWriteOutcome(
 			message:
 				"Enable the requested Outlook mail permission in Settings → Connections.",
 		});
+	if (conn.provider === "google" && !gmailCanModify(conn))
+		return buildPayload({
+			success: false,
+			action,
+			reason: "read_only_account",
+			message: "Enable Gmail management in Settings → Connections.",
+		});
+	if (action === "label") {
+		if (
+			conn.provider !== "google" ||
+			typeof input.uid !== "string" ||
+			!input.labelId ||
+			input.value === undefined
+		)
+			return buildPayload({
+				action,
+				success: false,
+				reason: "request_adjusted",
+				message:
+					"Choose a Gmail message uid, a user label from list_folders and whether to apply it.",
+			});
+		try {
+			const [labels, target] = await Promise.all([
+				gmailMailFolders(conn),
+				gmailMailMetadata(conn, input.uid),
+			]);
+			const selected = labels.find(
+				(l) => l.type === "user" && l.path === input.labelId,
+			);
+			if (!selected)
+				return buildPayload({
+					action,
+					success: false,
+					reason: "request_adjusted",
+					message: "Choose a user-created label from list_folders.",
+				});
+			const op: WriteOperation = {
+				provider: conn.provider,
+				connectionId: conn.id,
+				action: "email.label",
+				target: { id: input.uid, label: target.header.subject },
+				summary: "Change a Gmail label",
+				reversible: true,
+				destructive: false,
+				payloadFingerprint: JSON.stringify([selected.path, input.value]),
+			};
+			const preview = buildWritePreview(op);
+			const { id: pendingWriteId } = await createPendingWrite(userId, {
+				connectionId: conn.id,
+				provider: conn.provider,
+				op,
+				preview,
+				conversationId,
+				idempotencyKey: idempotencyKey(op),
+				content: JSON.stringify({
+					uid: input.uid,
+					labelId: selected.path,
+					labelName: selected.name,
+					value: input.value,
+				}),
+			});
+			return buildPayload({
+				action,
+				success: true,
+				pendingWriteId,
+				message: "Review the Gmail label change in the confirmation card.",
+			});
+		} catch (err) {
+			const failure = mapAdapterError(err);
+			return buildPayload({
+				action,
+				success: false,
+				reason: failure.code,
+				message: failure.message,
+			});
+		}
+	}
 	if (action === "send_draft") {
 		if (
 			typeof input.uid !== "string" ||
@@ -1128,13 +1258,23 @@ async function emailWriteOutcome(
 					"Supply the saved draft uid only. Edit the draft first to change recipients or content.",
 			});
 		try {
-			const snapshot = await outlookSendDraftSnapshot(conn, input.uid);
+			const snapshot =
+				conn.provider === "google"
+					? await gmailDraftSnapshot(conn, input.uid)
+					: await outlookSendDraftSnapshot(conn, input.uid);
+			if (!snapshot.to && !snapshot.cc && !snapshot.bcc)
+				return buildPayload({
+					action,
+					success: false,
+					reason: "request_adjusted",
+					message: "Add a recipient to this draft before sending it.",
+				});
 			const op: WriteOperation = {
 				provider: conn.provider,
 				connectionId: conn.id,
 				action: "email.send_draft",
-				summary: "Send the saved Outlook draft",
-				target: { id: input.uid, label: "Saved Outlook draft" },
+				summary: "Send the saved email draft",
+				target: { id: input.uid, label: "Saved email draft" },
 				payloadFingerprint: snapshot.etag,
 				reversible: false,
 				destructive: false,
@@ -1155,7 +1295,7 @@ async function emailWriteOutcome(
 				pendingWriteId,
 				preview,
 				message:
-					"Review this saved Outlook draft’s recipients, attachments and message in the confirmation card before sending.",
+					"Review this saved email draft’s recipients, attachments and message in the confirmation card before sending.",
 			});
 		} catch (err) {
 			const failure = mapAdapterError(err);
@@ -1243,9 +1383,11 @@ export async function runEmailTool(
 				? matchingConnections(connections, input.account)
 				: connections;
 			if (
-				(isEmailWriteAction(input.action) || input.uid !== undefined) &&
+				(isEmailWriteAction(input.action) ||
+					input.uid !== undefined ||
+					input.threadId !== undefined) &&
 				matching.length > 1 &&
-				matching.some((account) => account.provider === "onedrive")
+				matching.some(hasNativeMail)
 			) {
 				return buildPayload({
 					success: false,
@@ -1256,7 +1398,7 @@ export async function runEmailTool(
 				});
 			}
 			if (
-				conn.provider === "onedrive" &&
+				hasNativeMail(conn) &&
 				input.inReplyTo &&
 				typeof input.uid !== "string"
 			)
@@ -1264,8 +1406,7 @@ export async function runEmailTool(
 					success: false,
 					action: input.action,
 					reason: "request_adjusted",
-					message:
-						"Use the original Outlook message uid to send a threaded reply.",
+					message: "Use the original message uid to send a threaded reply.",
 				});
 			// Write actions (6.3) are proposal-only and branch here — before the
 			// read-side try/catch below — same posture as calendar.ts's write branch
@@ -1284,27 +1425,64 @@ export async function runEmailTool(
 			}
 
 			try {
+				const native =
+					conn.provider === "google"
+						? {
+								folders: gmailMailFolders,
+								list: gmailMailList,
+								count: gmailMailCount,
+							}
+						: conn.provider === "onedrive"
+							? {
+									folders: outlookMailFolders,
+									list: outlookMailList,
+									count: outlookMailCount,
+								}
+							: null;
+				if (input.action === "read_thread") {
+					if (conn.provider !== "google" || !input.threadId)
+						return buildPayload({
+							success: false,
+							action: input.action,
+							reason: "request_adjusted",
+							message: "Choose a Gmail threadId from a message result.",
+						});
+					const thread = await gmailReadThread(conn, input.threadId);
+					const messages = thread.messages.map(toToolHeaderItem);
+					const outcome = buildPayload({
+						success: true,
+						action: "read_thread",
+						message: thread.truncated
+							? "The Gmail conversation exceeded the text limit; read an individual message by uid for more."
+							: "Read the Gmail conversation.",
+						messages,
+						text: thread.text,
+						citations: messages.map((m) => ({
+							label: subjectLabel(m),
+							url: "",
+						})),
+					});
+					return distillEmailReadOutcome({ userId, modelId, input, outcome });
+				}
 				// B4: enumerate the account's mailboxes so the model can discover folder
 				// names and resolve "Sent"/"Archive"/… — pure structure, no message read.
 				if (input.action === "list_folders") {
-					const folders =
-						conn.provider === "onedrive"
-							? await outlookMailFolders(conn)
-							: await imapListFolders(userId, conn.id);
+					const folders = native
+						? await native.folders(conn)
+						: await imapListFolders(userId, conn.id);
 					return foldersOutcome(conn, folders, ambiguous, connections);
 				}
 
 				if (input.action === "recent") {
-					const headers =
-						conn.provider === "onedrive"
-							? await outlookMailList(conn, {
-									unseenOnly: input.unseenOnly,
-									folder: input.folder,
-								})
-							: await imapListRecent(userId, conn.id, {
-									unseenOnly: input.unseenOnly,
-									...(input.folder ? { folder: input.folder } : {}),
-								});
+					const headers = native
+						? await native.list(conn, {
+								unseenOnly: input.unseenOnly,
+								folder: input.folder,
+							})
+						: await imapListRecent(userId, conn.id, {
+								unseenOnly: input.unseenOnly,
+								...(input.folder ? { folder: input.folder } : {}),
+							});
 					const outcome = listOutcome(
 						conn,
 						"recent",
@@ -1328,17 +1506,16 @@ export async function runEmailTool(
 							reason: "request_adjusted",
 						});
 					}
-					const headers =
-						conn.provider === "onedrive"
-							? await outlookMailList(conn, {
-									...criteria,
-									unseenOnly: input.unseenOnly,
-									folder: input.folder,
-								})
-							: await imapSearch(userId, conn.id, {
-									...criteria,
-									...(input.folder ? { folder: input.folder } : {}),
-								});
+					const headers = native
+						? await native.list(conn, {
+								...criteria,
+								unseenOnly: input.unseenOnly,
+								folder: input.folder,
+							})
+						: await imapSearch(userId, conn.id, {
+								...criteria,
+								...(input.folder ? { folder: input.folder } : {}),
+							});
 					const outcome = listOutcome(
 						conn,
 						"search",
@@ -1358,18 +1535,17 @@ export async function runEmailTool(
 					const criteria = searchCriteria(input);
 					const filtered = Object.keys(criteria).length > 0;
 					const unseenOnly = input.unseenOnly ?? (filtered ? undefined : true);
-					const count =
-						conn.provider === "onedrive"
-							? await outlookMailCount(conn, {
-									...criteria,
-									unseenOnly,
-									folder: input.folder,
-								})
-							: await imapCount(userId, conn.id, {
-									...criteria,
-									...(unseenOnly !== undefined ? { unseenOnly } : {}),
-									...(input.folder ? { folder: input.folder } : {}),
-								});
+					const count = native
+						? await native.count(conn, {
+								...criteria,
+								unseenOnly,
+								folder: input.folder,
+							})
+						: await imapCount(userId, conn.id, {
+								...criteria,
+								...(unseenOnly !== undefined ? { unseenOnly } : {}),
+								...(input.folder ? { folder: input.folder } : {}),
+							});
 					return countOutcome(
 						conn,
 						count,

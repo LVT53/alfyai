@@ -36,10 +36,9 @@ import { isConversationIncognito } from "$lib/server/services/memory-controls";
 import { decideLocalDistillForPrompt } from "$lib/server/services/normal-chat-tools/connector-distill";
 import { truncateToTokenBudget } from "$lib/server/utils/prompt-context";
 import { listConnectionEvents } from "../connections/calendar-read";
-import {
-	type EmailHeader,
-	imapListRecent,
-} from "../connections/providers/imap";
+import { gmailMailList } from "../connections/providers/gmail-mail";
+import { imapListRecent } from "../connections/providers/imap";
+import { outlookMailList } from "../connections/providers/outlook-mail";
 import type { Capability } from "../connections/registry";
 import { resolveConnectionsForCapability } from "../connections/resolve";
 import type { ConnectionPublic } from "../connections/store";
@@ -163,10 +162,13 @@ async function fetchEmailLines(
 	userId: string,
 	conn: ConnectionPublic,
 ): Promise<string[]> {
-	const headers: EmailHeader[] = await imapListRecent(userId, conn.id, {
-		limit: EMAIL_RECENT_LIMIT,
-		unseenOnly: true,
-	});
+	const opts = { limit: EMAIL_RECENT_LIMIT, unseenOnly: true };
+	const headers =
+		conn.provider === "google"
+			? await gmailMailList(conn, opts)
+			: conn.provider === "onedrive"
+				? await outlookMailList(conn, opts)
+				: await imapListRecent(userId, conn.id, opts);
 	return headers.map((header) => {
 		const from =
 			header.from && header.from.length > 0 ? header.from : "(unknown sender)";

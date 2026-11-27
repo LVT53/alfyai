@@ -20,6 +20,8 @@
 // slots share the directory without sharing a path.
 import { join } from "node:path";
 
+export const E2E_GMAIL_PILOT_ID = "e2e-gmail-pilot";
+
 export const E2E_HOST = "127.0.0.1";
 
 /** Lets the Mac keeper recognize browsers that belong to this gate. */

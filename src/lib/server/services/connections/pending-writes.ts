@@ -520,7 +520,8 @@ export async function confirmPendingWrite(
 	// the write, so two concurrent confirms could both pass the check and
 	// both issue a real write.
 	const draftSendKey =
-		record.op.action === "email.send_draft" && record.provider === "onedrive"
+		record.op.action === "email.send_draft" &&
+		(record.provider === "onedrive" || record.provider === "google")
 			? record.idempotencyKey
 			: undefined;
 	const claimed = await claimPendingWrite(userId, id, draftSendKey);

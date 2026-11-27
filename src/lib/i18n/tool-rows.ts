@@ -94,6 +94,8 @@ const toolRowsDict = {
 		"toolRows.connector.email.edit_draft": "Proposed editing a draft",
 		"toolRows.connector.email.send_draft": "Proposed sending a saved draft",
 		"toolRows.connector.email.trash": "Proposed moving an email to Trash",
+		"toolRows.connector.email.label": "Proposed changing a Gmail label",
+		"toolRows.connector.email.read_thread": "Read a Gmail conversation",
 		"toolRows.connector.email.flag": "Proposed flagging an email",
 		"toolRows.connector.email.other": "Used your email",
 		"toolRows.connector.files.stat": "Checked file details",
@@ -577,6 +579,8 @@ const toolRowsDict = {
 		"toolRows.connector.email.send_draft":
 			"Mentett piszkozat küldését javasolta",
 		"toolRows.connector.email.trash": "Egy levél kukába helyezését javasolta",
+		"toolRows.connector.email.label": "Gmail-címke módosítását javasolta",
+		"toolRows.connector.email.read_thread": "Gmail-beszélgetést olvasott",
 		"toolRows.connector.email.flag": "Egy levél megjelölését javasolta",
 		"toolRows.connector.email.other": "Használta az e-mail-fiókodat",
 		"toolRows.connector.files.stat": "Megnézte a fájl adatait",

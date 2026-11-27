@@ -13,7 +13,9 @@
 // route stays permissive (an enabled-but-not-granted capability is legal and
 // simply doesn't resolve at read time), so this module only ever *describes*
 // the grant. It never revokes anything.
+
 import type { ConnectionProvider } from "$lib/server/db/schema";
+import { gmailReadGranted } from "$lib/shared/gmail-scopes";
 import {
 	isMicrosoftReadCapability,
 	microsoftReadGranted,
@@ -63,9 +65,24 @@ export function grantedCapabilitiesFor(conn: GrantSource): Capability[] {
 	if (scopeMap) {
 		const granted = new Set(conn.oauthScopes);
 		return catalogue.filter((capability) => {
+			if (conn.provider === "google" && capability === "email")
+				return gmailReadGranted(conn.oauthScopes);
 			const required = scopeMap[capability];
 			return required !== undefined && granted.has(required);
 		});
+	}
+
+	if (conn.provider === "apple") {
+		const mail =
+			typeof conn.config.mailUsername === "string" &&
+			typeof conn.config.mailAddress === "string";
+		return catalogue.filter((cap) =>
+			cap === "email"
+				? mail
+				: (!mail && !Array.isArray(conn.config.addressbookUrls)) ||
+					(cap === "contacts" && Array.isArray(conn.config.addressbookUrls)) ||
+					typeof conn.config.principalUrl === "string",
+		);
 	}
 
 	if (conn.provider === "caldav") {

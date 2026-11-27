@@ -20,7 +20,15 @@ import {
 } from "./guide-content";
 import GuideRow from "./GuideRow.svelte";
 
-let { section, now }: { section: GuideSectionId; now: Date } = $props();
+let {
+	section,
+	now,
+	gmailPilotEnabled = false,
+}: {
+	section: GuideSectionId;
+	now: Date;
+	gmailPilotEnabled?: boolean;
+} = $props();
 
 let lit = $state<string | null>(null);
 let rows = $state<HTMLElement | null>(null);
@@ -51,7 +59,7 @@ function putOutLight(event: MouseEvent) {
 	</div>
 	<ul class="guide-band__rows" bind:this={rows}>
 		{#each entries as entry (entry.id)}
-			<GuideRow {entry} {now} onLight={(spot) => (lit = spot)} />
+			<GuideRow {entry} {now} extraLine={gmailPilotEnabled && entry.id === 'connectedAccounts' ? $t('guide.connectedAccounts.gmail') : undefined} onLight={(spot) => (lit = spot)} />
 		{/each}
 	</ul>
 </section>

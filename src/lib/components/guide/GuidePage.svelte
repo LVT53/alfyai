@@ -15,6 +15,8 @@ import {
 import GuideSection from "./GuideSection.svelte";
 import GuideShortcuts from "./GuideShortcuts.svelte";
 
+let { gmailPilotEnabled = false }: { gmailPilotEnabled?: boolean } = $props();
+
 // The moment NEW is judged against: the browser's clock, read once, so every
 // row of a visit agrees. Nothing is stored per person.
 const now = new Date();
@@ -61,7 +63,7 @@ function jumpTo(event: MouseEvent, id: GuideSectionId) {
 
 	<div class="guide-bands">
 		{#each GUIDE_SECTION_IDS as id (id)}
-			<GuideSection section={id} {now} />
+			<GuideSection section={id} {now} {gmailPilotEnabled} />
 		{/each}
 	</div>
 

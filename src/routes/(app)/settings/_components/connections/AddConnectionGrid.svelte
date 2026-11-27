@@ -18,15 +18,19 @@ import { t } from "$lib/i18n";
 
 let {
 	connectedProviders,
+	gmailPilotEnabled = false,
 	onStartConnect,
 }: {
 	connectedProviders: Set<string>;
+	gmailPilotEnabled?: boolean;
 	onStartConnect: (provider: ConnectionProvider) => void;
 } = $props();
 
 const groups = $derived(groupConnectableProviders());
 
 function blurbFor(provider: ConnectionProvider): string {
+	if (provider === "google" && gmailPilotEnabled)
+		return $t("connections.google.gmailBlurb");
 	return $t(
 		`connections.provider.${provider}.blurb` as Parameters<typeof $t>[0],
 	);

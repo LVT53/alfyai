@@ -1,4 +1,5 @@
 import type { ConnectionProvider } from "$lib/server/db/schema";
+import { GMAIL_READ_SCOPE } from "$lib/shared/gmail-scopes";
 import { MICROSOFT_READ_SCOPES } from "$lib/shared/microsoft-permissions";
 import type { ConnectionPublic } from "./store";
 
@@ -70,13 +71,13 @@ export const PROVIDER_META: Record<
 		group: "product",
 	},
 	google: {
-		capabilities: ["calendar", "contacts"],
+		capabilities: ["calendar", "contacts", "email"],
 		connectMethod: "oauth",
 		displayName: "Google",
 		group: "product",
 	},
 	apple: {
-		capabilities: ["calendar", "contacts"],
+		capabilities: ["calendar", "contacts", "email"],
 		connectMethod: "app-password",
 		displayName: "Apple iCloud",
 		group: "product",
@@ -143,6 +144,7 @@ export const OAUTH_CAPABILITY_SCOPES: Partial<
 	Record<ConnectionProvider, Partial<Record<Capability, string>>>
 > = {
 	google: {
+		email: GMAIL_READ_SCOPE,
 		calendar: "https://www.googleapis.com/auth/calendar.readonly",
 		contacts: "https://www.googleapis.com/auth/contacts.readonly",
 	},
@@ -165,7 +167,7 @@ export const CAPABILITY_META: Record<
 	},
 	email: {
 		tier: "proactive",
-		providers: ["imap", "onedrive"],
+		providers: ["imap", "apple", "onedrive", "google"],
 		displayName: "Email",
 	},
 	files: {

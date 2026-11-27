@@ -18,10 +18,12 @@ import {
 
 let {
 	entry,
+	extraLine,
 	now,
 	onLight,
 }: {
 	entry: GuideEntry;
+	extraLine?: string;
 	now: Date;
 	/** Called with the drawing spot to ring, or `null` to put the ring out. */
 	onLight: (spot: string | null) => void;
@@ -96,7 +98,7 @@ function handleClick() {
 					<span class="guide-row__new">{$t('guide.new')}</span>
 				{/if}
 			</p>
-			<p class="guide-row__line">{line}</p>
+			<p class="guide-row__line">{line}{#if extraLine} {extraLine}{/if}</p>
 		</div>
 		{#if entry.action.kind === 'tryIt'}
 			<button

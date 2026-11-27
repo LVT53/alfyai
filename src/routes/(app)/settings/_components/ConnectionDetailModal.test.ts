@@ -71,6 +71,55 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+describe("native Gmail permissions", () => {
+	it("keeps Gmail out of ordinary Google account details", () => {
+		render(
+			ConnectionDetailModal,
+			baseProps({ connection: makeConnection({ provider: "google" }) }),
+		);
+		expect(screen.queryByTestId("capability-email")).toBeNull();
+	});
+	it("opens the selected account's wizard for management, then uses a local switch once granted", async () => {
+		const onAskAgain = vi.fn();
+		const onToggleAllowWrites = vi.fn();
+		const connection = makeConnection({
+			provider: "google",
+			capabilities: ["calendar", "email"],
+			grantedCapabilities: ["calendar", "email"],
+			oauthScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+		});
+		const view = render(
+			ConnectionDetailModal,
+			baseProps({
+				connection,
+				gmailPilotEnabled: true,
+				onAskAgain,
+				onToggleAllowWrites,
+			}),
+		);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Request Gmail management" }),
+		);
+		expect(onAskAgain).toHaveBeenCalledWith(connection.id, "email");
+		expect(onToggleAllowWrites).not.toHaveBeenCalled();
+		await view.rerender(
+			baseProps({
+				connection: {
+					...connection,
+					oauthScopes: ["https://www.googleapis.com/auth/gmail.modify"],
+				},
+				gmailPilotEnabled: true,
+				onAskAgain,
+				onToggleAllowWrites,
+			}),
+		);
+		await fireEvent.click(
+			screen.getByRole("switch", { name: "Let Alfy write" }),
+		);
+		expect(onToggleAllowWrites).toHaveBeenCalledWith(connection.id, true);
+	});
+});
+
 describe("ConnectionDetailModal", () => {
 	beforeEach(() => {
 		mockFetchNextcloudFolders.mockReset();

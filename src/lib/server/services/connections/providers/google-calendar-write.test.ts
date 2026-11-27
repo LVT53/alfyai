@@ -22,6 +22,12 @@ vi.mock("./google", async () => {
 	};
 });
 vi.mock("../store", () => ({
+	getConnection: vi.fn(async () => ({
+		provider: "google",
+		capabilities: ["calendar"],
+		allowWrites: true,
+		oauthScopes: ["https://www.googleapis.com/auth/calendar.events"],
+	})),
 	updateConnection: vi.fn(),
 }));
 

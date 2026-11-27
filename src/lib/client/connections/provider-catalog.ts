@@ -110,7 +110,7 @@ export const PROVIDER_CATALOG: Record<
 	},
 	google: {
 		displayName: "Google",
-		capabilities: ["calendar", "contacts"],
+		capabilities: ["calendar", "contacts", "email"],
 		connectMethod: "oauth",
 		writable: true,
 		pathBasedWrites: false,
@@ -120,7 +120,7 @@ export const PROVIDER_CATALOG: Record<
 	},
 	apple: {
 		displayName: "Apple iCloud",
-		capabilities: ["calendar", "contacts"],
+		capabilities: ["calendar", "contacts", "email"],
 		connectMethod: "app-password",
 		writable: true,
 		pathBasedWrites: false,
@@ -247,7 +247,15 @@ export function isKnownProvider(
 // the panel — it just renders generically until the catalog is updated.
 export function getProviderCatalogEntry(
 	provider: string,
+	gmailPilotEnabled = false,
 ): ProviderCatalogEntry {
+	if (provider === "google" && !gmailPilotEnabled) {
+		const entry = PROVIDER_CATALOG.google;
+		return {
+			...entry,
+			capabilities: entry.capabilities.filter((cap) => cap !== "email"),
+		};
+	}
 	if (isKnownProvider(provider)) {
 		return PROVIDER_CATALOG[provider];
 	}

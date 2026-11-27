@@ -22,12 +22,40 @@ export const POST: RequestHandler = (event) =>
 			if (!appleId || !appPassword) {
 				return { ok: false, error: "appleId and appPassword are required" };
 			}
-			return { ok: true, value: { appleId, appPassword } };
+			const capabilities = body.capabilities;
+			if (
+				capabilities !== undefined &&
+				(!Array.isArray(capabilities) ||
+					!capabilities.length ||
+					capabilities.some(
+						(cap) => !["calendar", "contacts", "email"].includes(cap),
+					))
+			) {
+				return {
+					ok: false,
+					error: "Select at least one supported iCloud service",
+				};
+			}
+			const mailAddress =
+				typeof body.mailAddress === "string"
+					? body.mailAddress.trim()
+					: undefined;
+			return {
+				ok: true,
+				value: {
+					appleId,
+					appPassword,
+					...(typeof body.connectionId === "string"
+						? { connectionId: body.connectionId }
+						: {}),
+					...(capabilities ? { capabilities: capabilities as string[] } : {}),
+					...(mailAddress ? { mailAddress } : {}),
+				},
+			};
 		},
 		connect: ({ userId, value }) =>
 			appleConnect({
 				userId,
-				appleId: value.appleId,
-				appPassword: value.appPassword,
+				...value,
 			}),
 	});
