@@ -1110,7 +1110,10 @@ it("searches with the message and the core on the per-turn path", async () => {
 			`bp|${message}`,
 		].sort(),
 	);
-	expect(result.map(({ text }) => text)).toEqual(personalTexts.slice(0, 4));
+	expect(result.map(({ text }) => text)).toEqual([
+		...personalTexts.slice(2, 4),
+		...personalTexts.slice(0, 2),
+	]);
 });
 it("adds the chat's title to a short follow-up", async () => {
 	seedFairSplit(3);
@@ -1425,6 +1428,31 @@ function seedShareRankings() {
 	);
 }
 it.each([
+	{ query: "What subjects have I been studying?", specific: true },
+	{ query: "Mit tudsz rólam?", specific: false },
+])(
+	"orders the same admitted entries for $query",
+	async ({ query, specific }) => {
+		seedShareRankings();
+		const L = todayLine("Personal fact 00");
+		shares = { corePercent: 50, projectPercent: 50 };
+		const { recallMemory } = await import("./native");
+		const result = await recallMemory("u", {
+			conversationId: "personal",
+			query,
+			tokenBudget: 12 * L + N,
+			core: true,
+		});
+		const basics = personalTexts.slice(0, 6);
+		const matches = personalTexts.slice(20, 26);
+		expect(result.map(({ text }) => text)).toEqual(
+			specific
+				? [...matches.slice(0, 3), ...basics, ...matches.slice(3)]
+				: [...basics, ...matches],
+		);
+	},
+);
+it.each([
 	{
 		corePercent: 25,
 		expected: [...personalTexts.slice(0, 5), ...personalTexts.slice(20, 35)],
@@ -1442,7 +1470,7 @@ it.each([
 		const { recallMemory } = await import("./native");
 		const result = await recallMemory("u", {
 			conversationId: "personal",
-			query: "What should I cook tonight?",
+			query: "What do you remember about me?",
 			tokenBudget: 20 * L + N,
 			core: true,
 		});
@@ -1470,7 +1498,7 @@ it.each([
 		const { recallMemory } = await import("./native");
 		const result = await recallMemory("u", {
 			conversationId: "c",
-			query: "What should I cook tonight?",
+			query: "What do you remember about me?",
 			tokenBudget: 20 * L + H + N,
 			core: true,
 		});
@@ -1478,6 +1506,27 @@ it.each([
 		expect(result.map(({ text }) => text)).toEqual([...personal, ...project]);
 	},
 );
+
+it("leads each scope with selected message matches without crossing the project heading", async () => {
+	shares = { corePercent: 25, projectPercent: 50 };
+	seedShareRankings();
+	const { recallMemory } = await import("./native");
+	const result = await recallMemory("u", {
+		conversationId: "c",
+		query: "What are my regular weekly routines?",
+		tokenBudget:
+			20 * todayLine("Personal fact 00") +
+			estimateTokenCount(RECALL_PROJECT_HEADING) +
+			N,
+		core: true,
+	});
+	expect(result.map(({ text }) => text)).toEqual([
+		...personalTexts.slice(20, 23),
+		...personalTexts.slice(0, 5),
+		...personalTexts.slice(23, 25),
+		...projectTexts(10),
+	]);
+});
 
 // Part 2: labels and Earlier, on one fixed clock.
 const NOW = new Date("2026-11-23T12:00:00Z");

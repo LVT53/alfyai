@@ -63,7 +63,11 @@ import {
 	RECALL_TIMES_NOTE,
 	recallLineTokens,
 } from "./recall-format";
-import { CORE_MEMORY_QUERY, messageRecallQuery } from "./recall-query";
+import {
+	CORE_MEMORY_QUERY,
+	messageRecallQuery,
+	shouldPrioritizeRecallMatches,
+} from "./recall-query";
 
 /** An accepted row recall may offer, with what its entry is built from. */
 interface OfferedRow {
@@ -361,10 +365,13 @@ export async function recallMemory(
 		personal: boolean;
 	})[] = [];
 	let earlierScores: EarlierScores | undefined;
+	const prioritizeMatches =
+		input.core && shouldPrioritizeRecallMatches(input.query);
 	const readEntries = (tx: RecallTransaction) => {
 		if (!isStillActive(tx)) return [];
 		const readableIds = new Set(readableBanks(tx).map(({ id }) => id));
 		const offered = new Map<string, OfferedRow>();
+		const answeredMessages = new Set<MemoryScope["kind"]>();
 		// The per-turn path's Earlier rows, each at its place in its bank's
 		// message ranking: at most `EARLIER_PER_TURN` of them stay.
 		const earlier: { key: string; place: number; personal: boolean }[] = [];
@@ -386,6 +393,7 @@ export async function recallMemory(
 				bank.scopeKey === "personal"
 					? { kind: "personal" }
 					: { kind: "project", projectId: bank.scopeKey.slice(8) };
+			if (search?.rankings.has("message")) answeredMessages.add(scope.kind);
 			// Only a row whose sources can be read is offered.
 			const offerable = accepted.flatMap((row) => {
 				const ids: unknown = JSON.parse(row.sourceIdsJson);
@@ -677,11 +685,26 @@ export async function recallMemory(
 				capTokens: sectionBudget,
 			},
 		];
-		const chosen = allocateRecall(lanes, sectionBudget).flatMap((key) => {
+		const allocated = allocateRecall(lanes, sectionBudget);
+		// Reorder only entries the allocator admitted. A bank's stored-order
+		// fallback has no question ranking, so it keeps its existing order.
+		let ordered = allocated;
+		if (prioritizeMatches) {
+			const selected = new Set(allocated);
+			const leading = new Set<string>();
+			for (const scope of answeredMessages) {
+				const matches = rows[scope].message.filter(({ key }) =>
+					selected.has(key),
+				);
+				for (const { key } of matches.slice(0, 3)) leading.add(key);
+			}
+			ordered = [...leading, ...allocated.filter((key) => !leading.has(key))];
+		}
+		const chosen = ordered.flatMap((key) => {
 			const entry = offered.get(key);
 			return entry ? [entry] : [];
 		});
-		// The person's entries first, then the project's, each in the order chosen.
+		// The person's entries first, then the project's, keeping each scope's presentation order.
 		return [
 			...chosen.filter(({ scope }) => scope.kind === "personal"),
 			...chosen.filter(({ scope }) => scope.kind === "project"),
