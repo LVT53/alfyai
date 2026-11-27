@@ -8,6 +8,7 @@
 // screen said no was indistinguishable from one the user turned off — the
 // first needs a trip back to Google, the second needs one switch.
 import {
+	Bike,
 	Calendar,
 	Clapperboard,
 	Folder,
@@ -24,6 +25,7 @@ import type { Capability } from "$lib/client/connections/provider-catalog";
 import { t } from "$lib/i18n";
 
 const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
+	cycling:Bike,
 	calendar: Calendar,
 	files: Folder,
 	photos: ImageIcon,

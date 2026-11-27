@@ -7,6 +7,7 @@
 // whenever a provider's capabilities/connect method/displayName changes.
 
 export type Capability =
+	| "cycling"
 	| "calendar"
 	| "files"
 	| "photos"
@@ -19,6 +20,7 @@ export type Capability =
 
 export type ConnectMethod =
 	| "oauth"
+	| "local-bridge"
 	| "login-flow-v2"
 	| "password-key"
 	| "app-password";
@@ -37,6 +39,7 @@ export type ConnectionProvider =
 	| "google"
 	| "apple"
 	| "plex"
+	| "bosch"
 	| "owntracks"
 	| "contacts"
 	| "github"
@@ -137,6 +140,16 @@ export const PROVIDER_CATALOG: Record<
 		icon: "CirclePlay",
 		connectable: true,
 		group: "product",
+	},
+	bosch: {
+		displayName: "Bosch eBike Flow",
+		capabilities: ["cycling"],
+		connectMethod: "local-bridge",
+		group: "product",
+		writable: false,
+		pathBasedWrites: false,
+		icon: "Bike",
+		connectable: true,
 	},
 	owntracks: {
 		displayName: "OwnTracks",

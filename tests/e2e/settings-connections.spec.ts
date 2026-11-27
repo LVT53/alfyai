@@ -419,6 +419,34 @@ test.describe("settings connections tab", () => {
 			await openConnectionsTab(page);
 		});
 
+		test("pairs one personal Bosch rider service and keeps the pairing code on the setup screen", async ({
+			page,
+		}) => {
+			await page.route("**/api/connections/bosch/start", (route) =>
+				route.fulfill({
+					json: {
+						connectionId: "synthetic-rider",
+						pairingToken: "synthetic-code",
+					},
+				}),
+			);
+			await page.getByTestId("connections-add-bosch").click();
+			const dialog = page.getByRole("dialog");
+			await expect(dialog).toContainText("separate service for each rider");
+			await dialog.getByText("Run the bridge yourself").click();
+			await expect(
+				dialog.getByRole("link", { name: "Download the bridge" }),
+			).toHaveAttribute("href", "/api/connections/bosch/runner");
+			await dialog.getByRole("button", { name: "Create pairing code" }).click();
+			await expect(dialog.getByLabel("Your pairing code")).toHaveValue(
+				"synthetic-code",
+			);
+			await dialog
+				.locator(".wizard-foot")
+				.getByRole("button", { name: "Close" })
+				.click();
+			await expect(dialog).not.toBeVisible();
+		});
 		test("distinguishes recorder users sharing a phone name and binds the selected pair", async ({
 			page,
 		}) => {

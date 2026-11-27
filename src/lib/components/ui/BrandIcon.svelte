@@ -20,7 +20,7 @@
  * <BrandIcon provider="apple" ariaHidden />
  * ```
  */
-import { Cloud, ListTodo, Mail, MapPin, Plug } from "@lucide/svelte";
+import { Bike, Cloud, ListTodo, Mail, MapPin, Plug } from "@lucide/svelte";
 import { BRAND_GLYPHS, isBrandIconProvider } from "./brand-icon-data";
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -30,6 +30,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 	immich: "Immich",
 	apple: "Apple",
 	plex: "Plex",
+	bosch:"Bosch eBike Flow",
 	owntracks: "OwnTracks",
 	imap: "Email",
 	email: "Email",
@@ -47,6 +48,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 // it's a protocol, not a product — so it always uses the neutral ListTodo
 // glyph rather than a brand mark.
 const FALLBACK_ICONS: Record<string, typeof Mail> = {
+	bosch:Bike,
 	owntracks: MapPin,
 	imap: Mail,
 	email: Mail,

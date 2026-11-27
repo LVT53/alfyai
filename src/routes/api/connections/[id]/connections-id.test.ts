@@ -85,6 +85,15 @@ describe("/api/connections/[id]", () => {
 	});
 
 	describe("PATCH", () => {
+		it("keeps a cycling bridge read-only even if writes are requested directly", async () => {
+			mockGetConnection.mockResolvedValue({
+				...googleConnection,
+				provider: "bosch",
+				capabilities: ["cycling"],
+			});
+			expect((await PATCH(makeEvent({ allowWrites: true }))).status).toBe(403);
+			expect(mockSetAllowWrites).not.toHaveBeenCalled();
+		});
 		it("returns 404 for another user's connection id (no cross-user mutation)", async () => {
 			mockGetConnection.mockResolvedValue(null);
 

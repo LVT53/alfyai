@@ -205,6 +205,7 @@ describe("the words of every tool outcome", () => {
 			"retry_twice",
 		]);
 		const infos = new Set([
+			"cached_rider_data",
 			"details_kept_local",
 			"details_withheld",
 			// The tool gave up waiting but the take is still rendering.

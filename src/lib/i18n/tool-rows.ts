@@ -13,6 +13,32 @@
 
 const toolRowsDict = {
 	en: {
+		"toolRows.connector.cycling.cached_rider_data":
+			"The cycling service was unavailable, so Alfy used the last saved data.",
+		"toolRows.connector.cycling.bikes": "Looked up your bikes",
+		"toolRows.connector.cycling.rides": "Looked at your rides",
+		"toolRows.connector.cycling.summary": "Totalled your recorded rides",
+		"toolRows.connector.cycling.not_connected":
+			"Pair your cycling bridge first.",
+		"toolRows.connector.cycling.needs_reconnect":
+			"Pair the cycling bridge again.",
+		"toolRows.connector.cycling.no_such_account":
+			"Choose your paired rider account.",
+		"toolRows.connector.cycling.account_unreachable":
+			"The saved cycling data could not be read.",
+		"toolRows.connector.cycling.writes_turned_off":
+			"Cycling changes are disabled.",
+		"toolRows.connector.cycling.read_only_account":
+			"This cycling connection only allows reading.",
+		"toolRows.connector.cycling.item_not_found":
+			"That bike or ride was not found.",
+		"toolRows.connector.cycling.not_supported":
+			"Choose a valid period for the ride summary.",
+		"toolRows.connector.cycling.not_set_up":
+			"The cycling service is offline and has no saved ride data.",
+		"toolRows.connector.cycling.fallback":
+			"Could not retrieve your cycling records.",
+		"toolRows.connector.cycling.other": "Checked your cycling records",
 		// The three outcomes every tool can have, from the envelope that runs it.
 		"toolRows.shared.stopped": "You stopped this before it finished.",
 		"toolRows.shared.timed_out": "This took too long, so Alfy stopped waiting.",
@@ -518,6 +544,33 @@ const toolRowsDict = {
 		"toolRows.atlas.atlas_v3_no_sections": "Atlas couldn't write the report.",
 	},
 	hu: {
+		"toolRows.connector.cycling.cached_rider_data":
+			"A kerékpáros szolgáltatás nem volt elérhető, ezért Alfy a legutóbb mentett adatokat használta.",
+		"toolRows.connector.cycling.bikes": "Megnézte a kerékpárjaidat",
+		"toolRows.connector.cycling.rides": "Megnézte a kerékpárútjaidat",
+		"toolRows.connector.cycling.summary":
+			"Összesítette a rögzített kerékpárútjaidat",
+		"toolRows.connector.cycling.not_connected":
+			"Először párosítsd a kerékpározáshoz használt hidat.",
+		"toolRows.connector.cycling.needs_reconnect":
+			"Párosítsd újra a kerékpározáshoz használt hidat.",
+		"toolRows.connector.cycling.no_such_account":
+			"Válaszd ki a párosított kerékpárosfiókodat.",
+		"toolRows.connector.cycling.account_unreachable":
+			"A mentett kerékpározási adatok nem olvashatók.",
+		"toolRows.connector.cycling.writes_turned_off":
+			"A kerékpározási adatok módosítása ki van kapcsolva.",
+		"toolRows.connector.cycling.read_only_account":
+			"Ez a kerékpároskapcsolat csak olvasást engedélyez.",
+		"toolRows.connector.cycling.item_not_found":
+			"Nem található ez a kerékpár vagy út.",
+		"toolRows.connector.cycling.not_supported":
+			"Válassz érvényes időszakot a kerékpárutak összesítéséhez.",
+		"toolRows.connector.cycling.not_set_up":
+			"A kerékpáros szolgáltatás nem érhető el, és még nincsenek mentett útadatok.",
+		"toolRows.connector.cycling.fallback":
+			"Nem sikerült lekérni a kerékpározási adataidat.",
+		"toolRows.connector.cycling.other": "Megnézte a kerékpározási adataidat",
 		"toolRows.shared.stopped": "Ezt leállítottad, mielőtt befejeződött.",
 		"toolRows.shared.timed_out":
 			"Ez túl sokáig tartott, ezért Alfy nem várt tovább.",

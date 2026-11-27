@@ -548,6 +548,7 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	media: 20_000,
 	location: 20_000,
 	contacts: 20_000,
+	cycling: 45_000,
 	repos: 20_000,
 	tasks: 20_000,
 	map_route: 20_000,

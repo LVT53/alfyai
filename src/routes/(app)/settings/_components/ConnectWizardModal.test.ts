@@ -8,6 +8,7 @@ vi.mock("$lib/client/api/connections", () => ({
 	fetchOwnTracksDevices: vi.fn(),
 	pollNextcloudConnect: vi.fn(),
 	startAppleConnect: vi.fn(),
+	startBoschPairing: vi.fn(),
 	startCalDavConnect: vi.fn(),
 	startEmailConnect: vi.fn(),
 	startGitHubConnect: vi.fn(),
@@ -23,6 +24,7 @@ import {
 	fetchOwnTracksDevices,
 	pollNextcloudConnect,
 	startAppleConnect,
+	startBoschPairing,
 	startCalDavConnect,
 	startEmailConnect,
 	startGitHubConnect,
@@ -84,6 +86,31 @@ describe("ConnectWizardModal", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("pairs only on request and displays the local runner and code until the rider closes", async () => {
+		vi.mocked(startBoschPairing).mockResolvedValue({
+			connectionId: "c",
+			pairingToken: "synthetic-secret",
+		});
+		const onClose = vi.fn();
+		const onConnected = vi.fn();
+		render(
+			ConnectWizardModal,
+			baseProps({ provider: "bosch", onClose, onConnected }),
+		);
+		expect(screen.getByText("Download the bridge")).toHaveAttribute(
+			"href",
+			"/api/connections/bosch/runner",
+		);
+		expect(startBoschPairing).not.toHaveBeenCalled();
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Create pairing code" }),
+		);
+		expect(await screen.findByLabelText("Your pairing code")).toHaveValue(
+			"synthetic-secret",
+		);
+		expect(onConnected).toHaveBeenCalledOnce();
+		expect(onClose).not.toHaveBeenCalled();
+	});
 	it("renders nothing when provider is null", () => {
 		render(ConnectWizardModal, baseProps());
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

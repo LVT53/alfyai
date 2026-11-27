@@ -29,6 +29,7 @@ import {
 	pollNextcloudConnect,
 	startAppleConnect,
 	startCalDavConnect,
+	startBoschPairing,
 	startEmailConnect,
 	startGitHubConnect,
 	startGoogleConnect,
@@ -186,6 +187,26 @@ async function submitCredentials(run: (signal: AbortSignal) => Promise<void>) {
 	} catch (err) {
 		if (controller.signal.aborted) return;
 		setError(err);
+	} finally {
+		if (abortController === controller) abortController = null;
+		submitting = false;
+	}
+}
+
+let boschToken = $state("");
+async function pairBosch() {
+	if (submitting || boschToken) return;
+	submitting = true;
+	clearError();
+	const controller = new AbortController();
+	abortController = controller;
+	try {
+		const data = await startBoschPairing(controller.signal);
+		if (controller.signal.aborted) return;
+		boschToken = data.pairingToken;
+		onConnected();
+	} catch (err) {
+		if (!controller.signal.aborted) setError(err);
 	} finally {
 		if (abortController === controller) abortController = null;
 		submitting = false;
@@ -790,6 +811,44 @@ const providerName = $derived(
 					</button>
 				</div>
 
+			{:else if variant === 'bosch'}
+				<WizardHeader
+					provider="bosch"
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={$t('connections.wizard.bosch.subtitle')}
+				/>
+				<p class="wizard-help">{$t('connections.wizard.bosch.instructions')}</p>
+				<details>
+					<summary>{$t('connections.wizard.bosch.selfHost')}</summary>
+					<a href="/api/connections/bosch/runner" download="alfyai-bosch.mjs">
+						{$t('connections.wizard.bosch.download')}
+					</a>
+					<code>node alfyai-bosch.mjs</code>
+				</details>
+				{#if boschToken}
+					<label class="settings-label" for="bosch-pairing-token">{$t('connections.wizard.bosch.code')}</label>
+					<input
+						id="bosch-pairing-token"
+						class="settings-input"
+						type="text"
+						readonly
+						value={boschToken}
+						autocomplete="off"
+						spellcheck="false"
+						onclick={(event) => event.currentTarget.select()}
+					/>
+					<p class="wizard-help">{$t('connections.wizard.bosch.oneTime')}</p>
+					<div class="wizard-foot">
+						<button type="button" class="btn-primary" onclick={onClose}>{$t('common.close')}</button>
+					</div>
+				{:else}
+					<p class="wizard-help">{$t('connections.wizard.bosch.rotate')}</p>
+					<div class="wizard-foot">
+						<button type="button" class="btn-primary" disabled={submitting} onclick={pairBosch}>
+							{$t('connections.wizard.bosch.create')}
+						</button>
+					</div>
+				{/if}
 			{:else if variant === 'oauth'}
 				<WizardHeader
 					provider={initialProvider}

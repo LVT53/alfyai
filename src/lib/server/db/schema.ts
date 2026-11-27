@@ -2867,6 +2867,7 @@ export const CONNECTION_PROVIDERS = [
 	"google",
 	"apple",
 	"plex",
+	"bosch",
 	"owntracks",
 	"contacts",
 	"github",

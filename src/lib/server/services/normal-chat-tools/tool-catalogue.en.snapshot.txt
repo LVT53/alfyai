@@ -1586,6 +1586,52 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
   {
     "type": "function",
     "function": {
+      "name": "cycling",
+      "description": "Read the rider’s Bosch bikes, rides or distance totals between two ISO times. Ask the rider service now. State when a fallback is cached or history is incomplete. Do not use for directions or live bike location.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "bikes",
+              "rides",
+              "summary"
+            ]
+          },
+          "account": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "repos",
       "description": "Read the user's connected repositories (GitHub, or a Gitea/GHE-compatible server): `list_repos` (most recently pushed first); `list_issues`, `list_prs` (pull requests) and `list_commits` (scoped to a repo via `owner`+`repo`, issues/PRs optionally filtered by `state`); `read_file` to open one file by `path` (optionally at a specific `ref`); `ci_status` for recent CI/Actions runs; `search_code` to search the user's repositories with `query`. Call when the user asks about their code, a repo's issues/PRs/commits, build/CI status, or to find something in their code. Do not use it for public documentation or a third-party project the user has no repository for (research_web, fetch_url), or for files on their storage (files). Read-only — this connector never creates, comments on, merges, or pushes anything.",
       "parameters": {

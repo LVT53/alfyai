@@ -35,6 +35,7 @@ const CONNECTION_WRITE_TOOL_IDENTIFIERS = [
 // "list_events" line into e.g. "Calendar: list events".
 const CONNECTION_TOOL_LABEL_KEYS: Record<string, I18nKey> = {
 	calendar: "toolCalls.calendar",
+	cycling: "toolCalls.cycling",
 	contacts: "toolCalls.contacts",
 	email: "toolCalls.email",
 	files: "toolCalls.files",
@@ -332,6 +333,7 @@ export type ToolCallIconType =
 	// getHumanReadableToolNameKey has no label to match this type.
 	| "ask"
 	| "calendar"
+	| "cycling"
 	| "contacts"
 	| "email"
 	| "files"
@@ -344,6 +346,7 @@ export type ToolCallIconType =
 
 const CONNECTION_TOOL_ICON_TYPES: Record<string, ToolCallIconType> = {
 	calendar: "calendar",
+	cycling: "cycling",
 	contacts: "contacts",
 	email: "email",
 	files: "files",

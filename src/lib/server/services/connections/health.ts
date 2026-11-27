@@ -9,6 +9,7 @@
 // resolves from this module alone. Providers never import health.ts, so this
 // adds no cycle.
 import "./providers/apple-caldav";
+import "./providers/bosch-flow-bridge";
 import "./providers/caldav-tasks";
 import "./providers/github";
 import "./providers/google";

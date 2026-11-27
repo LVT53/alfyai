@@ -70,6 +70,8 @@ export const PATCH: RequestHandler = async (event) => {
 	if (body.allowWrites !== undefined && typeof body.allowWrites !== "boolean") {
 		return createJsonErrorResponse("allowWrites must be a boolean", 400);
 	}
+	if (body.allowWrites === true && connection.provider === "bosch")
+		return createJsonErrorResponse("Bosch cycling is read-only", 403);
 	const enabledCapabilities = isStringArray(body.capabilities)
 		? body.capabilities
 		: connection.capabilities;

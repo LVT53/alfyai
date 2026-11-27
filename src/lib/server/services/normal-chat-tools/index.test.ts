@@ -6285,6 +6285,7 @@ describe("make_video is in the catalogue only when an LTX server is configured",
 
 describe("tool description hygiene", () => {
 	const ALL_CONNECTION_CAPABILITIES = [
+		"cycling",
 		"files",
 		"calendar",
 		"email",
@@ -6706,6 +6707,7 @@ describe("tool description hygiene", () => {
 		).toEqual(
 			[
 				"ask_user",
+				"cycling",
 				"calendar",
 				"contacts",
 				"create_artifact",

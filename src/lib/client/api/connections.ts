@@ -406,6 +406,15 @@ export async function fetchNextcloudFolders(
 	return folders;
 }
 
+export function startBoschPairing(signal?: AbortSignal) {
+	return postJson<{ connectionId: string; pairingToken: string }>(
+		"/api/connections/bosch/start",
+		{},
+		"Could not start Bosch pairing",
+		signal,
+	);
+}
+
 // POST /api/connections/owntracks/start — src/routes/api/connections/owntracks/start/+server.ts
 export async function startOwnTracksConnect(
 	params: {

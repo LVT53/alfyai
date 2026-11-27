@@ -2,6 +2,7 @@
 
 const chatDict = {
 	en: {
+		"toolCalls.cycling": "Cycling",
 		"chat.observationUnavailable":
 			"The previous reply’s status is unavailable. Any partial answer is kept.",
 		"chat.output.activity": "Activity",
@@ -1367,6 +1368,7 @@ const chatDict = {
 		"messageProvenance.webSources": "{count} sources",
 	},
 	hu: {
+		"toolCalls.cycling": "Kerékpározás",
 		"chat.observationUnavailable":
 			"A korábbi válasz állapota nem érhető el. A részleges válasz megmarad.",
 		"chat.output.activity": "Tevékenység",

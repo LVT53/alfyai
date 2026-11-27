@@ -22,6 +22,7 @@ export type ConnectWizardVariant =
 	/** Mail: pick where the mailbox lives, then one form per answer. */
 	| "mail"
 	/** Claim one device off the OwnTracks recorder. */
+	| "bosch"
 	| "owntracks"
 	| "immich"
 	| "plex"
@@ -36,6 +37,7 @@ const EXPLICIT_VARIANTS: Partial<
 > = {
 	nextcloud: "nextcloud",
 	imap: "mail",
+	bosch: "bosch",
 	owntracks: "owntracks",
 	immich: "immich",
 	plex: "plex",

@@ -5,6 +5,7 @@ import { MICROSOFT_READ_SCOPES } from "$lib/shared/microsoft-permissions";
 import type { ConnectionPublic } from "./store";
 
 export type Capability =
+	| "cycling"
 	| "calendar"
 	| "files"
 	| "photos"
@@ -19,11 +20,13 @@ export type ConnectionTier = "proactive" | "explicit";
 
 export type ConnectMethod =
 	| "oauth"
+	| "local-bridge"
 	| "login-flow-v2"
 	| "password-key"
 	| "app-password";
 
 export const CAPABILITIES: readonly Capability[] = [
+	"cycling",
 	"calendar",
 	"files",
 	"photos",
@@ -87,6 +90,12 @@ export const PROVIDER_META: Record<
 		capabilities: ["media"],
 		connectMethod: "password-key",
 		displayName: "Plex",
+		group: "product",
+	},
+	bosch: {
+		displayName: "Bosch eBike Flow",
+		capabilities: ["cycling"],
+		connectMethod: "local-bridge",
 		group: "product",
 	},
 	owntracks: {
@@ -162,6 +171,7 @@ export const CAPABILITY_META: Record<
 		displayName: string;
 	}
 > = {
+	cycling: { tier: "explicit", providers: ["bosch"], displayName: "Cycling" },
 	calendar: {
 		tier: "proactive",
 		providers: ["google", "apple", "caldav", "onedrive"],

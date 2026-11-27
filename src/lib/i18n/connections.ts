@@ -3,6 +3,19 @@
 
 const connectionsDict = {
 	en: {
+		"connections.capability.cycling": "Cycling",
+		"connections.wizard.bosch.subtitle":
+			"Pair your personal Bosch eBike Flow bridge.",
+		"connections.wizard.bosch.instructions":
+			"Your AlfyAI operator sets up a separate service for each rider. Open the private setup page they provide, enter your pairing code, and authorize your own Bosch account. The server stays online to read your bikes and rides when you ask.",
+		"connections.wizard.bosch.selfHost": "Run the bridge yourself",
+		"connections.wizard.bosch.download": "Download the bridge",
+		"connections.wizard.bosch.code": "Your pairing code",
+		"connections.wizard.bosch.oneTime":
+			"Enter this code on your private setup page. It is shown only here.",
+		"connections.wizard.bosch.rotate":
+			"Creating a new code disconnects the previous bridge. Your synced rides are kept.",
+		"connections.wizard.bosch.create": "Create pairing code",
 		"connections.actions.connect": "Connect",
 		"connections.actions.disconnect": "Disconnect",
 		"connections.actions.reconnect": "Reconnect",
@@ -694,6 +707,19 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.capability.cycling": "Kerékpározás",
+		"connections.wizard.bosch.subtitle":
+			"Párosítsd a saját Bosch eBike Flow-hidadat.",
+		"connections.wizard.bosch.instructions":
+			"Az AlfyAI üzemeltetője minden kerékpároshoz külön szolgáltatást állít be. Nyisd meg a tőle kapott privát beállítási oldalt, add meg a párosítási kódot, és engedélyezd a hozzáférést a saját Bosch-fiókodban. Ha kérdezel, a szerver lekéri a kerékpárjaid vagy útjaid adatait.",
+		"connections.wizard.bosch.selfHost": "A híd futtatása saját gépen",
+		"connections.wizard.bosch.download": "A híd letöltése",
+		"connections.wizard.bosch.code": "Párosítási kódod",
+		"connections.wizard.bosch.oneTime":
+			"A kódot a privát beállítási oldalon add meg. Csak itt látható.",
+		"connections.wizard.bosch.rotate":
+			"Új kód létrehozásakor a régi híd hozzáférése megszűnik. A szinkronizált utak megmaradnak.",
+		"connections.wizard.bosch.create": "Párosítási kód létrehozása",
 		"connections.actions.connect": "Csatlakoztatás",
 		"connections.actions.disconnect": "Leválasztás",
 		"connections.actions.reconnect": "Újracsatlakoztatás",

@@ -113,6 +113,7 @@ import {
 	runContactsTool,
 	sanitizeContactsToolInput,
 } from "./contacts";
+import { cyclingToolInputSchema, runCyclingTool } from "./cycling";
 import {
 	emailToolInputSchema,
 	runEmailTool,
@@ -470,6 +471,11 @@ const TOOL_TEXT: ToolText = {
 		description:
 			"Look up a contact's identity (email/phone/organization) by name with the `lookup` action, or list everyone in a named contact group (e.g. 'Family', 'Work') with the `group` action, across the user's connected sources (Google, Apple iCloud, CardDAV, and Outlook default contacts; groups are Google-only for now). Call when the user asks for someone's email/phone/company, or who's in a contact group. Do not use it to find messages from that person (email), to look up a public company or public figure (research_web), or to turn an address into a location (map_route). Returns matching contacts. Read-only; pass `account` (provider, label, or email) to narrow to one source.",
 		errorPrefix: "Contacts lookup failed",
+	},
+	cycling: {
+		description:
+			"Read the rider’s Bosch bikes, rides or distance totals between two ISO times. Ask the rider service now. State when a fallback is cached or history is incomplete. Do not use for directions or live bike location.",
+		errorPrefix: "Cycling lookup failed",
 	},
 	repos: {
 		description:
@@ -838,6 +844,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const includeContactsTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("contacts"),
 	);
+	const includeCyclingTool = ctx.enabledConnectionCapabilities?.has("cycling");
 	const includeReposTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("repos"),
 	);
@@ -3098,6 +3105,86 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "contacts",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeCyclingTool
+			? {
+					cycling: asExecutableTool(
+						tool({
+							description: i18n.cycling.description,
+							inputSchema: cyclingToolInputSchema,
+							execute: async (
+								input: z.infer<typeof cyclingToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = input;
+								return executeToolWithEnvelope({
+									toolName: "cycling",
+									timeoutMs: TOOL_TIMEOUTS_MS.cycling,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runCyclingTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "cycling",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													resultCount: candidates.length,
+													...reasonMetadataOf(modelPayload),
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.cycling.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "cycling" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "cycling",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,

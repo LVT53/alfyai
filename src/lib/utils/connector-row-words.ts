@@ -40,6 +40,14 @@ export const CONNECTOR_PHRASES: Readonly<
 		},
 		other: "toolRows.connector.calendar.other",
 	},
+	cycling: {
+		actions: {
+			bikes: "toolRows.connector.cycling.bikes",
+			rides: "toolRows.connector.cycling.rides",
+			summary: "toolRows.connector.cycling.summary",
+		},
+		other: "toolRows.connector.cycling.other",
+	},
 	contacts: {
 		actions: {
 			lookup: "toolRows.connector.contacts.lookup",
@@ -149,6 +157,7 @@ export function connectorPhraseKey(
 /** The metadata field each account tool writes the number of things a call found to. */
 const COUNT_FIELDS: Readonly<Record<ConnectorTool, string>> = {
 	calendar: "eventCount",
+	cycling: "resultCount",
 	contacts: "contactCount",
 	email: "messageCount",
 	files: "resultCount",
@@ -178,6 +187,7 @@ export function connectorCountOf(
  */
 const UNIT_KEYS: Readonly<Record<ConnectorTool, I18nKey>> = {
 	calendar: "toolRows.unit.events",
+	cycling: "toolRows.unit.found",
 	contacts: "toolRows.unit.found",
 	email: "toolRows.unit.messages",
 	files: "toolRows.unit.found",
@@ -200,6 +210,7 @@ export function connectorUnitKey(tool: string): I18nKey {
 const THINGS_ICONS: Readonly<Partial<Record<ConnectorTool, ToolCallIconType>>> =
 	{
 		calendar: "calendar",
+		cycling: "cycling",
 		contacts: "contacts",
 		email: "email",
 		location: "location",

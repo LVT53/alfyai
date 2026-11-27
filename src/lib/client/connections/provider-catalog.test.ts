@@ -28,6 +28,7 @@ describe("groupConnectableProviders", () => {
 			"google",
 			"apple",
 			"plex",
+			"bosch",
 			"owntracks",
 			"github",
 			"onedrive",

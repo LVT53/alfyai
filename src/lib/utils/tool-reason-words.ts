@@ -146,6 +146,20 @@ function fileMakerWords(): Record<string, ReasonWords> {
 	);
 }
 
+const cyclingWords = connectorTable({
+	notConnected: "toolRows.connector.cycling.not_connected",
+	needsReconnect: "toolRows.connector.cycling.needs_reconnect",
+	noSuchAccount: "toolRows.connector.cycling.no_such_account",
+	accountUnreachable: "toolRows.connector.cycling.account_unreachable",
+	writesTurnedOff: "toolRows.connector.cycling.writes_turned_off",
+	readOnlyAccount: "toolRows.connector.cycling.read_only_account",
+	itemNotFound: "toolRows.connector.cycling.item_not_found",
+	tooLarge: "toolRows.connector.too_large",
+	notSupported: "toolRows.connector.cycling.not_supported",
+	notSetUp: "toolRows.connector.cycling.not_set_up",
+	fallback: "toolRows.connector.cycling.fallback",
+});
+
 const calendarWords = connectorTable({
 	notConnected: "toolRows.connector.calendar.not_connected",
 	needsReconnect: "toolRows.connector.calendar.needs_reconnect",
@@ -228,6 +242,13 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 			availability_incomplete: fail(
 				"toolRows.connector.calendar.availability_incomplete",
 			),
+		},
+	},
+	cycling: {
+		...cyclingWords,
+		codes: {
+			...cyclingWords.codes,
+			cached_rider_data: info("toolRows.connector.cycling.cached_rider_data"),
 		},
 	},
 	contacts: connectorTable({
@@ -551,6 +572,7 @@ const TOOL_OF_ICON_TYPE: Partial<Record<ToolCallIconType, string>> = {
 	"use-skill": "use_skill",
 	"file-production": "produce_file",
 	calendar: "calendar",
+	cycling: "cycling",
 	contacts: "contacts",
 	email: "email",
 	files: "files",

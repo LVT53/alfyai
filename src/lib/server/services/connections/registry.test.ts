@@ -15,6 +15,7 @@ import {
 const CONNECT_METHODS: readonly ConnectMethod[] = [
 	"oauth",
 	"login-flow-v2",
+	"local-bridge",
 	"password-key",
 	"app-password",
 ];
@@ -67,6 +68,7 @@ describe("connections registry", () => {
 		).sort();
 		expect(explicit).toEqual(
 			[
+				"cycling",
 				"contacts",
 				"files",
 				"location",
@@ -140,6 +142,7 @@ describe("connections registry", () => {
 				"google",
 				"apple",
 				"plex",
+				"bosch",
 				"owntracks",
 				"github",
 				"onedrive",
