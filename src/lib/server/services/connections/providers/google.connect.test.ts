@@ -31,6 +31,7 @@ function seedUser(userId: string) {
 }
 
 const ENV_KEYS = [
+	"GMAIL_TEST_USER_IDS",
 	"GOOGLE_OAUTH_CLIENT_ID",
 	"GOOGLE_OAUTH_CLIENT_SECRET",
 	"ALFYAI_API_SIGNING_KEY",
@@ -775,5 +776,171 @@ describe("Google Calendar incremental write consent", () => {
 		expect(
 			JSON.parse((await getConnectionSecret("userA", conn.id)) ?? "{}"),
 		).toEqual({ refreshToken: "retained", accessToken: "upgraded" });
+	});
+});
+
+describe("native Gmail pilot on the existing Google account", () => {
+	const origin = "https://app.example.com";
+	const read = "https://www.googleapis.com/auth/gmail.readonly";
+	const modify = "https://www.googleapis.com/auth/gmail.modify";
+	const calendar = "https://www.googleapis.com/auth/calendar.readonly";
+	const events = "https://www.googleapis.com/auth/calendar.events";
+	beforeEach(() => {
+		setConfiguredEnv();
+		seedUser("pilot");
+		process.env.GMAIL_TEST_USER_IDS = "pilot";
+	});
+	it("requests only the selected mail scope and rejects forged Gmail consent for other users", async () => {
+		const { googleConnectStart, verifyOAuthState } = await import("./google");
+		for (const editing of [false, true]) {
+			const { authUrl } = await googleConnectStart({
+				userId: "pilot",
+				origin,
+				capabilities: ["email", "calendar"],
+				requestGmailEditing: editing,
+			});
+			const u = new URL(authUrl);
+			const scopes = u.searchParams.get("scope")?.split(" ");
+			expect(scopes).toContain(calendar);
+			expect(scopes).toContain(editing ? modify : read);
+			expect(scopes).not.toContain(editing ? read : modify);
+			expect(scopes).not.toContain(events);
+			expect(u.searchParams.get("redirect_uri")).toBe(
+				`${origin}/api/oauth/google/callback`,
+			);
+			expect(u.searchParams.get("client_id")).toBe("test-client-id");
+			expect(
+				verifyOAuthState(u.searchParams.get("state") ?? "").requestGmailEditing,
+			).toBe(editing || undefined);
+		}
+		await expect(
+			googleConnectStart({
+				userId: "ordinary",
+				origin,
+				capabilities: ["email"],
+			}),
+		).rejects.toMatchObject({ code: "write_review_unavailable" });
+		await expect(
+			googleConnectStart({
+				userId: "pilot",
+				origin,
+				capabilities: ["calendar"],
+				requestGmailEditing: true,
+			}),
+		).rejects.toMatchObject({ code: "invalid_write_target" });
+	});
+	it("keeps a reconnect's fresh credential when an older Google refresh finishes afterwards", async () => {
+		const { googleRefreshAccessToken } = await import("./google");
+		const { createConnection, getConnectionSecret, updateConnection } =
+			await import("../store");
+		const connection = await createConnection({
+			userId: "pilot",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "test@example.com",
+			capabilities: ["calendar"],
+			status: "connected",
+			secret: JSON.stringify({
+				accessToken: "old-access",
+				refreshToken: "old-refresh",
+			}),
+		});
+		const fetch = vi.fn(async () => {
+			await updateConnection("pilot", connection.id, {
+				secret: JSON.stringify({
+					accessToken: "new-access",
+					refreshToken: "new-refresh",
+				}),
+			});
+			return jsonResponse(200, {
+				access_token: "stale-access",
+				refresh_token: "stale-refresh",
+				expires_in: 3600,
+			});
+		});
+		await expect(
+			googleRefreshAccessToken("pilot", connection.id, { fetch }),
+		).rejects.toMatchObject({ code: "token_exchange_failed" });
+		expect(
+			JSON.parse((await getConnectionSecret("pilot", connection.id)) ?? "{}"),
+		).toEqual({ accessToken: "new-access", refreshToken: "new-refresh" });
+	});
+	it("upgrades the selected verified mailbox while retaining its calendar and refresh token; enforces consent and current eligibility at access", async () => {
+		const { googleConnectStart, googleConnectFinish } = await import(
+			"./google"
+		);
+		const { getConnectionSecret, updateConnection } = await import("../store");
+		const { gmailCanModify, gmailGetAccessToken } = await import("./gmail");
+		async function finish(
+			state: string,
+			scope: string,
+			email: string,
+			refresh?: string,
+		) {
+			const fetch = vi.fn(async (input: RequestInfo | URL) =>
+				String(input) === TOKEN_URL
+					? jsonResponse(200, {
+							access_token: "new-access",
+							refresh_token: refresh,
+							expires_in: 3600,
+							scope,
+							token_type: "Bearer",
+						})
+					: jsonResponse(200, { email, verified_email: true }),
+			);
+			return (await googleConnectFinish({ state, code: "code", origin, fetch }))
+				.connection;
+		}
+		const initial = await googleConnectStart({
+			userId: "pilot",
+			origin,
+			capabilities: ["calendar"],
+		});
+		const old = await finish(
+			new URL(initial.authUrl).searchParams.get("state") ?? "",
+			[calendar, read, modify].join(" "),
+			"test@example.com",
+			"old-refresh",
+		);
+		expect(old.capabilities).toEqual(["calendar"]);
+		expect(old.oauthScopes).not.toContain(modify);
+		const add = await googleConnectStart({
+			userId: "pilot",
+			origin,
+			capabilities: ["email"],
+			googleConnectionId: old.id,
+			requestGmailEditing: true,
+		});
+		const url = new URL(add.authUrl);
+		expect(url.searchParams.get("login_hint")).toBe("test@example.com");
+		const state = url.searchParams.get("state") ?? "";
+		await expect(
+			finish(state, modify, "other@example.com"),
+		).rejects.toMatchObject({ code: "wrong_account" });
+		await expect(
+			finish(state, modify, "test@example.com"),
+		).rejects.toMatchObject({ code: "write_grant_missing" });
+		const joined = await finish(
+			state,
+			[calendar, modify].join(" "),
+			"test@example.com",
+		);
+		expect(joined.id).toBe(old.id);
+		expect(joined.capabilities).toEqual(["calendar", "email"]);
+		expect(joined.allowWrites).toBe(false);
+		expect(
+			JSON.parse((await getConnectionSecret("pilot", joined.id)) ?? "{}")
+				.refreshToken,
+		).toBe("old-refresh");
+		expect(await gmailGetAccessToken(joined)).toBe("new-access");
+		await expect(gmailGetAccessToken(joined, {}, "modify")).rejects.toThrow();
+		const writes = await updateConnection("pilot", joined.id, {
+			allowWrites: true,
+		});
+		if (!writes) throw new Error("Missing Gmail account");
+		expect(gmailCanModify(writes)).toBe(true);
+		delete process.env.GMAIL_TEST_USER_IDS;
+		expect(gmailCanModify(writes)).toBe(false);
+		await expect(gmailGetAccessToken(writes)).rejects.toThrow();
 	});
 });

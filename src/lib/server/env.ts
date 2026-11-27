@@ -1343,6 +1343,15 @@ function getConfig(): Config {
 	return cachedConfig;
 }
 
+export function gmailPilotEnabled(userId: string): boolean {
+	return Boolean(
+		userId &&
+			(process.env.GMAIL_TEST_USER_IDS ?? "")
+				.split(",")
+				.some((id) => id.trim() === userId),
+	);
+}
+
 export function googleCalendarWriteReviewEnabled(userId: string): boolean {
 	return (
 		!!userId &&
