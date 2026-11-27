@@ -18,7 +18,7 @@
  * picture included), and the single card's picture button stands beside its
  * link.
  */
-import { ChevronDown,Download } from "@lucide/svelte";
+import { ChevronDown, Download } from "@lucide/svelte";
 import { tick } from "svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
@@ -53,12 +53,30 @@ const cards = $derived(
 	}),
 );
 
-function teamsDownload(card:ToolCallFileCard):string|undefined {
- if(card.provider!=="onedrive" || !card.downloadUrl?.startsWith("/api/connections/teams/files/download?"))return;
- const url=URL.parse(card.downloadUrl,"https://app.invalid");
- const keys=["connectionId","teamId","channelId","path","itemId","revision"];
- if(url?.origin!=="https://app.invalid" || url.pathname!=="/api/connections/teams/files/download" || url.hash || [...url.searchParams].length!==keys.length || !keys.every(key=>url.searchParams.get(key)))return;
- return url.pathname+url.search;
+function teamsDownload(card: ToolCallFileCard): string | undefined {
+	if (
+		card.provider !== "onedrive" ||
+		!card.downloadUrl?.startsWith("/api/connections/teams/files/download?")
+	)
+		return;
+	const url = URL.parse(card.downloadUrl, "https://app.invalid");
+	const keys = [
+		"connectionId",
+		"teamId",
+		"channelId",
+		"path",
+		"itemId",
+		"revision",
+	];
+	if (
+		url?.origin !== "https://app.invalid" ||
+		url.pathname !== "/api/connections/teams/files/download" ||
+		url.hash ||
+		[...url.searchParams].length !== keys.length ||
+		!keys.every((key) => url.searchParams.get(key))
+	)
+		return;
+	return url.pathname + url.search;
 }
 
 /** The list's id, so the chevron can name what it opens and closes. */

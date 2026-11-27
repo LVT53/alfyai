@@ -30,13 +30,11 @@ it("serves the pinned file bytes as a private attachment without returning the S
 		status: "connected",
 		capabilities: ["teams_files"],
 	} as NonNullable<Awaited<ReturnType<typeof getConnection>>>);
-	const read = vi
-		.fn()
-		.mockResolvedValue({
-			bytes: new Uint8Array([0, 255]),
-			name: "a.bin",
-			contentType: "application/octet-stream",
-		});
+	const read = vi.fn().mockResolvedValue({
+		bytes: new Uint8Array([0, 255]),
+		name: "a.bin",
+		contentType: "application/octet-stream",
+	});
 	vi.mocked(openChannelFiles).mockResolvedValue({ read } as unknown as Awaited<
 		ReturnType<typeof openChannelFiles>
 	>);

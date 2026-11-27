@@ -30,7 +30,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 	immich: "Immich",
 	apple: "Apple",
 	plex: "Plex",
-	bosch:"Bosch eBike Flow",
+	bosch: "Bosch eBike Flow",
 	owntracks: "OwnTracks",
 	imap: "Email",
 	email: "Email",
@@ -48,7 +48,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 // it's a protocol, not a product — so it always uses the neutral ListTodo
 // glyph rather than a brand mark.
 const FALLBACK_ICONS: Record<string, typeof Mail> = {
-	bosch:Bike,
+	bosch: Bike,
 	owntracks: MapPin,
 	imap: Mail,
 	email: Mail,

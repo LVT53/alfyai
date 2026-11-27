@@ -27,7 +27,7 @@ import type { Capability } from "$lib/client/connections/provider-catalog";
 import { t } from "$lib/i18n";
 
 const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
-	cycling:Bike,
+	cycling: Bike,
 	calendar: Calendar,
 	files: Folder,
 	photos: ImageIcon,
