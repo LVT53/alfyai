@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { atlasJobs, users } from "../../src/lib/server/db/schema";
-import { createConversation } from "../../src/lib/server/services/conversations";
+import { createConversation as createServerConversation } from "../../src/lib/server/services/conversations";
 import { createMessage } from "../../src/lib/server/services/messages";
 import { createTourUser } from "./artifact-tours-helpers";
 import { ensureSidebarExpanded, login } from "./helpers";
@@ -43,10 +43,16 @@ test.describe("Brand LogoMark placement (Slice 13)", () => {
 		const owner = await createTourUser();
 		try {
 			await login(page, owner.email, owner.password);
-			const open = await createConversation(owner.id, "Rail dot open chat");
+			const open = await createServerConversation(
+				owner.id,
+				"Rail dot open chat",
+			);
 			await createMessage(open.id, "user", "hello");
 			await createMessage(open.id, "assistant", "hi");
-			const finished = await createConversation(owner.id, "Rail dot finished");
+			const finished = await createServerConversation(
+				owner.id,
+				"Rail dot finished",
+			);
 			await createMessage(finished.id, "user", "research");
 			await createMessage(finished.id, "assistant", "done");
 			const jobId = randomUUID();
