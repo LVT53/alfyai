@@ -185,6 +185,35 @@ async function askAlfy(
 	);
 }
 
+/** Observe the short arranging state on a paint frame, starting before the send. */
+async function observeArranging(page: Page) {
+	const frame = await page.waitForFunction(
+		() => {
+			const banner = document.querySelector('[data-testid="canvas-arranging"]');
+			const outline = document.querySelector(
+				'[data-testid="canvas-arranging-frame"]',
+			);
+			const ask = document.querySelector<HTMLButtonElement>(
+				'[data-testid="canvas-tool-ask"]',
+			);
+			const visible = (el: Element | null) => {
+				if (!el?.checkVisibility({ visibilityProperty: true })) return false;
+				const box = el.getBoundingClientRect();
+				return box.width > 0 && box.height > 0;
+			};
+			if (!visible(banner) || !visible(outline)) return null;
+			return {
+				label: banner?.textContent,
+				disabled: ask?.disabled,
+				title: ask?.title,
+			};
+		},
+		undefined,
+		{ polling: "raf", timeout: 20_000 },
+	);
+	return frame.jsonValue();
+}
+
 async function landed(page: Page) {
 	await expect(page.getByText(AI_SMOKE_CANVAS_EDIT_FINAL_TEXT)).toBeVisible({
 		timeout: 30_000,
@@ -259,15 +288,11 @@ test.describe("Alfy's change lands where the reader can see it", () => {
 				}).observe(document.body, { childList: true, subtree: true });
 			}, MUSEUM);
 
-			await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
-
-			// While it works: "Alfy is arranging…" with the call's own summary, and a
-			// dashed frame around the blocks it is addressing.
-			await expect(page.getByTestId("canvas-arranging")).toContainText(
-				"Alfy is arranging: Planned Sunday",
-				{ timeout: 20_000 },
-			);
-			await expect(page.getByTestId("canvas-arranging-frame")).toBeVisible();
+			const [arranging] = await Promise.all([
+				observeArranging(page),
+				askAlfy(page, scene.artifactId, PLANNED_SUNDAY),
+			]);
+			expect(arranging?.label).toContain("Alfy is arranging: Planned Sunday");
 
 			await landed(page);
 			await expect(page.getByTestId("canvas-arranging")).toBeHidden();
@@ -561,14 +586,13 @@ test("the toolbar's Ask Alfy waits while Alfy is arranging, and says why, then i
 }) => {
 	const scene = await open(page);
 	try {
-		await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
 		const ask = page.getByTestId("canvas-tool-ask");
-		await expect(page.getByTestId("canvas-arranging")).toBeVisible({
-			timeout: 20_000,
-		});
-		await expect(ask).toBeDisabled();
-		await expect(ask).toHaveAttribute(
-			"title",
+		const [arranging] = await Promise.all([
+			observeArranging(page),
+			askAlfy(page, scene.artifactId, PLANNED_SUNDAY),
+		]);
+		expect(arranging?.disabled).toBe(true);
+		expect(arranging?.title).toBe(
 			"Alfy is still arranging. Try again in a moment.",
 		);
 		await landed(page);
