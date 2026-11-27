@@ -157,6 +157,8 @@ vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 }));
 
 vi.mock("$lib/server/env", async (importOriginal) => ({
+	gmailPilotEnabled: () => false,
+	drivePilotEnabled: () => false,
 	// Keep the real resolver so the db singleton opens the migrated throwaway
 	// database provisioned by the vitest global setup, not a hard-coded ./data
 	// path (gitignored local state, absent on a fresh clone).
