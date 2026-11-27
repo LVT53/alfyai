@@ -49,7 +49,7 @@ const callback = new URL(
 	"https://example.org/api/connections/bosch/hosted/callback",
 );
 const input = { clientId: "personal-client", grants: ["details" as const] };
-const token = () =>
+const token = async () =>
 	new Response(
 		JSON.stringify({
 			access_token: "rider-access",
