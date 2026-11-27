@@ -624,7 +624,6 @@ let emailStep = $state<"choose" | MailPath>(initialMailStep(isReconnect));
 
 function chooseEmailPath(path: MailPath) {
 	emailStep = path;
-	if (path === "icloud") appleServices = ["email"];
 	clearError();
 }
 
@@ -1387,7 +1386,7 @@ const providerName = $derived(
 					</form>
 				{/if}
 
-			{:else if variant === 'apple' || (variant === 'mail' && emailStep === 'icloud')}
+			{:else if variant === 'apple'}
 				<WizardHeader
 					provider="apple"
 					title={$t('connections.wizard.titleConnect', { provider: 'Apple' })}
@@ -1434,9 +1433,6 @@ const providerName = $derived(
 						</p>
 						{@render errorBlock()}
 						<div class="wizard-foot">
-							{#if variant === 'mail'}
-								<button type="button" class="btn-secondary" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
-							{/if}
 							<span class="wizard-foot-spacer"></span>
 							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
 								{$t('common.cancel')}
@@ -1538,10 +1534,6 @@ const providerName = $derived(
 								<span class="path-name">{$t('connections.wizard.email.path.alfy.name')}</span>
 								<span class="path-sub">{$t('connections.wizard.email.path.alfy.description2')}</span>
 							</span>
-						</button>
-						<button type="button" class="path-option" onclick={() => chooseEmailPath('icloud')}>
-							<span class="path-mark"><BrandIcon provider="apple" size={14} ariaHidden /></span>
-							<span class="path-name">iCloud Mail</span>
 						</button>
 						<button type="button" class="path-option" onclick={() => chooseEmailPath('other')}>
 							<span class="path-mark"><BrandIcon provider="imap" size={14} ariaHidden /></span>

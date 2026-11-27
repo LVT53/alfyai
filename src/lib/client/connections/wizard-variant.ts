@@ -68,7 +68,7 @@ export function connectWizardVariant(
  * worked last time, so re-deriving them from the address' domain would be a
  * regression for any mailbox that turned out to need a custom host.
  */
-export type MailPath = "alfy" | "icloud" | "other";
+export type MailPath = "alfy" | "other";
 
 export function initialMailStep(isReconnect: boolean): "choose" | MailPath {
 	return isReconnect ? "other" : "choose";

@@ -983,11 +983,14 @@ describe("ConnectWizardModal", () => {
 	});
 
 	describe("app-password (Apple)", () => {
-		it("opens the same Apple connect flow from Email with only Mail selected", async () => {
+		it("leaves iCloud out of Other email", () => {
 			render(ConnectWizardModal, baseProps({ provider: "imap" }));
-			await fireEvent.click(
-				screen.getByRole("button", { name: "iCloud Mail" }),
-			);
+			expect(screen.queryByRole("button", { name: "iCloud Mail" })).toBeNull();
+		});
+		it("connects Mail alone through Apple", async () => {
+			render(ConnectWizardModal, baseProps({ provider: "apple" }));
+			await fireEvent.click(screen.getByRole("checkbox", { name: "Calendar" }));
+			await fireEvent.click(screen.getByRole("checkbox", { name: "Email" }));
 			expect(screen.getByRole("checkbox", { name: "Email" })).toBeChecked();
 			expect(
 				screen.getByRole("checkbox", { name: "Calendar" }),

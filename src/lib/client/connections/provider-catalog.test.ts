@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import connectionWords from "$lib/i18n/connections";
 import {
 	CONNECTABLE_PROVIDER_LIST,
 	groupConnectableProviders,
@@ -18,6 +19,17 @@ it("names connector entries independently from the email capability", () => {
 		),
 	).toBe("Egyéb e-mail");
 });
+it.each(["en", "hu"] as const)(
+	"has a translated card description for every connectable provider in %s",
+	(locale) => {
+		for (const provider of CONNECTABLE_PROVIDER_LIST) {
+			expect(connectionWords[locale]).toHaveProperty(
+				[`connections.provider.${provider}.blurb`],
+				expect.any(String),
+			);
+		}
+	},
+);
 describe("groupConnectableProviders", () => {
 	it("splits connectable providers into product and custom groups", () => {
 		const { product, custom } = groupConnectableProviders();

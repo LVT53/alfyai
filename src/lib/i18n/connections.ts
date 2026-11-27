@@ -170,7 +170,7 @@ const connectionsDict = {
 			"If your mail provider requires an app password, enter it here.",
 
 		// Issue R4 (ADR 0044 Decision 4) — step 1 of the Email wizard: choose
-		// Alfy Email / iCloud Mail / Other (IMAP) before showing a form.
+		// Alfy Email / Other (IMAP) before showing a form.
 		"connections.wizard.email.choosePath": "How is your mailbox hosted?",
 		"connections.wizard.email.path.alfy.name": "Alfy Email",
 		"connections.wizard.email.path.alfy.description":
@@ -514,6 +514,7 @@ const connectionsDict = {
 		"connections.provider.imap.name": "Other email",
 		"connections.provider.imap.blurb": "Read and draft your mail",
 		"connections.provider.google.blurb": "Your calendar and contacts",
+		"connections.provider.bosch.blurb": "Your bikes, rides and distance ridden",
 		"connections.provider.apple.blurb":
 			"Your iCloud calendar, contacts and mail",
 		"connections.provider.plex.blurb": "Films and shows you own",
@@ -925,7 +926,7 @@ const connectionsDict = {
 			"Ha a levelezőszolgáltatód alkalmazásjelszót kér, azt add meg.",
 
 		// Issue R4 (ADR 0044 Decision 4) — az e-mail varázsló 1. lépése: Alfy
-		// Email / iCloud Mail / Egyéb (IMAP) kiválasztása az űrlap megjelenítése előtt.
+		// Email / Egyéb (IMAP) kiválasztása az űrlap megjelenítése előtt.
 		"connections.wizard.email.choosePath": "Hol üzemel a postafiókod?",
 		"connections.wizard.email.path.alfy.name": "Alfy Email",
 		"connections.wizard.email.path.alfy.description":
@@ -1256,6 +1257,8 @@ const connectionsDict = {
 		"connections.provider.imap.name": "Egyéb e-mail",
 		"connections.provider.imap.blurb": "Leveleid olvasása és fogalmazása",
 		"connections.provider.google.blurb": "A naptárad és névjegyeid",
+		"connections.provider.bosch.blurb":
+			"Kerékpárjaid, útjaid és a megtett távolság",
 		"connections.provider.apple.blurb":
 			"iCloud-naptárad, névjegyeid és leveleid",
 		"connections.provider.plex.blurb": "A saját filmjeid és sorozataid",

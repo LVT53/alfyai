@@ -648,11 +648,14 @@ test.describe("settings connections tab", () => {
 			await expect(page.getByRole("button", { name: /Gmail/ })).toHaveCount(0);
 			await expect(page.getByText("Other (IMAP)")).toHaveCount(0);
 
+			await expect(
+				page.getByRole("button", { name: "iCloud Mail" }),
+			).toHaveCount(0);
 			await page.getByText("Somewhere else").click();
 			await expect(page.getByLabel("IMAP server")).toBeVisible();
 		});
 
-		test("connects iCloud Mail from Email without requesting Calendar or Contacts", async ({
+		test("connects iCloud Mail from Apple without requesting Calendar or Contacts", async ({
 			page,
 		}) => {
 			const endpoint = "**/api/connections/apple/start";
@@ -661,9 +664,10 @@ test.describe("settings connections tab", () => {
 					json: { connection: connection({ provider: "apple" }) },
 				}),
 			);
-			await page.getByTestId("connections-add-imap").click();
+			await page.getByTestId("connections-add-apple").click();
 			const dialog = page.getByRole("dialog");
-			await dialog.getByRole("button", { name: "iCloud Mail" }).click();
+			await dialog.getByRole("checkbox", { name: "Calendar" }).uncheck();
+			await dialog.getByRole("checkbox", { name: "Email" }).check();
 			await expect(
 				dialog.getByRole("checkbox", { name: "Email" }),
 			).toBeChecked();
