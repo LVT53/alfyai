@@ -445,6 +445,7 @@ test.describe("settings connections tab", () => {
 			await page.getByTestId("connections-add-bosch").click();
 			const dialog = page.getByRole("dialog");
 			await expect(dialog).toContainText("separate service for each rider");
+			await waitForMotionToSettle(page);
 			const gaps = await dialog.locator(".wizard-head").evaluate((header) => {
 				const title = header
 					.querySelector(".wizard-title")
