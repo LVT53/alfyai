@@ -330,15 +330,19 @@ describe("appleConnect", () => {
 	it("re-connecting the same Apple ID updates (not duplicates) the connection and refreshes the stored secret", async () => {
 		seedUser("userA");
 		const { appleConnect } = await import("./apple-caldav");
-		const { listConnectionsForUser, getConnectionSecret } = await import(
-			"../store"
-		);
+		const { listConnectionsForUser, getConnectionSecret, updateConnection } =
+			await import("../store");
 
 		const first = await appleConnect({
 			userId: "userA",
 			appleId: "alice@icloud.com",
 			appPassword: "first-pw",
 			fetch: discoveryFetchMock("first-pw") as unknown as typeof fetch,
+		});
+
+		expect(first.connection.label).toBe("Apple");
+		await updateConnection("userA", first.connection.id, {
+			label: "Family calendar",
 		});
 
 		const second = await appleConnect({
@@ -349,6 +353,7 @@ describe("appleConnect", () => {
 		});
 
 		expect(second.connection.id).toBe(first.connection.id);
+		expect(second.connection.label).toBe("Family calendar");
 		const rows = await listConnectionsForUser("userA");
 		expect(rows).toHaveLength(1);
 

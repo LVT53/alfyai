@@ -53,6 +53,7 @@ import {
 } from "../dav";
 import { basicAuthHeader, ConnectionHttpError } from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
+import { PROVIDER_META } from "../registry";
 import {
 	type ConnectionPublic,
 	createConnection,
@@ -480,7 +481,7 @@ async function upsertAppleConnection(params: {
 		return await createConnection({
 			userId: params.userId,
 			provider: "apple",
-			label: "Apple iCloud",
+			label: PROVIDER_META.apple.displayName,
 			accountIdentifier: canonicalId,
 			capabilities: params.capabilities ?? ["calendar"],
 			status: "connected",
