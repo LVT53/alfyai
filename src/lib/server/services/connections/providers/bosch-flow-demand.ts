@@ -145,9 +145,11 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 			await running?.catch(() => undefined);
 		},
 		pollOnce() {
-			return (running ??= pollOnce().finally(() => {
-				running = undefined;
-			}));
+			if (!running)
+				running = pollOnce().finally(() => {
+					running = undefined;
+				});
+			return running;
 		},
 		enabled: () => !!control,
 	};

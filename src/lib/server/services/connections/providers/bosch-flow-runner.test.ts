@@ -226,8 +226,8 @@ it("refreshes once when Bosch rejects a cached access token and keeps a usable g
 		if (url.endsWith("/token")) {
 			refreshes++;
 			return Response.json({
-				access_token: "access-" + refreshes,
-				refresh_token: "refresh-" + refreshes,
+				access_token: `access-${refreshes}`,
+				refresh_token: `refresh-${refreshes}`,
 				expires_in: 300,
 				token_type: "Bearer",
 			});
