@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { ConnectionHttpError, providerFetch } from "../provider-http";
+import { boschJson } from "./bosch-flow-json";
 
 const issuer =
 	"https://p9.authz.bosch.com/auth/realms/obc/protocol/openid-connect";
@@ -42,21 +43,26 @@ async function tokenRequest(
 		body: params,
 		fetch: fetchImpl,
 	});
-	if (!response.ok)
+	if (!response.ok) {
+		const err = await boschJson(response, 65536).catch(() => ({ error: null }));
+		const permanent =
+			response.status === 401 ||
+			response.status === 403 ||
+			["invalid_grant", "invalid_client", "unauthorized_client"].includes(
+				String(err.error),
+			);
 		throw new ConnectionHttpError(
 			"Bosch authorization failed",
-			response.status === 400 ||
-				response.status === 401 ||
-				response.status === 403
-				? "authorization_failed"
-				: "provider_unavailable",
+			permanent ? "authorization_failed" : "provider_unavailable",
 		);
-	const body = await response.json();
+	}
+	const body = await boschJson(response, 65536);
 	if (
 		typeof body?.access_token !== "string" ||
 		!body.access_token ||
 		typeof body.token_type !== "string" ||
 		body.token_type.toLowerCase() !== "bearer" ||
+		typeof body.expires_in !== "number" ||
 		!Number.isSafeInteger(body.expires_in) ||
 		body.expires_in <= 0
 	) {

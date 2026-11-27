@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-	readBoschFlowBikes,
-	readBoschFlowRides,
-	summarizeBoschFlowRides,
-} from "./bosch-flow-reader";
+import { readBoschFlowBikes, readBoschFlowRides } from "./bosch-flow-reader";
 
 describe("Bosch Flow authorized ride data", () => {
 	it("only returns the requested summary fields and continues from the number received", async () => {
@@ -40,51 +36,6 @@ describe("Bosch Flow authorized ride data", () => {
 			}),
 		);
 	});
-	it("counts each ride once across pages, with local midnight and missing distances", async () => {
-		const before = {
-			id: "old",
-			startTime: "2026-10-31T21:59:59Z",
-			distance: 50,
-		};
-		const first = {
-			id: "start",
-			startTime: "2026-11-01T00:00:00+02:00",
-			distance: 2200,
-		};
-		const last = { id: "later", startTime: "2026-11-15T06:10:00Z" };
-		const boundary = {
-			id: "end",
-			startTime: "2026-12-01T00:00:00+02:00",
-			distance: 100,
-		};
-		const fetchImpl = vi
-			.fn()
-			.mockResolvedValueOnce(
-				Response.json({
-					activitySummaries: [first, before],
-					pagination: { total: 5 },
-				}),
-			)
-			.mockResolvedValueOnce(
-				Response.json({
-					activitySummaries: [first, last, boundary],
-					pagination: { total: 5 },
-				}),
-			);
-		expect(
-			await summarizeBoschFlowRides(
-				"test",
-				new Date("2026-11-01T00:00:00+02:00"),
-				new Date("2026-12-01T00:00:00+02:00"),
-				fetchImpl,
-			),
-		).toEqual({
-			rideCount: 2,
-			measuredDistanceMeters: 2200,
-			ridesWithoutDistance: 1,
-			complete: true,
-		});
-	});
 	it("reports incomplete coverage if the provider omits an expected page", async () => {
 		await expect(
 			readBoschFlowRides("token", 50, async () =>
@@ -105,5 +56,14 @@ describe("Bosch Flow authorized ride data", () => {
 				async () => new Response(null, { status: 403 }),
 			),
 		).rejects.toMatchObject({ code: "access_denied" });
+	});
+});
+it("refuses oversized provider data before deserializing a ride history", async () => {
+	const fetch = vi.fn(
+		async () =>
+			new Response("{}", { headers: { "Content-Length": "1000000000" } }),
+	);
+	await expect(readBoschFlowRides("access", 0, fetch)).rejects.toMatchObject({
+		code: "response_too_large",
 	});
 });

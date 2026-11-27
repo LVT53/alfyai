@@ -3,6 +3,7 @@ import {
 	ConnectionHttpError,
 	providerFetch,
 } from "../provider-http";
+import { boschJson } from "./bosch-flow-json";
 
 const endpoints = {
 	bikes: "https://api.bosch-ebike.com/bike-profile/smart-system/v1/bikes",
@@ -26,7 +27,7 @@ async function getPage(url: URL, token: string, fetchImpl?: typeof fetch) {
 						: "request_failed";
 		throw new ConnectionHttpError("Could not retrieve Bosch Flow data", reason);
 	}
-	return response.json();
+	return boschJson(response, 6 * 1024 * 1024);
 }
 
 function records(value: unknown): Record<string, unknown>[] {
@@ -81,7 +82,14 @@ export async function readBoschFlowRides(
 				? ride.distance
 				: null,
 	}));
-	const count = page.pagination?.total;
+	const pg = page.pagination;
+	const count =
+		pg &&
+		typeof pg === "object" &&
+		"total" in pg &&
+		typeof pg.total === "number"
+			? pg.total
+			: NaN;
 	const next = offset + rides.length;
 	const hasMore =
 		Number.isSafeInteger(count) && count >= 0
@@ -94,53 +102,4 @@ export async function readBoschFlowRides(
 		);
 	}
 	return { rides, nextOffset: hasMore ? next : null };
-}
-
-// The interval is half-open so a ride at midnight belongs to one period.
-export async function summarizeBoschFlowRides(
-	token: string,
-	start: Date,
-	end: Date,
-	fetchImpl?: typeof fetch,
-) {
-	const from = start.getTime();
-	const until = end.getTime();
-	if (!Number.isFinite(from) || !Number.isFinite(until) || from >= until)
-		throw new RangeError("Invalid Bosch ride interval");
-	const seen = new Set<string>();
-	let rideCount = 0;
-	let measuredDistanceMeters = 0;
-	let ridesWithoutDistance = 0;
-	let complete = true;
-	let offset = 0;
-	// Bound response time and tell the caller when older pages remain.
-	for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
-		const page = await readBoschFlowRides(token, offset, fetchImpl);
-		for (const ride of page.rides) {
-			const time = ride.startTime ? Date.parse(ride.startTime) : NaN;
-			if (!ride.id || !Number.isFinite(time)) {
-				complete = false;
-				continue;
-			}
-			if (time < from || time >= until || seen.has(ride.id)) continue;
-			seen.add(ride.id);
-			rideCount++;
-			if (ride.distanceMeters === null) ridesWithoutDistance++;
-			else measuredDistanceMeters += ride.distanceMeters;
-		}
-		if (page.nextOffset === null)
-			return {
-				rideCount,
-				measuredDistanceMeters,
-				ridesWithoutDistance,
-				complete,
-			};
-		offset = page.nextOffset;
-	}
-	return {
-		rideCount,
-		measuredDistanceMeters,
-		ridesWithoutDistance,
-		complete: false,
-	};
 }

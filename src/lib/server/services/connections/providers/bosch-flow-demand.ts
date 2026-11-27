@@ -76,7 +76,7 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 			requestId = data.requestId;
 			if (!requestId || ctx.signal.aborted) return delay;
 			if (cache?.requestId !== requestId) {
-				if (rider.expiresAt <= Date.now() + 30000) {
+				const renew = async () => {
 					if (!rider.refreshToken)
 						throw Object.assign(new Error("expired"), { code: "expired" });
 					const grant = await refreshBoschGrant(
@@ -84,13 +84,29 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 						rider.refreshToken,
 						boschFetch,
 					);
-					if (ctx.signal.aborted) return delay;
+					if (ctx.signal.aborted) throw Error("Stopped");
 					Object.assign(rider, grant);
+				};
+				if (rider.expiresAt <= Date.now() + 30000) await renew();
+				await state.rotate(rider);
+				let summary: Awaited<ReturnType<typeof collectBoschSnapshot>>;
+				try {
+					summary = await collectBoschSnapshot(rider.accessToken, boschFetch);
+				} catch (error) {
+					if (
+						!error ||
+						typeof error !== "object" ||
+						!("code" in error) ||
+						error.code !== "expired" ||
+						!rider.refreshToken ||
+						ctx.signal.aborted
+					)
+						throw error;
+					await renew();
 					await state.rotate(rider);
+					summary = await collectBoschSnapshot(rider.accessToken, boschFetch);
 				}
-				const body = JSON.stringify(
-					await collectBoschSnapshot(rider.accessToken, boschFetch),
-				);
+				const body = JSON.stringify(summary);
 				if (ctx.signal.aborted) return delay;
 				cache = { requestId, body };
 			}

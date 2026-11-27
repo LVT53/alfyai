@@ -38,3 +38,11 @@ describe("Bosch rider authorization", () => {
 		).toBe("existing");
 	});
 });
+it("distinguishes a temporary token service failure from a revoked rider grant", async () => {
+	const fetch = vi.fn(async () =>
+		Response.json({ error: "temporarily_unavailable" }, { status: 400 }),
+	);
+	await expect(
+		refreshBoschGrant(client, "refresh", fetch),
+	).rejects.toMatchObject({ code: "provider_unavailable" });
+});

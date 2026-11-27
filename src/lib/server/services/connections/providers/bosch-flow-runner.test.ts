@@ -217,3 +217,49 @@ it("reports an upstream failure against the exact waiting question without uploa
 	);
 	expect(persist).toHaveBeenCalledWith({ ...saved, onDemand: false });
 });
+it("refreshes once when Bosch rejects a cached access token and keeps a usable grant active", async () => {
+	let refreshes = 0,
+		bikes = 0;
+	const fetch = vi.fn<typeof globalThis.fetch>(async (u) => {
+		const url = String(u);
+		if (url.endsWith("/poll")) return Response.json({ requestId: "demand" });
+		if (url.endsWith("/token")) {
+			refreshes++;
+			return Response.json({
+				access_token: "access-" + refreshes,
+				refresh_token: "refresh-" + refreshes,
+				expires_in: 300,
+				token_type: "Bearer",
+			});
+		}
+		if (url.endsWith("/bikes")) {
+			bikes++;
+			return bikes === 1
+				? new Response(null, { status: 401 })
+				: Response.json({ bikes: [] });
+		}
+		if (url.includes("/activities?"))
+			return Response.json({ activitySummaries: [], pagination: { total: 0 } });
+		return new Response(null, { status: 204 });
+	});
+	const persist = vi.fn(async () => {});
+	const runner = createBoschRunner({
+		service: true,
+		saved: {
+			client: { clientId: "id" },
+			pairing,
+			refreshToken: "initial",
+			onDemand: true,
+		},
+		persist,
+		fetch,
+	});
+	await runner.pollOnce();
+	expect(refreshes).toBe(2);
+	expect(
+		fetch.mock.calls.filter(([u]) => String(u).endsWith("/sync")),
+	).toHaveLength(1);
+	expect(persist).toHaveBeenLastCalledWith(
+		expect.objectContaining({ onDemand: true, refreshToken: "refresh-2" }),
+	);
+});
