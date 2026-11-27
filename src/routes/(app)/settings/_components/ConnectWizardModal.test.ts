@@ -1151,15 +1151,17 @@ describe("ConnectWizardModal", () => {
 			mockFetchOwnTracksDevices.mockResolvedValue([
 				{ otUser: "alice", otDevice: "phone", lastSeen: now - 240 },
 				{ otUser: "alice", otDevice: "tablet" },
+				{ otUser: "mira", otDevice: "phone", lastSeen: 1234 },
 			]);
 			render(ConnectWizardModal, baseProps({ provider: "owntracks" }));
 
 			await waitFor(() => {
-				expect(screen.getByLabelText("phone")).toBeInTheDocument();
+				expect(screen.getByLabelText("alice / phone")).toBeInTheDocument();
 			});
-			expect(screen.getByText(/Last seen/)).toBeInTheDocument();
-			// No timestamp is never invented — the recorder identity fills in.
-			expect(screen.getByText("On the recorder as alice")).toBeInTheDocument();
+			expect(screen.getByLabelText("mira / phone")).toBeInTheDocument();
+			expect(screen.getByText("mira")).toBeVisible();
+			expect(screen.getByText("tablet")).toBeVisible();
+			expect(screen.getAllByText(/Last seen/)).toHaveLength(2);
 		});
 
 		it("starts with the picked device", async () => {
@@ -1178,9 +1180,9 @@ describe("ConnectWizardModal", () => {
 			);
 
 			await waitFor(() => {
-				expect(screen.getByLabelText("phone")).toBeInTheDocument();
+				expect(screen.getByLabelText("alice / phone")).toBeInTheDocument();
 			});
-			await fireEvent.click(screen.getByLabelText("tablet"));
+			await fireEvent.click(screen.getByLabelText("alice / tablet"));
 			await fireEvent.click(
 				screen.getByRole("button", { name: "Use this device" }),
 			);
@@ -1201,7 +1203,7 @@ describe("ConnectWizardModal", () => {
 			]);
 			render(ConnectWizardModal, baseProps({ provider: "owntracks" }));
 			await waitFor(() => {
-				expect(screen.getByLabelText("phone")).toBeChecked();
+				expect(screen.getByLabelText("alice / phone")).toBeChecked();
 			});
 			expect(
 				screen.getByRole("button", { name: "Use this device" }),
@@ -1242,7 +1244,7 @@ describe("ConnectWizardModal", () => {
 			);
 
 			await waitFor(() => {
-				expect(screen.getByLabelText("phone")).toBeInTheDocument();
+				expect(screen.getByLabelText("alice / phone")).toBeInTheDocument();
 			});
 			await fireEvent.click(
 				screen.getByRole("button", { name: "Use this device" }),
@@ -1266,7 +1268,7 @@ describe("ConnectWizardModal", () => {
 			]);
 			await fireEvent.click(retry);
 			await waitFor(() => {
-				expect(screen.getByLabelText("phone")).toBeInTheDocument();
+				expect(screen.getByLabelText("alice / phone")).toBeInTheDocument();
 			});
 		});
 	});

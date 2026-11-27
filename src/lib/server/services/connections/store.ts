@@ -91,7 +91,15 @@ function toPublic(row: ConnectionRow): ConnectionPublic {
 		id: row.id,
 		userId: row.userId,
 		provider: row.provider as ConnectionProvider,
-		label: row.label,
+		label:
+			row.provider === "owntracks" && row.label === "OwnTracks"
+				? typeof config.otUser === "string" &&
+					config.otUser.trim() &&
+					typeof config.otDevice === "string" &&
+					config.otDevice.trim()
+					? `${config.otUser} / ${config.otDevice}`
+					: row.accountIdentifier || row.label
+				: row.label,
 		accountIdentifier: row.accountIdentifier,
 		status: row.status as ConnectionStatus,
 		statusDetail: row.statusDetail,

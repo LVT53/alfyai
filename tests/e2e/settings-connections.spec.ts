@@ -367,6 +367,51 @@ test.describe("settings connections tab", () => {
 			await openConnectionsTab(page);
 		});
 
+		test("distinguishes recorder users sharing a phone name and binds the selected pair", async ({
+			page,
+		}) => {
+			const devices = [
+				{ otUser: "iris", otDevice: "phone", lastSeen: NOW },
+				{ otUser: "mira", otDevice: "phone", lastSeen: NOW },
+				{ otUser: "mira", otDevice: "tablet" },
+			];
+			await page.route("**/api/connections/owntracks/devices", (route) =>
+				route.fulfill({ json: { devices } }),
+			);
+			const endpoint = "**/api/connections/owntracks/start";
+			await page.route(endpoint, (route) =>
+				route.fulfill({
+					json: {
+						connection: connection({
+							id: "picked",
+							provider: "owntracks",
+							accountIdentifier: "mira/tablet",
+							label: "mira / tablet",
+						}),
+					},
+				}),
+			);
+			await page.getByTestId("connections-add-owntracks").click();
+			await expect(
+				page.getByRole("radio", { name: "iris / phone", exact: true }),
+			).toHaveCount(1);
+			await expect(
+				page.getByRole("radio", { name: "mira / phone", exact: true }),
+			).toHaveCount(1);
+			const selected = page.getByRole("radio", {
+				name: "mira / tablet",
+				exact: true,
+			});
+			await selected.press("Space");
+			await expect(selected).toBeChecked();
+			const sent = page.waitForRequest(endpoint);
+			await page.getByRole("button", { name: "Use this device" }).click();
+			expect((await sent).postDataJSON()).toEqual({
+				otUser: "mira",
+				otDevice: "tablet",
+			});
+		});
+
 		test("opens the consent chooser for an OAuth provider", async ({
 			page,
 		}) => {

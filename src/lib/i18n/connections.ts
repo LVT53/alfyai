@@ -636,7 +636,6 @@ const connectionsDict = {
 			"Which of these phones is yours? Alfy will only ever read that one.",
 		"connections.wizard.owntracks.useThisDevice": "Use this device",
 		"connections.wizard.owntracks.lastSeen": "Last seen {when}",
-		"connections.wizard.owntracks.onRecorderAs": "On the recorder as {otUser}",
 		"connections.wizard.notSetUp.subtitle": "Not set up on this server yet.",
 		"connections.wizard.notSetUp.bodyAdmin":
 			"{provider} needs an app id and secret before anyone can connect it. You are the administrator of this server, so you can add them yourself.",
@@ -1286,8 +1285,6 @@ const connectionsDict = {
 			"Melyik telefon a tiéd? Az Alfy kizárólag azt az egyet fogja olvasni.",
 		"connections.wizard.owntracks.useThisDevice": "Ezt az eszközt használom",
 		"connections.wizard.owntracks.lastSeen": "Utoljára látva: {when}",
-		"connections.wizard.owntracks.onRecorderAs":
-			"A rekorderen így szerepel: {otUser}",
 		"connections.wizard.notSetUp.subtitle":
 			"Ezen a szerveren még nincs beállítva.",
 		"connections.wizard.notSetUp.bodyAdmin":

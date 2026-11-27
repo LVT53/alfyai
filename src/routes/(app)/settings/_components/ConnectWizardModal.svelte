@@ -629,7 +629,7 @@ let otDevices = $state<OwnTracksDevice[]>([]);
 let otSelectedKey = $state<string | null>(null);
 
 function deviceKey(device: OwnTracksDevice): string {
-	return `${device.otUser}::${device.otDevice}`;
+	return JSON.stringify([device.otUser, device.otDevice]);
 }
 
 async function loadOwnTracksDevices() {
@@ -1052,23 +1052,20 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 										type="radio"
 										name="owntracks-device"
 										class="sr-only"
-										aria-label={device.otDevice}
+										aria-label={$t("connections.wizard.owntracks.deviceOption", { otUser: device.otUser, otDevice: device.otDevice })}
 										value={key}
 										checked={otSelectedKey === key}
 										onchange={() => (otSelectedKey = key)}
 									/>
 									<span class="device-radio" class:checked={otSelectedKey === key} aria-hidden="true"></span>
 									<span class="device-copy">
-										<span class="device-name">{device.otDevice}</span>
+										<span class="device-name">{device.otUser}</span>
 										<span class="device-sub">
+											<span>{device.otDevice}</span>
 											{#if device.lastSeen}
-												{$t('connections.wizard.owntracks.lastSeen', {
+												· {$t('connections.wizard.owntracks.lastSeen', {
 													when: formatters.relative(device.lastSeen),
-												})}
-											{:else}
-												{$t('connections.wizard.owntracks.onRecorderAs', {
-													otUser: device.otUser,
-												})}
+													})}
 											{/if}
 										</span>
 									</span>

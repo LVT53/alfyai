@@ -141,7 +141,7 @@ const guideDict = {
 			"Pick a file from your Library and ask about it.",
 		"guide.entry.connectedAccounts.name": "Connected accounts",
 		"guide.entry.connectedAccounts.line":
-			"Connect email, files, photos and calendars for Alfy to read. Choose what Alfy can use from each Microsoft account. Ask when you are free across calendars, find an Outlook contact by name or email, or confirm a file or event change. In Outlook you can create or edit drafts and choose when to send them. When available, request Google Calendar editing during connection or add it later. Found Nextcloud files come back under the reply: pictures open in the app, and every file opens in Nextcloud.",
+			"Connect email, files, photos and calendars for Alfy to read. Choose what Alfy can use from each Microsoft account. Ask when you are free across calendars, find an Outlook contact by name or email, or confirm a file or event change. In Outlook you can create or edit drafts and choose when to send them. When available, request Google Calendar editing during connection or add it later. Found Nextcloud files come back under the reply: pictures open in the app, and every file opens in Nextcloud. Choose your OwnTracks device by recorder username and device name.",
 		"guide.entry.yourOk.name": "Nothing changes without your OK",
 		"guide.entry.yourOk.line":
 			"Alfy asks before it changes anything in your accounts.",
@@ -319,7 +319,7 @@ const guideDict = {
 			"Válassz egy fájlt a Könyvtáradból, és kérdezz róla.",
 		"guide.entry.connectedAccounts.name": "Csatlakoztatott fiókok",
 		"guide.entry.connectedAccounts.line":
-			"Te döntöd el, mi az, amit Alfy elolvashat a leveleidből, fájljaidból, fotóidból és naptáraidból. Microsoft-fiókonként választhatod ki a szolgáltatásokat. Kereshetsz szabad időpontot az összes naptáradban, Outlook-névjegyet név vagy e-mail-cím alapján, és jóváhagyhatod a fájlok vagy események módosítását. Az Outlookban piszkozatot hozhatsz létre vagy szerkeszthetsz, és te döntöd el, mikor küldöd el. Ha elérhető, a Google Naptár szerkesztési engedélyét csatlakozáskor vagy később is kérheted. A megtalált Nextcloud-fájlok a válasz alatt jelennek meg: a képek az alkalmazásban nyílnak meg, és minden fájl a Nextcloudban nyílik meg.",
+			"Te döntöd el, mi az, amit Alfy elolvashat a leveleidből, fájljaidból, fotóidból és naptáraidból. Microsoft-fiókonként választhatod ki a szolgáltatásokat. Kereshetsz szabad időpontot az összes naptáradban, Outlook-névjegyet név vagy e-mail-cím alapján, és jóváhagyhatod a fájlok vagy események módosítását. Az Outlookban piszkozatot hozhatsz létre vagy szerkeszthetsz, és te döntöd el, mikor küldöd el. Ha elérhető, a Google Naptár szerkesztési engedélyét csatlakozáskor vagy később is kérheted. A megtalált Nextcloud-fájlok a válasz alatt jelennek meg: a képek az alkalmazásban nyílnak meg, és minden fájl a Nextcloudban nyílik meg. Az OwnTracks-eszközt a rögzítőn szereplő felhasználó- és eszköznév alapján választhatod ki.",
 		"guide.entry.yourOk.name": "Jóváhagyásod nélkül semmi sem változik",
 		"guide.entry.yourOk.line":
 			"Alfy megkérdezi, mielőtt bármit módosít a fiókjaidban.",

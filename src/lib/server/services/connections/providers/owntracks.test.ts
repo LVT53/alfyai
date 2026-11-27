@@ -174,6 +174,7 @@ describe("owntracksConnect", () => {
 
 		expect(connection.provider).toBe("owntracks");
 		expect(connection.accountIdentifier).toBe("alice/phone");
+		expect(connection.label).toBe("alice / phone");
 		expect(connection.capabilities).toEqual(["location"]);
 		expect(connection.status).toBe("connected");
 		expect(connection.config).toEqual({ otUser: "alice", otDevice: "phone" });
@@ -181,6 +182,36 @@ describe("owntracksConnect", () => {
 		expect("secret" in connection).toBe(false);
 	});
 
+	it("keeps legacy generic labels useful without changing identifiers or losing a custom label on reconnect", async () => {
+		setConfiguredEnv();
+		seedUser(USER_A);
+		const { createConnection, getConnection, updateConnection } = await import(
+			"../store"
+		);
+		const { owntracksConnect } = await import("./owntracks");
+		const legacy = await createConnection({
+			userId: USER_A,
+			provider: "owntracks",
+			label: "OwnTracks",
+			accountIdentifier: "mira/tablet",
+			config: { otUser: "mira", otDevice: "tablet" },
+		});
+		expect((await getConnection(USER_A, legacy.id))?.label).toBe(
+			"mira / tablet",
+		);
+		const params = { userId: USER_A, otUser: "iris", otDevice: "phone" };
+		const first = await owntracksConnect({ ...params, label: "Travel phone" });
+		await updateConnection(USER_A, first.connection.id, {
+			config: { ...first.connection.config, homeLat: 0, homeLon: 0 },
+		});
+		const again = await owntracksConnect(params);
+		expect(again.connection).toMatchObject({
+			id: first.connection.id,
+			label: "Travel phone",
+			accountIdentifier: "iris/phone",
+			config: { otUser: "iris", otDevice: "phone", homeLat: 0, homeLon: 0 },
+		});
+	});
 	it("rejects empty otUser/otDevice as invalid_config", async () => {
 		seedUser(USER_A);
 		setConfiguredEnv();

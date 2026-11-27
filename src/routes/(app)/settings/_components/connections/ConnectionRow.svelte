@@ -34,6 +34,19 @@ let {
 } = $props();
 
 const entry = $derived(getProviderCatalogEntry(connection.provider));
+const account = $derived(
+	connection.provider === "owntracks"
+		? connection.label
+		: connection.accountIdentifier,
+);
+const detailsLabel = $derived(
+	[
+		`${$t("connections.actions.details")} — ${entry.displayName}`,
+		connection.provider === "owntracks" ? account : "",
+	]
+		.filter(Boolean)
+		.join(" · "),
+);
 const grammar = $derived(connectionStatusGrammar(connection, formatters));
 const chips = $derived(capabilityChipsOf(connection));
 </script>
@@ -42,7 +55,7 @@ const chips = $derived(capabilityChipsOf(connection));
 	<button
 		type="button"
 		class="connection-identity"
-		aria-label={`${$t('connections.actions.details')} — ${entry.displayName}`}
+		aria-label={detailsLabel}
 		onclick={() => onOpenDetail(connection.id)}
 	>
 		<span class="connection-mark" data-provider={connection.provider}>
@@ -50,8 +63,8 @@ const chips = $derived(capabilityChipsOf(connection));
 		</span>
 		<span class="connection-title">
 			<span class="connection-name">{entry.displayName}</span>
-			{#if connection.accountIdentifier}
-				<span class="connection-account">{connection.accountIdentifier}</span>
+			{#if account}
+				<span class="connection-account">{account}</span>
 			{/if}
 		</span>
 	</button>
@@ -75,7 +88,7 @@ const chips = $derived(capabilityChipsOf(connection));
 			type="button"
 			class="row-action"
 			data-testid={`connection-details-${connection.id}`}
-			aria-label={`${$t('connections.actions.details')} — ${entry.displayName}`}
+			aria-label={detailsLabel}
 			onclick={() => onOpenDetail(connection.id)}
 		>
 			{$t('connections.actions.details')}

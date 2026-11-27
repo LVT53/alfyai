@@ -458,8 +458,8 @@ function capabilityAbout(capability: string): string {
 				</span>
 				<span class="detail-identity">
 					<span class="detail-name">{entry.displayName}</span>
-					{#if conn.accountIdentifier}
-						<span class="detail-account">{conn.accountIdentifier}</span>
+					{#if conn.provider === "owntracks" || conn.accountIdentifier}
+						<span class="detail-account">{conn.provider === "owntracks" ? conn.label : conn.accountIdentifier}</span>
 					{/if}
 				</span>
 				<ConnectionStatusCell {grammar} compact />
