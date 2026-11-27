@@ -31,6 +31,7 @@ function seedUser(userId: string) {
 }
 
 const ENV_KEYS = [
+	"DRIVE_TEST_USER_IDS",
 	"GMAIL_TEST_USER_IDS",
 	"GOOGLE_OAUTH_CLIENT_ID",
 	"GOOGLE_OAUTH_CLIENT_SECRET",
@@ -942,5 +943,123 @@ describe("native Gmail pilot on the existing Google account", () => {
 		delete process.env.GMAIL_TEST_USER_IDS;
 		expect(gmailCanModify(writes)).toBe(false);
 		await expect(gmailGetAccessToken(writes)).rejects.toThrow();
+	});
+});
+
+describe("Drive uses its own explicit pilot permissions on the same Google credential", () => {
+	const origin = "https://app.example.com";
+	const readonly = "https://www.googleapis.com/auth/drive.readonly";
+	const full = "https://www.googleapis.com/auth/drive";
+	const calendar = "https://www.googleapis.com/auth/calendar.readonly";
+	const mail = "https://www.googleapis.com/auth/gmail.modify";
+	beforeEach(() => {
+		setConfiguredEnv();
+		seedUser("drive-owner");
+		process.env.DRIVE_TEST_USER_IDS = "drive-owner";
+	});
+	it("keeps Drive separate from Gmail and Calendar, signs the choice, and rejects a request outside its pilot", async () => {
+		const { googleConnectStart, verifyOAuthState } = await import("./google");
+		for (const manage of [false, true]) {
+			const start = await googleConnectStart({
+				userId: "drive-owner",
+				origin,
+				capabilities: ["files", "calendar"],
+				requestDriveEditing: manage,
+			});
+			const url = new URL(start.authUrl);
+			const scopes = url.searchParams.get("scope")?.split(" ");
+			expect(scopes).toContain(manage ? full : readonly);
+			expect(scopes).not.toContain(manage ? readonly : full);
+			expect(scopes).toContain(calendar);
+			expect(scopes).not.toContain(mail);
+			expect(
+				verifyOAuthState(url.searchParams.get("state") ?? "")
+					.requestDriveEditing,
+			).toBe(manage || undefined);
+		}
+		await expect(
+			googleConnectStart({ userId: "other", origin, capabilities: ["files"] }),
+		).rejects.toMatchObject({ code: "write_review_unavailable" });
+		await expect(
+			googleConnectStart({
+				userId: "drive-owner",
+				origin,
+				capabilities: ["email", "files"],
+			}),
+		).rejects.toMatchObject({ code: "write_review_unavailable" });
+		await expect(
+			googleConnectStart({
+				userId: "drive-owner",
+				origin,
+				capabilities: ["calendar"],
+				requestDriveEditing: true,
+			}),
+		).rejects.toMatchObject({ code: "invalid_write_target" });
+	});
+	it("does not promote extra Drive scopes on a Calendar grant and enables only explicitly granted Drive permissions", async () => {
+		const { googleConnectStart, googleConnectFinish } = await import(
+			"./google"
+		);
+		const { googleDriveGetAccessToken } = await import("./google-drive-auth");
+		const { updateConnection } = await import("../store");
+		async function finish(
+			state: string,
+			scope: string,
+			email = "owner@example.com",
+		) {
+			const fetch = vi.fn(async (input: RequestInfo | URL) =>
+				String(input) === TOKEN_URL
+					? jsonResponse(200, {
+							access_token: "token",
+							refresh_token: "refresh",
+							expires_in: 3600,
+							scope,
+							token_type: "Bearer",
+						})
+					: jsonResponse(200, { email, verified_email: true }),
+			);
+			return (await googleConnectFinish({ state, origin, code: "code", fetch }))
+				.connection;
+		}
+		const original = await googleConnectStart({
+			userId: "drive-owner",
+			origin,
+			capabilities: ["calendar"],
+		});
+		const old = await finish(
+			new URL(original.authUrl).searchParams.get("state") ?? "",
+			[calendar, readonly, full].join(" "),
+		);
+		expect(old.capabilities).toEqual(["calendar"]);
+		expect(old.oauthScopes).not.toContain(full);
+		const add = await googleConnectStart({
+			userId: "drive-owner",
+			origin,
+			capabilities: ["files"],
+			requestDriveEditing: true,
+			googleConnectionId: old.id,
+		});
+		const state = new URL(add.authUrl).searchParams.get("state") ?? "";
+		await expect(
+			finish(state, full, "other@example.com"),
+		).rejects.toMatchObject({ code: "wrong_account" });
+		await expect(finish(state, full)).rejects.toMatchObject({
+			code: "write_grant_missing",
+		});
+		const account = await finish(state, [full, calendar, mail].join(" "));
+		expect(account.id).toBe(old.id);
+		expect(account.capabilities).toEqual(["calendar", "files"]);
+		expect(account.oauthScopes).not.toContain(mail);
+		expect(account.allowWrites).toBe(false);
+		await expect(googleDriveGetAccessToken(account)).resolves.toBe("token");
+		await expect(
+			googleDriveGetAccessToken(account, {}, "modify"),
+		).rejects.toThrow();
+		await updateConnection("drive-owner", account.id, { allowWrites: true });
+		await expect(
+			googleDriveGetAccessToken(account, {}, "modify"),
+		).resolves.toBe("token");
+		delete process.env.DRIVE_TEST_USER_IDS;
+		await expect(googleDriveGetAccessToken(account)).rejects.toThrow();
 	});
 });

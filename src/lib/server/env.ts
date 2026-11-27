@@ -1343,6 +1343,15 @@ function getConfig(): Config {
 	return cachedConfig;
 }
 
+export function drivePilotEnabled(userId: string): boolean {
+	return Boolean(
+		userId &&
+			(process.env.DRIVE_TEST_USER_IDS ?? "")
+				.split(",")
+				.some((id) => id.trim() === userId),
+	);
+}
+
 export function gmailPilotEnabled(userId: string): boolean {
 	return Boolean(
 		userId &&

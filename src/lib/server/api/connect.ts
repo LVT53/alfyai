@@ -131,6 +131,7 @@ export async function handleOAuthConnectStart<R>(opts: {
 		calendarWriteConnectionId?: string;
 		requestCalendarEditing?: boolean;
 		requestGmailEditing?: boolean;
+		requestDriveEditing?: boolean;
 		googleConnectionId?: string;
 		connectionId?: string;
 		writePermissions?: MicrosoftWritePermission[];
@@ -144,6 +145,7 @@ export async function handleOAuthConnectStart<R>(opts: {
 		capabilities?: unknown;
 		requestCalendarEditing?: unknown;
 		requestGmailEditing?: unknown;
+		requestDriveEditing?: unknown;
 		googleConnectionId?: unknown;
 		calendarWriteConnectionId?: unknown;
 		connectionId?: unknown;
@@ -183,6 +185,14 @@ export async function handleOAuthConnectStart<R>(opts: {
 			"Invalid Google Calendar editing selection",
 			400,
 		);
+	const driveEditing = opts.acceptsCalendarWriteTarget
+		? body.requestDriveEditing
+		: undefined;
+	if (driveEditing !== undefined && typeof driveEditing !== "boolean")
+		return createJsonErrorResponse(
+			"Invalid Google Drive editing selection",
+			400,
+		);
 	const gmailEditing = opts.acceptsCalendarWriteTarget
 		? body.requestGmailEditing
 		: undefined;
@@ -213,6 +223,7 @@ export async function handleOAuthConnectStart<R>(opts: {
 			capabilities,
 			...(typeof target === "string" ? { connectionId: target } : {}),
 			...(Array.isArray(writes) ? { writePermissions: writes } : {}),
+			...(driveEditing === true ? { requestDriveEditing: true } : {}),
 			...(gmailEditing === true ? { requestGmailEditing: true } : {}),
 			...(typeof googleId === "string" ? { googleConnectionId: googleId } : {}),
 			...(requestEditing === true ? { requestCalendarEditing: true } : {}),

@@ -1,5 +1,7 @@
-import { gmailPilotEnabled } from "$lib/server/env";
-import { gmailReadGranted } from "$lib/shared/gmail-scopes";
+import {
+	isOptionalGoogleCapability,
+	optionalGoogleServices,
+} from "./providers/google-optional-services";
 import { CAPABILITIES, CAPABILITY_META, type Capability } from "./registry";
 import type { ConnectionPublic } from "./store";
 import { listConnectionsForUser } from "./store";
@@ -7,9 +9,10 @@ import { listConnectionsForUser } from "./store";
 function capabilityEnabled(conn: ConnectionPublic, capability: Capability) {
 	return (
 		conn.capabilities.includes(capability) &&
-		(capability !== "email" ||
+		(!isOptionalGoogleCapability(capability) ||
 			conn.provider !== "google" ||
-			(gmailPilotEnabled(conn.userId) && gmailReadGranted(conn.oauthScopes)))
+			(optionalGoogleServices[capability].enabled(conn.userId) &&
+				optionalGoogleServices[capability].canRead(conn.oauthScopes)))
 	);
 }
 
@@ -66,7 +69,8 @@ function matchConnectionSelector(
 	const accountIdentifier = conn.accountIdentifier.toLowerCase();
 	if (
 		provider === needle ||
-		(provider === "google" && needle === "gmail") ||
+		(provider === "google" &&
+			["gmail", "drive", "google drive"].includes(needle)) ||
 		label === needle ||
 		(provider === "onedrive" &&
 			[

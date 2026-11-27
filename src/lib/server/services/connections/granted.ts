@@ -15,11 +15,14 @@
 // the grant. It never revokes anything.
 
 import type { ConnectionProvider } from "$lib/server/db/schema";
-import { gmailReadGranted } from "$lib/shared/gmail-scopes";
 import {
 	isMicrosoftReadCapability,
 	microsoftReadGranted,
 } from "$lib/shared/microsoft-permissions";
+import {
+	isOptionalGoogleCapability,
+	optionalGoogleServices,
+} from "./providers/google-optional-services";
 import {
 	type Capability,
 	OAUTH_CAPABILITY_SCOPES,
@@ -65,8 +68,8 @@ export function grantedCapabilitiesFor(conn: GrantSource): Capability[] {
 	if (scopeMap) {
 		const granted = new Set(conn.oauthScopes);
 		return catalogue.filter((capability) => {
-			if (conn.provider === "google" && capability === "email")
-				return gmailReadGranted(conn.oauthScopes);
+			if (conn.provider === "google" && isOptionalGoogleCapability(capability))
+				return optionalGoogleServices[capability].canRead(conn.oauthScopes);
 			const required = scopeMap[capability];
 			return required !== undefined && granted.has(required);
 		});

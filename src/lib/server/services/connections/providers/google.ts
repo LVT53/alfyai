@@ -8,14 +8,8 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
 import {
 	config as envConfig,
-	gmailPilotEnabled,
 	googleCalendarWriteReviewEnabled,
 } from "$lib/server/env";
-import {
-	GMAIL_MODIFY_SCOPE,
-	GMAIL_READ_SCOPE,
-	gmailReadGranted,
-} from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import { registerConnectionAdapter } from "../adapters";
 import { ConnectionHttpError } from "../provider-http";
@@ -33,6 +27,11 @@ import {
 	getConnectionSecretSnapshot,
 	updateConnection,
 } from "../store";
+import {
+	googleScopeGranted,
+	isOptionalGoogleCapability,
+	optionalGoogleServices,
+} from "./google-optional-services";
 
 type FetchOpt = { fetch?: typeof fetch };
 
@@ -91,15 +90,12 @@ function scopesForCapabilities(capabilities: Capability[]): string[] {
 // Google returns from the token endpoint, so the connection only ends up
 // with capabilities it was actually granted (not merely requested).
 function capabilitiesFromScope(scope: string): Capability[] {
-	const granted = new Set(scope.split(/\s+/).filter(Boolean));
+	const granted = scope.split(/\s+/).filter(Boolean);
 	const capabilities: Capability[] = [];
 	for (const [capability, requiredScope] of Object.entries(
 		CAPABILITY_SCOPES,
 	) as [Capability, string][]) {
-		if (
-			granted.has(requiredScope) ||
-			(capability === "email" && granted.has(GMAIL_MODIFY_SCOPE))
-		)
+		if (googleScopeGranted(requiredScope, granted))
 			capabilities.push(capability);
 	}
 	return capabilities;
@@ -139,6 +135,7 @@ export type OAuthStatePayload = {
 	calendarWriteConnectionId?: string;
 	requestCalendarEditing?: boolean;
 	requestGmailEditing?: boolean;
+	requestDriveEditing?: boolean;
 	googleConnectionId?: string;
 	nonce: string;
 	exp: number; // epoch seconds
@@ -169,6 +166,9 @@ function isValidStatePayload(value: unknown): value is OAuthStatePayload {
 				!!candidate.googleConnectionId &&
 				!candidate.calendarWriteConnectionId)) &&
 		Array.isArray(candidate.capabilities) &&
+		(candidate.requestDriveEditing === undefined ||
+			(candidate.requestDriveEditing === true &&
+				candidate.capabilities.includes("files"))) &&
 		(candidate.requestGmailEditing === undefined ||
 			(candidate.requestGmailEditing === true &&
 				candidate.capabilities.includes("email"))) &&
@@ -190,6 +190,7 @@ export function signOAuthState(params: {
 	calendarWriteConnectionId?: string;
 	requestCalendarEditing?: boolean;
 	requestGmailEditing?: boolean;
+	requestDriveEditing?: boolean;
 	googleConnectionId?: string;
 }): string {
 	const key = requireSigningKey();
@@ -198,6 +199,7 @@ export function signOAuthState(params: {
 		capabilities: params.capabilities,
 		calendarWriteConnectionId: params.calendarWriteConnectionId,
 		...(params.requestCalendarEditing ? { requestCalendarEditing: true } : {}),
+		...(params.requestDriveEditing ? { requestDriveEditing: true } : {}),
 		...(params.requestGmailEditing ? { requestGmailEditing: true } : {}),
 		...(params.googleConnectionId
 			? { googleConnectionId: params.googleConnectionId }
@@ -292,7 +294,7 @@ async function calendarWriteTarget(
 	return connection;
 }
 
-async function gmailConsentTarget(userId: string, connectionId?: string) {
+async function googleConsentTarget(userId: string, connectionId?: string) {
 	if (!connectionId) return undefined;
 	const connection = await getConnection(userId, connectionId);
 	if (connection?.provider !== "google")
@@ -302,34 +304,37 @@ async function gmailConsentTarget(userId: string, connectionId?: string) {
 		);
 	return connection;
 }
-function checkGmailSelection(params: {
+function checkOptionalServices(params: {
 	userId: string;
 	capabilities: Capability[];
 	requestGmailEditing?: boolean;
+	requestDriveEditing?: boolean;
 	googleConnectionId?: string;
 	calendarWriteConnectionId?: string;
 }) {
+	const selected = params.capabilities.filter(isOptionalGoogleCapability);
 	if (
-		!(
-			params.capabilities.includes("email") ||
-			params.requestGmailEditing ||
-			params.googleConnectionId
-		)
-	)
-		return;
-	if (!gmailPilotEnabled(params.userId))
-		throw new GoogleOAuthError(
-			"Gmail is unavailable for this account",
-			"write_review_unavailable",
-		);
-	if (
-		!params.capabilities.includes("email") ||
-		(params.googleConnectionId && params.calendarWriteConnectionId)
+		params.googleConnectionId &&
+		(!selected.length || params.calendarWriteConnectionId)
 	)
 		throw new GoogleOAuthError(
-			"Select email for Gmail consent",
+			"Select a Google service for the connected account",
 			"invalid_write_target",
 		);
+	for (const [cap, service] of Object.entries(optionalGoogleServices)) {
+		const write = params[service.writeOption];
+		if (!params.capabilities.includes(cap as Capability) && !write) continue;
+		if (!service.enabled(params.userId))
+			throw new GoogleOAuthError(
+				"Google service is unavailable for this account",
+				"write_review_unavailable",
+			);
+		if (write && !params.capabilities.includes(cap as Capability))
+			throw new GoogleOAuthError(
+				"Select the service before requesting its write permission",
+				"invalid_write_target",
+			);
+	}
 }
 
 export async function googleConnectStart(params: {
@@ -339,11 +344,12 @@ export async function googleConnectStart(params: {
 	calendarWriteConnectionId?: string;
 	requestCalendarEditing?: boolean;
 	requestGmailEditing?: boolean;
+	requestDriveEditing?: boolean;
 	googleConnectionId?: string;
 }): Promise<{ authUrl: string }> {
 	const { clientId } = requireGoogleCredentials();
-	checkGmailSelection(params);
-	const gmailTarget = await gmailConsentTarget(
+	checkOptionalServices(params);
+	const consentTarget = await googleConsentTarget(
 		params.userId,
 		params.googleConnectionId,
 	);
@@ -375,11 +381,12 @@ export async function googleConnectStart(params: {
 		calendarWriteConnectionId: target?.id,
 		requestCalendarEditing: params.requestCalendarEditing,
 		requestGmailEditing: params.requestGmailEditing,
-		googleConnectionId: gmailTarget?.id,
+		requestDriveEditing: params.requestDriveEditing,
+		googleConnectionId: consentTarget?.id,
 	});
 
 	const url = new URL(GOOGLE_AUTH_URL);
-	const hinted = gmailTarget ?? target;
+	const hinted = consentTarget ?? target;
 	if (hinted) url.searchParams.set("login_hint", hinted.accountIdentifier);
 	url.searchParams.set("client_id", clientId);
 	url.searchParams.set("redirect_uri", redirectUriFor(params.origin));
@@ -390,11 +397,14 @@ export async function googleConnectStart(params: {
 	url.searchParams.set(
 		"scope",
 		[
-			...scopesForCapabilities(params.capabilities).map((s) =>
-				params.requestGmailEditing && s === GMAIL_READ_SCOPE
-					? GMAIL_MODIFY_SCOPE
-					: s,
-			),
+			...scopesForCapabilities(params.capabilities).map((scope) => {
+				const service = Object.values(optionalGoogleServices).find(
+					(service) => service.readScope === scope,
+				);
+				return service && params[service.writeOption]
+					? service.writeScope
+					: scope;
+			}),
 			...(target || params.requestCalendarEditing
 				? [GOOGLE_CALENDAR_EVENT_WRITE_SCOPE]
 				: []),
@@ -469,11 +479,12 @@ async function upsertGoogleConnection(params: {
 	userId: string;
 	email: string;
 	writeTarget?: ConnectionPublic;
-	gmailTarget?: ConnectionPublic;
+	consentTarget?: ConnectionPublic;
 	initialCalendarEditing?: boolean;
 	initialConsent?: boolean;
-	requestedGmail?: boolean;
+	requestedCapabilities: Capability[];
 	requestGmailEditing?: boolean;
+	requestDriveEditing?: boolean;
 	capabilities: Capability[];
 	refreshToken?: string;
 	accessToken: string;
@@ -483,44 +494,49 @@ async function upsertGoogleConnection(params: {
 	const tokenExpiresAt = Math.floor(Date.now() / 1000) + params.expiresIn;
 	const existing =
 		params.writeTarget ??
-		params.gmailTarget ??
+		params.consentTarget ??
 		(await findConnectionByAccount(params.userId, "google", params.email));
 
 	const permittedReads = scopesForCapabilities(params.capabilities);
-	const grantedScopes = params.scope
-		.split(/\s+/)
-		.filter(
-			(scope) =>
-				scope &&
-				(scope !== GMAIL_MODIFY_SCOPE ||
-					params.requestGmailEditing ||
-					existing?.oauthScopes.includes(GMAIL_MODIFY_SCOPE)) &&
-				(scope !== GMAIL_READ_SCOPE ||
-					params.requestedGmail ||
-					existing?.oauthScopes.includes(GMAIL_READ_SCOPE)) &&
-				(!params.initialConsent ||
-					scope === GOOGLE_CALENDAR_EVENT_WRITE_SCOPE ||
-					scope === GMAIL_MODIFY_SCOPE ||
-					permittedReads.includes(scope) ||
-					existing?.oauthScopes.includes(scope)) &&
-				(scope !== GOOGLE_CALENDAR_EVENT_WRITE_SCOPE ||
-					params.writeTarget ||
-					params.initialCalendarEditing ||
-					existing?.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE)),
-		);
+	const permittedScopes = new Set([
+		...permittedReads,
+		...(existing?.oauthScopes ?? []),
+	]);
+	for (const service of Object.values(optionalGoogleServices)) {
+		if (params[service.writeOption]) permittedScopes.add(service.writeScope);
+	}
+	if (params.writeTarget || params.initialCalendarEditing)
+		permittedScopes.add(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE);
+	const grantedScopes = params.scope.split(/\s+/).filter((scope) => {
+		if (!scope) return false;
+		if (existing?.oauthScopes.includes(scope)) return true;
+		for (const [cap, service] of Object.entries(optionalGoogleServices)) {
+			if (scope === service.writeScope) return !!params[service.writeOption];
+			if (scope === service.readScope)
+				return params.requestedCapabilities.includes(cap as Capability);
+		}
+		if (scope === GOOGLE_CALENDAR_EVENT_WRITE_SCOPE)
+			return permittedScopes.has(scope);
+		return !params.initialConsent || permittedScopes.has(scope);
+	});
+	const optionalScopes = Object.values(optionalGoogleServices).flatMap((s) => [
+		s.readScope,
+		s.writeScope,
+	]);
+	const optionalGrant = existing?.oauthScopes.some((scope) =>
+		optionalScopes.some((value) => value === scope),
+	);
+	const protectedScopes = [
+		...Object.values(CAPABILITY_SCOPES),
+		GOOGLE_CALENDAR_EVENT_WRITE_SCOPE,
+		...optionalScopes,
+	];
 	if (
-		(params.initialConsent ||
-			params.requestedGmail ||
-			existing?.oauthScopes.some(
-				(s) => s === GMAIL_READ_SCOPE || s === GMAIL_MODIFY_SCOPE,
-			)) &&
+		(params.initialConsent || optionalGrant) &&
 		existing?.oauthScopes.some(
 			(scope) =>
-				(Object.values(CAPABILITY_SCOPES).includes(scope) ||
-					scope === GOOGLE_CALENDAR_EVENT_WRITE_SCOPE ||
-					scope === GMAIL_MODIFY_SCOPE) &&
-				!grantedScopes.includes(scope) &&
-				!(scope === GMAIL_READ_SCOPE && gmailReadGranted(grantedScopes)),
+				protectedScopes.includes(scope) &&
+				!googleScopeGranted(scope, grantedScopes),
 		)
 	)
 		throw new GoogleOAuthError(
@@ -528,9 +544,14 @@ async function upsertGoogleConnection(params: {
 			"write_grant_missing",
 		);
 	const enabledCapabilities = params.capabilities.filter(
-		(cap) => cap !== "email" || gmailReadGranted(grantedScopes),
+		(cap) =>
+			!isOptionalGoogleCapability(cap) ||
+			optionalGoogleServices[cap].canRead(grantedScopes),
 	);
-	if (params.requestedGmail && !enabledCapabilities.length)
+	if (
+		params.requestedCapabilities.some(isOptionalGoogleCapability) &&
+		!enabledCapabilities.length
+	)
 		throw new GoogleOAuthError(
 			"Google did not grant the selected capability",
 			"write_grant_missing",
@@ -558,9 +579,7 @@ async function upsertGoogleConnection(params: {
 		const newlyEnabled = enabledCapabilities.filter(
 			(cap) =>
 				!params.initialConsent ||
-				!(cap === "email"
-					? gmailReadGranted(existing.oauthScopes)
-					: existing.oauthScopes.includes(CAPABILITY_SCOPES[cap] ?? "")),
+				!googleScopeGranted(CAPABILITY_SCOPES[cap] ?? "", existing.oauthScopes),
 		);
 		const mergedCapabilities = [
 			...new Set([...existing.capabilities, ...newlyEnabled]),
@@ -612,8 +631,8 @@ export async function googleConnectFinish(
 ): Promise<{ connection: ConnectionPublic }> {
 	const fetchImpl = params.fetch ?? fetch;
 	const statePayload = verifyOAuthState(params.state);
-	checkGmailSelection(statePayload);
-	const gmailTarget = await gmailConsentTarget(
+	checkOptionalServices(statePayload);
+	const consentTarget = await googleConsentTarget(
 		statePayload.userId,
 		statePayload.googleConnectionId,
 	);
@@ -661,8 +680,8 @@ export async function googleConnectFinish(
 			"userinfo_failed",
 		);
 	if (
-		gmailTarget &&
-		gmailTarget.accountIdentifier.toLowerCase() !==
+		consentTarget &&
+		consentTarget.accountIdentifier.toLowerCase() !==
 			userinfoBody.email.toLowerCase()
 	)
 		throw new GoogleOAuthError(
@@ -692,11 +711,7 @@ export async function googleConnectFinish(
 			!grantedScopes.includes(CAPABILITY_SCOPES.calendar ?? "") ||
 			!target.oauthScopes
 				.filter((scope) => Object.values(CAPABILITY_SCOPES).includes(scope))
-				.every(
-					(scope) =>
-						grantedScopes.includes(scope) ||
-						(scope === GMAIL_READ_SCOPE && gmailReadGranted(grantedScopes)),
-				)
+				.every((scope) => googleScopeGranted(scope, grantedScopes))
 		) {
 			throw new GoogleOAuthError(
 				"Google did not grant all required calendar and existing permissions",
@@ -706,11 +721,12 @@ export async function googleConnectFinish(
 	}
 	const connection = await upsertGoogleConnection({
 		writeTarget: target,
-		gmailTarget,
+		consentTarget,
 		initialConsent:
 			statePayload.requestCalendarEditing ||
-			statePayload.capabilities.includes("email"),
-		requestedGmail: statePayload.capabilities.includes("email"),
+			statePayload.capabilities.some(isOptionalGoogleCapability),
+		requestedCapabilities: statePayload.capabilities,
+		requestDriveEditing: statePayload.requestDriveEditing,
 		requestGmailEditing: statePayload.requestGmailEditing,
 		initialCalendarEditing:
 			statePayload.requestCalendarEditing &&
@@ -722,9 +738,9 @@ export async function googleConnectFinish(
 			(cap) =>
 				(!(
 					statePayload.requestCalendarEditing ||
-					statePayload.capabilities.includes("email")
+					statePayload.capabilities.some(isOptionalGoogleCapability)
 				) &&
-					cap !== "email") ||
+					!isOptionalGoogleCapability(cap)) ||
 				statePayload.capabilities.includes(cap),
 		),
 		refreshToken: tokenBody.refresh_token,

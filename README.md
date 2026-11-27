@@ -171,6 +171,10 @@ reads (the context target, the compaction threshold, the output budget) shows th
 was built to, not the configured one. A window that cannot hold the catalogue is still refused
 before any provider request.
 
+### Google Drive pilot
+
+Set `DRIVE_TEST_USER_IDS` to the AlfyAI user IDs permitted to connect Google Drive and enable the Drive API in the existing Google OAuth project. Users can request read access or separately opt in to manage their Drive files. Writes also require local permission and confirmation.
+
 ### Gmail pilot
 
 Set `GMAIL_TEST_USER_IDS` to a comma-separated list of AlfyAI user IDs and enable the Gmail API in the existing Google OAuth project. Only those users can select Gmail while connecting Google. Gmail requests read-only access by default. Managing mail requires separate consent and enabling writes in Connections. The existing Google callback and credentials serve this flow.

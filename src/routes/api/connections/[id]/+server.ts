@@ -2,9 +2,10 @@ import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { requireOwnedConnection } from "$lib/server/api/ownership";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { gmailPilotEnabled } from "$lib/server/env";
+import { drivePilotEnabled, gmailPilotEnabled } from "$lib/server/env";
 import { grantedCapabilitiesFor } from "$lib/server/services/connections/granted";
 import { gmailCanModify } from "$lib/server/services/connections/providers/gmail";
+import { googleDriveCanModify } from "$lib/server/services/connections/providers/google-drive-auth";
 import {
 	type Capability,
 	PROVIDER_META,
@@ -20,6 +21,7 @@ import {
 import { normalizeAllowlistPath } from "$lib/server/services/connections/write-guard";
 import { gmailReadGranted } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
+import { driveReadGranted } from "$lib/shared/google-drive-scopes";
 import {
 	MICROSOFT_WRITE_SCOPES,
 	type MicrosoftWritePermission,
@@ -74,7 +76,9 @@ export const PATCH: RequestHandler = async (event) => {
 	if (
 		body.allowWrites === true &&
 		connection.provider === "google" &&
-		enabledCapabilities.some((cap) => cap === "email" || cap === "calendar")
+		enabledCapabilities.some(
+			(cap) => cap === "email" || cap === "calendar" || cap === "files",
+		)
 	) {
 		const calendarWrite =
 			enabledCapabilities.includes("calendar") &&
@@ -84,11 +88,18 @@ export const PATCH: RequestHandler = async (event) => {
 			capabilities: enabledCapabilities,
 			allowWrites: true,
 		});
-		if (!calendarWrite && !gmailWrite)
+		const driveWrite = googleDriveCanModify({
+			...connection,
+			capabilities: enabledCapabilities,
+			allowWrites: true,
+		});
+		if (!calendarWrite && !gmailWrite && !driveWrite)
 			return createJsonErrorResponse(
 				enabledCapabilities.includes("calendar")
 					? "Google Calendar event editing requires Google’s consent"
-					: "Gmail editing requires consent",
+					: enabledCapabilities.includes("files")
+						? "Drive changes require Google consent"
+						: "Gmail editing requires consent",
 				403,
 			);
 	}
@@ -153,6 +164,12 @@ export const PATCH: RequestHandler = async (event) => {
 			(!gmailPilotEnabled(userId) || !gmailReadGranted(connection.oauthScopes))
 		)
 			return createJsonErrorResponse("Reconnect to grant Gmail access", 403);
+		if (
+			connection.provider === "google" &&
+			body.capabilities.includes("files") &&
+			(!drivePilotEnabled(userId) || !driveReadGranted(connection.oauthScopes))
+		)
+			return createJsonErrorResponse("Reconnect to grant Drive access", 403);
 		if (connection.provider === "onedrive") {
 			const granted = new Set<string>(grantedCapabilitiesFor(connection));
 			if (body.capabilities.some((cap) => !granted.has(cap))) {

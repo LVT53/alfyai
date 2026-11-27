@@ -12,6 +12,7 @@ import {
 import { db } from "$lib/server/db";
 import { adminConfig, users } from "$lib/server/db/schema";
 import {
+	drivePilotEnabled,
 	gmailPilotEnabled,
 	googleCalendarWriteReviewEnabled,
 } from "$lib/server/env";
@@ -95,6 +96,7 @@ export const load: ServerLoad = async (event) => {
 	if (!isAdmin) {
 		return {
 			userSettings,
+			drivePilotEnabled: drivePilotEnabled(userRow.id),
 			gmailPilotEnabled: gmailPilotEnabled(userRow.id),
 			googleCalendarWriteReviewEnabled: googleCalendarWriteReviewEnabled(
 				userRow.id,
@@ -118,6 +120,7 @@ export const load: ServerLoad = async (event) => {
 
 	return {
 		userSettings,
+		drivePilotEnabled: drivePilotEnabled(userRow.id),
 		gmailPilotEnabled: gmailPilotEnabled(userRow.id),
 		googleCalendarWriteReviewEnabled: googleCalendarWriteReviewEnabled(
 			userRow.id,
