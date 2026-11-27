@@ -29,6 +29,17 @@ type Field = {
 };
 export type BoschDetailResult = { fields: Field[]; nextOffset: number | null };
 
+export type BoschDetailAnswer =
+	| { status: "ready"; result: BoschDetailResult }
+	| {
+			status:
+				| "offline"
+				| "consent_required"
+				| "unavailable"
+				| "access_denied"
+				| "not_found";
+	  };
+
 export function requiredBoschGrant(query: BoschDetailQuery): BoschDetailGrant {
 	if (query.action === "ride_route") return "location";
 	if (query.action === "ride_fitness") return "fitness";

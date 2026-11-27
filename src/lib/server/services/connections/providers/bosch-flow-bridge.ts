@@ -14,12 +14,17 @@ import {
 	updateConnection,
 } from "../store";
 import {
+	type BoschDetailAnswer,
 	type BoschDetailQuery,
-	type BoschDetailResult,
 	parseBoschDetailQuery,
 	parseBoschDetailResult,
 	requiredBoschGrant,
 } from "./bosch-flow-details";
+
+import {
+	readHostedBoschDetail,
+	readHostedBoschSummary,
+} from "./bosch-flow-hosted";
 
 const rideId = z.string().min(1).max(150);
 const instant = z.iso.datetime({ offset: true });
@@ -111,23 +116,13 @@ type PendingRead = {
 // The production web service is a single Node process. Unanswered questions
 // expire promptly; credentials and ride data do not live in this map.
 const reads = new Map<string, PendingRead>();
-type DetailAnswer =
-	| { status: "ready"; result: BoschDetailResult }
-	| {
-			status:
-				| "offline"
-				| "consent_required"
-				| "unavailable"
-				| "access_denied"
-				| "not_found";
-	  };
 type PendingDetail = {
 	id: string;
 	connectionId: string;
 	keyHash: string;
 	query: BoschDetailQuery;
-	finished: Promise<DetailAnswer>;
-	finish: (answer: DetailAnswer) => void;
+	finished: Promise<BoschDetailAnswer>;
+	finish: (answer: BoschDetailAnswer) => void;
 };
 const detailReads = new Map<string, PendingDetail>();
 const heartbeats = new Map<
@@ -150,6 +145,7 @@ async function authenticateBridge(bearer: string) {
 	const existing = await getConnectionSecretSnapshot(userId, id);
 	if (!existing) return null;
 	const saved = JSON.parse(existing.value);
+	if (typeof saved.keyHash !== "string") return null;
 	const storedHash = Buffer.from(saved.keyHash, "hex");
 	if (
 		storedHash.length !== 32 ||
@@ -285,12 +281,18 @@ export async function loadBoschForQuestion(userId: string, id: string) {
 		!connection.capabilities.includes("cycling")
 	)
 		return { snapshot: null, fresh: false };
+	const grant = await getConnectionSecretSnapshot(userId, id);
+	if (!grant) return { snapshot: null, fresh: false };
+	const { hosted, keyHash } = JSON.parse(grant.value);
+	if (hosted) {
+		const fresh = await readHostedBoschSummary(userId, id);
+		const snapshot = await readBoschSnapshot(userId, id);
+		return { snapshot, fresh: fresh && snapshot !== null };
+	}
 	const recentlyOnline = Date.now() - (heartbeats.get(id)?.time ?? 0) <= 12000;
 	if (!recentlyOnline)
 		return { snapshot: await readBoschSnapshot(userId, id), fresh: false };
-	const grant = await getConnectionSecretSnapshot(userId, id);
-	if (!grant) return { snapshot: null, fresh: false };
-	const { keyHash } = JSON.parse(grant.value);
+
 	let pending = reads.get(id);
 	if (!pending || pending.keyHash !== keyHash) {
 		pending?.finish(false);
@@ -320,7 +322,7 @@ export async function loadBoschDetailForQuestion(
 	userId: string,
 	id: string,
 	input: BoschDetailQuery,
-): Promise<DetailAnswer> {
+): Promise<BoschDetailAnswer> {
 	const query = parseBoschDetailQuery(input);
 	if (!query) return { status: "unavailable" };
 	const conn = await getConnection(userId, id);
@@ -332,6 +334,8 @@ export async function loadBoschDetailForQuestion(
 		return { status: "offline" };
 	const beat = heartbeats.get(id);
 	const grant = await getConnectionSecretSnapshot(userId, id);
+	if (grant && JSON.parse(grant.value).hosted)
+		return readHostedBoschDetail(userId, id, query);
 	if (
 		!beat ||
 		Date.now() - beat.time > 12000 ||
@@ -350,11 +354,11 @@ export async function loadBoschDetailForQuestion(
 	if (existing) return existing.finished;
 	if (active.length >= 4) return { status: "unavailable" };
 	const requestId = randomUUID();
-	let resolve!: (answer: DetailAnswer) => void;
-	const finished = new Promise<DetailAnswer>((done) => {
+	let resolve!: (answer: BoschDetailAnswer) => void;
+	const finished = new Promise<BoschDetailAnswer>((done) => {
 		resolve = done;
 	});
-	const finish = (answer: DetailAnswer) => {
+	const finish = (answer: BoschDetailAnswer) => {
 		clearTimeout(timeout);
 		detailReads.delete(requestId);
 		resolve(answer);
@@ -373,8 +377,14 @@ export async function loadBoschDetailForQuestion(
 
 registerConnectionAdapter({
 	provider: "bosch",
-	async checkHealth(secret) {
-		const keyHash = JSON.parse(secret)?.keyHash;
+	async checkHealth(secret, connection) {
+		const saved = JSON.parse(secret);
+		if (saved?.hosted?.grant?.refreshToken) {
+			if (connection?.status === "needs_reauth")
+				return { status: "needs_reauth", detail: "Bosch sign-in expired" };
+			return { status: "connected", detail: null };
+		}
+		const keyHash = saved?.keyHash;
 		return typeof keyHash === "string" && /^[a-f0-9]{64}$/.test(keyHash)
 			? { status: "connected", detail: null }
 			: { status: "needs_reauth", detail: "Pair the rider helper again" };
