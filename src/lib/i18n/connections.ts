@@ -3,6 +3,7 @@
 
 const connectionsDict = {
 	en: {
+		"connections.wizard.bosch.saved": "Bosch permissions saved.",
 		"connections.oauthReturn.reason.bosch_oauth_failed":
 			"Bosch could not finish sign-in. Check the client ID and redirect address in your Bosch app.",
 		"connections.oauthReturn.reason.bosch_oauth_invalid_state":
@@ -813,6 +814,7 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.wizard.bosch.saved": "A Bosch-engedélyek mentve.",
 		"connections.oauthReturn.reason.bosch_oauth_failed":
 			"A Bosch-bejelentkezés nem sikerült. Ellenőrizd a Bosch-alkalmazás kliensazonosítóját és átirányítási címét.",
 		"connections.oauthReturn.reason.bosch_oauth_invalid_state":

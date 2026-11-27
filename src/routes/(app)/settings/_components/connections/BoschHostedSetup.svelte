@@ -12,6 +12,7 @@ import {
 	boschHostedGrants as groups,
 	type BoschHostedGrant,
 } from "$lib/shared/bosch-hosted";
+import { showToast } from "$lib/stores/toast";
 import PasswordField from "../PasswordField.svelte";
 
 let {
@@ -88,7 +89,13 @@ async function submit(event: SubmitEvent) {
 			if (!lifetime.signal.aborted) redirectTo(authUrl);
 		} else {
 			await updateHostedBoschGrants([...grants], lifetime.signal);
-			if (!lifetime.signal.aborted) onSaved();
+			if (!lifetime.signal.aborted) {
+				showToast({
+					type: "success",
+					message: $t("connections.wizard.bosch.saved"),
+				});
+				onSaved();
+			}
 		}
 	} catch {
 		if (!lifetime.signal.aborted)

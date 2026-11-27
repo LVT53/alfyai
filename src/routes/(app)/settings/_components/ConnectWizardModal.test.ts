@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "$lib/client/api/http";
 import { uiLanguage } from "$lib/stores/settings";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import ConnectWizardModal from "./ConnectWizardModal.svelte";
 
 vi.mock("$lib/client/api/connections", () => ({
@@ -205,29 +207,61 @@ describe("ConnectWizardModal", () => {
 		).toBeDisabled();
 		expect(screen.getByLabelText("Precise ride locations")).toBeChecked();
 	});
-	it("saves hosted permissions without requesting another Bosch sign-in", async () => {
-		vi.mocked(fetchHostedBoschSetup).mockResolvedValue({
-			mode: "hosted",
-			grants: ["details"],
-			callbackUrl: "https://ai.example/callback",
-		});
-		const onConnected = vi.fn();
-		render(ConnectWizardModal, baseProps({ provider: "bosch", onConnected }));
-		expect(
-			await screen.findByLabelText("Bike and service records"),
-		).toBeChecked();
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Allow all supported data" }),
-		);
-		await fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		await waitFor(() => expect(onConnected).toHaveBeenCalled());
-		expect(vi.mocked(updateHostedBoschGrants).mock.calls[0][0].sort()).toEqual([
-			"details",
-			"fitness",
-			"location",
-		]);
-		expect(startHostedBoschSetup).not.toHaveBeenCalled();
-	});
+	it.each(["en", "hu"] as const)(
+		"confirms saved Bosch permissions in %s without another sign-in",
+		async (locale) => {
+			uiLanguage.set(locale);
+			try {
+				vi.mocked(fetchHostedBoschSetup).mockResolvedValue({
+					mode: "hosted",
+					grants: ["details"],
+					callbackUrl: "https://ai.example/callback",
+				});
+				const onConnected = vi.fn();
+				render(
+					ConnectWizardModal,
+					baseProps({ provider: "bosch", onConnected }),
+				);
+				expect(
+					await screen.findByLabelText(
+						locale === "en"
+							? "Bike and service records"
+							: "Kerékpár- és szervizadatok",
+					),
+				).toBeChecked();
+				await fireEvent.click(
+					screen.getByRole("button", {
+						name:
+							locale === "en"
+								? "Allow all supported data"
+								: "Minden támogatott adat engedélyezése",
+					}),
+				);
+				await fireEvent.click(
+					screen.getByRole("button", {
+						name: locale === "en" ? "Save" : "Mentés",
+					}),
+				);
+				await waitFor(() => expect(onConnected).toHaveBeenCalled());
+				expect(
+					vi.mocked(updateHostedBoschGrants).mock.calls[0][0].sort(),
+				).toEqual(["details", "fitness", "location"]);
+				expect(startHostedBoschSetup).not.toHaveBeenCalled();
+				expect(get(toasts)).toContainEqual(
+					expect.objectContaining({
+						type: "success",
+						message:
+							locale === "en"
+								? "Bosch permissions saved."
+								: "A Bosch-engedélyek mentve.",
+					}),
+				);
+			} finally {
+				uiLanguage.set("en");
+				clearToasts();
+			}
+		},
+	);
 	it("renders nothing when provider is null", () => {
 		render(ConnectWizardModal, baseProps());
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
