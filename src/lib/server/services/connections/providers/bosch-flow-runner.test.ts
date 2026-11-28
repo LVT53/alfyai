@@ -204,6 +204,47 @@ it("resumes only previously authorized demand polls and reads Bosch only when a 
 	await off.pollOnce();
 	expect(fetch).not.toHaveBeenCalled();
 });
+it("reads only bike profiles for a negotiated inventory request", async () => {
+	const fetch = vi.fn<typeof globalThis.fetch>(async (u, init) => {
+		const path = new URL(String(u)).pathname;
+		if (path.endsWith("/poll")) {
+			expect(new Headers(init?.headers).get("X-Bosch-Inventory")).toBe("1");
+			return Response.json({ requestId: "inventory", inventoryOnly: true });
+		}
+		if (path.endsWith("/token"))
+			return Response.json({
+				access_token: "access",
+				refresh_token: "refresh",
+				expires_in: 600,
+				token_type: "Bearer",
+			});
+		if (path.endsWith("/bikes"))
+			return Response.json({ bikes: [{ id: "new", name: "Cube" }] });
+		if (path.endsWith("/sync")) {
+			expect(JSON.parse(String(init?.body))).toEqual({
+				bikes: [{ id: "new", name: "Cube" }],
+			});
+			return new Response(null, { status: 204 });
+		}
+		throw Error("Unexpected Bosch endpoint");
+	});
+	const runner = createBoschRunner({
+		fetch,
+		service: true,
+		saved: {
+			client: { clientId: "client" },
+			refreshToken: "refresh",
+			pairing,
+			onDemand: true,
+		},
+	});
+	expect(await runner.pollOnce()).toBe(2000);
+	expect(
+		fetch.mock.calls.map(([url]) =>
+			new URL(String(url)).pathname.split("/").pop(),
+		),
+	).toEqual(["poll", "token", "bikes", "sync"]);
+});
 it("reports an upstream failure against the exact waiting question without uploading a stale preview", async () => {
 	const fetch = vi.fn<typeof globalThis.fetch>(async (u, init) => {
 		const headers = new Headers(init?.headers);

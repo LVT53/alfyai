@@ -15,19 +15,21 @@ test("a paired rider can sync from outside their browser and revoke the bridge",
 		expect(result.ok()).toBeTruthy();
 		const pairing = await result.json();
 		connectionId = pairing.connectionId;
-		const send = () =>
+		const send = (sharing = true) =>
 			bridge.post(`${endpoint}/sync`, {
 				headers: { Authorization: `Bearer ${pairing.pairingToken}` },
 				data: {
-					bikes: [
-						{ id: "synthetic-bike", name: "Test bike" },
-						{ id: "other-bike", name: null },
-					],
+					bikes: sharing
+						? [
+								{ id: "synthetic-bike", name: "Test bike" },
+								{ id: "other-bike", name: null },
+							]
+						: [],
 					rides: [],
 					complete: true,
 				},
 			});
-		expect((await send()).status()).toBe(204);
+		expect((await send(false)).status()).toBe(204);
 		await page.goto("/settings?section=connections");
 		const openDetails = page.getByTestId(`connection-details-${connectionId}`);
 		await openDetails.click();
@@ -35,6 +37,9 @@ test("a paired rider can sync from outside their browser and revoke the bridge",
 		await expect(
 			dialog.getByText("Read your bikes, rides and cycling statistics."),
 		).toBeVisible();
+		await expect(dialog.getByText(/No bikes are shared yet/)).toBeVisible();
+		expect((await send()).status()).toBe(204);
+		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 		const bikeForm = dialog.getByRole("form", { name: /synthetic-bike/ });
 		const bike = bikeForm.getByRole("textbox");
 		const other = dialog.getByRole("textbox", { name: /other-bike/ });

@@ -28,7 +28,7 @@ const connectionsDict = {
 			"Choose the names Alfy uses for your bikes in chat.",
 		"connections.bosch.bikeLabel": "Bike · {id}",
 		"connections.bosch.bikesEmpty":
-			"No bikes are shared yet. In Bosch Flow, open Manage Access and enable sharing for your bike.",
+			"No bikes are shared yet. In Bosch Flow, open Manage Access and allow your bike. This list refreshes automatically.",
 		"connections.bosch.bikesLoadFail": "Your bikes couldn’t be loaded.",
 		"connections.bosch.nameSaveFail":
 			"The bike name couldn’t be saved. Try again.",
@@ -879,7 +879,7 @@ const connectionsDict = {
 			"Add meg, milyen néven hivatkozzon Alfy a kerékpárjaidra a beszélgetésekben.",
 		"connections.bosch.bikeLabel": "Kerékpár · {id}",
 		"connections.bosch.bikesEmpty":
-			"Még nincs megosztott kerékpárod. A Bosch Flow „Manage Access” menüjében engedélyezd a kerékpárod megosztását.",
+			"Még nincs megosztott kerékpárod. A Bosch Flow „Manage Access” menüjében engedélyezd a kerékpárod megosztását. Ez a lista automatikusan frissül.",
 		"connections.bosch.bikesLoadFail": "Nem sikerült betölteni a kerékpárokat.",
 		"connections.bosch.nameSaveFail":
 			"Nem sikerült menteni a kerékpár nevét. Próbáld újra.",

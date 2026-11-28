@@ -9,6 +9,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		request.headers.get("X-Bosch-Protocol"),
 		request.headers.get("X-Bosch-Grants"),
 		request.headers.get("X-Bosch-Failure-Code"),
+		request.headers.get("X-Bosch-Inventory"),
 	);
 	return json(data, {
 		status: data ? 200 : 401,

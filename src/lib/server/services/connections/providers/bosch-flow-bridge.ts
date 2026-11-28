@@ -25,6 +25,7 @@ import {
 import {
 	readHostedBoschDetail,
 	readHostedBoschSummary,
+	refreshHostedBoschInventory,
 } from "./bosch-flow-hosted";
 
 import { bikeNameKey, savedBikeName } from "./bosch-flow-names";
@@ -124,6 +125,7 @@ type PendingRead = {
 // The production web service is a single Node process. Unanswered questions
 // expire promptly; credentials and ride data do not live in this map.
 const reads = new Map<string, PendingRead>();
+const inventoryReads = new Map<string, PendingRead>();
 type PendingDetail = {
 	id: string;
 	connectionId: string;
@@ -135,7 +137,13 @@ type PendingDetail = {
 const detailReads = new Map<string, PendingDetail>();
 const heartbeats = new Map<
 	string,
-	{ time: number; keyHash: string; grants: Set<string> }
+	{
+		time: number;
+		keyHash: string;
+		grants: Set<string>;
+		inventorySupported: boolean;
+		lastLegacyRefresh: number;
+	}
 >();
 
 async function authenticateBridge(bearer: string) {
@@ -174,6 +182,7 @@ export async function pollBoschQuestion(
 	protocol: string | null = null,
 	grantHeader: string | null = null,
 	failureCode: string | null = null,
+	inventoryHeader: string | null = null,
 ) {
 	const auth = await authenticateBridge(bearer);
 	if (!auth) return null;
@@ -204,7 +213,41 @@ export async function pollBoschQuestion(
 	const grants = new Set(
 		protocol === "2" ? (grantHeader ?? "").split(",").map((g) => g.trim()) : [],
 	);
-	heartbeats.set(auth.id, { time: now, keyHash: auth.saved.keyHash, grants });
+	const previous = heartbeats.get(auth.id);
+	const inventorySupported = inventoryHeader === "1";
+	heartbeats.set(auth.id, {
+		time: now,
+		keyHash: auth.saved.keyHash,
+		grants,
+		inventorySupported,
+		lastLegacyRefresh:
+			previous && previous.keyHash === auth.saved.keyHash
+				? previous.lastLegacyRefresh
+				: 0,
+	});
+	const inventory = inventoryReads.get(auth.id);
+	if (inventory) {
+		if (inventory.keyHash !== auth.saved.keyHash || !inventorySupported) {
+			inventory.finish(false);
+		} else if (failed === inventory.id) {
+			if (failureCode === "access_denied") {
+				// An authenticated denial supersedes the rider's earlier sharing state.
+				await updateConnection(
+					auth.userId,
+					auth.id,
+					{
+						secret: JSON.stringify({
+							...auth.saved,
+							snapshot: null,
+							bikeInventory: null,
+						}),
+					},
+					auth.existing.version,
+				);
+			}
+			inventory.finish(false);
+		}
+	}
 	for (const pending of detailReads.values()) {
 		if (pending.connectionId !== auth.id) continue;
 		if (
@@ -228,7 +271,9 @@ export async function pollBoschQuestion(
 		);
 		return detail
 			? { requestId: detail.id, query: detail.query, retryAfterMs: 1000 }
-			: { requestId: null, retryAfterMs: 2000 };
+			: inventory && inventoryReads.get(auth.id) === inventory
+				? { requestId: inventory.id, inventoryOnly: true, retryAfterMs: 1000 }
+				: { requestId: null, retryAfterMs: 2000 };
 	}
 	if (failed === read.id) {
 		read.finish(false);
@@ -271,6 +316,37 @@ export async function acceptBoschUpload(
 		)
 			return 409;
 		detail.finish({ status: "ready", result });
+		return 204;
+	}
+	const inventory = inventoryReads.get(id);
+	if (inventory && requestId === inventory.id) {
+		if (inventory.keyHash !== saved.keyHash) return 409;
+		const data = upload.pick({ bikes: true }).safeParse(await readBody());
+		if (!data.success) return 400;
+		if (inventoryReads.get(id) !== inventory) return 409;
+		const bikeInventory = { bikes: data.data.bikes, syncedAt: Date.now() };
+		const currentIds = new Set(bikeInventory.bikes.map((bike) => bike.id));
+		// A removed bike's rides must not outlive its sharing permission in the cache.
+		const previousBikes = upload.shape.bikes.safeParse(saved.snapshot?.bikes);
+		const revoked =
+			saved.snapshot &&
+			(!previousBikes.success ||
+				currentIds.size === 0 ||
+				previousBikes.data.some((bike) => !currentIds.has(bike.id)));
+		const updated = await updateConnection(
+			userId,
+			id,
+			{
+				secret: JSON.stringify({
+					...saved,
+					bikeInventory,
+					...(revoked ? { snapshot: null } : {}),
+				}),
+			},
+			existing.version,
+		);
+		if (!updated) return 409;
+		inventory.finish(true);
 		return 204;
 	}
 	const read = reads.get(id);
@@ -327,21 +403,51 @@ export async function readBoschSnapshot(userId: string, connectionId: string) {
 	return { ...snapshot, bikes, rides };
 }
 
-export async function listBoschBikesForNaming(userId: string) {
+async function namingInventory(userId: string, refreshHelper: boolean) {
 	const connection = await findConnectionByAccount(userId, "bosch", "personal");
 	if (
 		connection?.status !== "connected" ||
 		!connection.capabilities.includes("cycling")
 	)
-		return [];
-	let inventory = await readBikeInventory(userId, connection.id);
-	// A new hosted grant has no snapshot until its first read.
-	if (!inventory || Date.now() - inventory.snapshot.syncedAt > 300_000) {
-		await loadBoschForQuestion(userId, connection.id);
-		inventory = await readBikeInventory(userId, connection.id);
+		return null;
+	const before = await getConnectionSecretSnapshot(userId, connection.id);
+	if (!before) return null;
+	const { hosted, keyHash } = JSON.parse(before.value);
+	if (hosted) {
+		if (!(await refreshHostedBoschInventory(userId, connection.id)))
+			return null;
+	} else if (refreshHelper) {
+		await refreshBoschHelperInventory(userId, connection.id);
 	}
+	const latest = await getConnection(userId, connection.id);
+	if (
+		latest?.status !== "connected" ||
+		!latest.capabilities.includes("cycling")
+	)
+		return null;
+	const data = await getConnectionSecretSnapshot(userId, connection.id);
+	if (!data) return null;
+	const saved = JSON.parse(data.value);
+	if (
+		hosted
+			? saved.hosted?.authorizationId !== hosted.authorizationId
+			: saved.keyHash !== keyHash
+	)
+		return null;
+	// A complete upload supersedes bikeInventory. An inventory-only read can
+	// arrive before this account has ever shared any ride history.
+	const bikes = upload.shape.bikes.safeParse(
+		(saved.bikeInventory ?? saved.snapshot)?.bikes,
+	);
+	return bikes.success
+		? { connection: latest, version: data.version, bikes: bikes.data }
+		: null;
+}
+
+export async function listBoschBikesForNaming(userId: string) {
+	const inventory = await namingInventory(userId, true);
 	if (!inventory) return null;
-	const ids = new Set(inventory.snapshot.bikes.map((bike) => bike.id));
+	const ids = new Set(inventory.bikes.map((bike) => bike.id));
 	return Array.from(ids).flatMap((id) =>
 		id ? [{ id, name: savedBikeName(inventory.connection.config, id) }] : [],
 	);
@@ -352,14 +458,16 @@ export async function nameBoschBike(
 	bikeId: string,
 	name: string,
 ) {
-	const connection = await findConnectionByAccount(userId, "bosch", "personal");
-	if (!connection) return false;
-	const inventory = await readBikeInventory(userId, connection.id);
-	if (!inventory?.snapshot.bikes.some((bike) => bike.id === bikeId))
-		return false;
-	return mergeConnectionConfig(userId, connection.id, inventory.version, {
-		bikeNames: { [bikeNameKey(bikeId)]: name || null },
-	});
+	const inventory = await namingInventory(userId, false);
+	if (!inventory?.bikes.some((bike) => bike.id === bikeId)) return false;
+	return mergeConnectionConfig(
+		userId,
+		inventory.connection.id,
+		inventory.version,
+		{
+			bikeNames: { [bikeNameKey(bikeId)]: name || null },
+		},
+	);
 }
 
 export async function loadBoschForQuestion(userId: string, id: string) {
@@ -382,7 +490,17 @@ export async function loadBoschForQuestion(userId: string, id: string) {
 	if (!recentlyOnline)
 		return { snapshot: await readBoschSnapshot(userId, id), fresh: false };
 
-	let pending = reads.get(id);
+	const fresh = await requestHelperRead(reads, id, keyHash);
+	const snapshot = await readBoschSnapshot(userId, id);
+	return { snapshot, fresh: fresh && snapshot !== null };
+}
+
+function requestHelperRead(
+	queue: Map<string, PendingRead>,
+	id: string,
+	keyHash: string,
+) {
+	let pending = queue.get(id);
 	if (!pending || pending.keyHash !== keyHash) {
 		pending?.finish(false);
 		const requestId = randomUUID();
@@ -391,18 +509,40 @@ export async function loadBoschForQuestion(userId: string, id: string) {
 			resolve = done;
 		});
 		const finish = (fresh: boolean) => {
-			if (reads.get(id)?.id !== requestId) return;
+			if (queue.get(id)?.id !== requestId) return;
 			clearTimeout(timeout);
-			reads.delete(id);
+			queue.delete(id);
 			resolve(fresh);
 		};
 		const timeout = setTimeout(() => finish(false), 15000);
 		pending = { id: requestId, keyHash, finished, finish };
-		reads.set(id, pending);
+		queue.set(id, pending);
 	}
-	const fresh = await pending.finished;
-	const snapshot = await readBoschSnapshot(userId, id);
-	return { snapshot, fresh: fresh && snapshot !== null };
+	return pending.finished;
+}
+
+async function refreshBoschHelperInventory(userId: string, id: string) {
+	const grant = await getConnectionSecretSnapshot(userId, id);
+	const beat = heartbeats.get(id);
+	if (
+		!beat ||
+		Date.now() - beat.time > 12_000 ||
+		!grant ||
+		JSON.parse(grant.value).keyHash !== beat.keyHash
+	)
+		return;
+	const fullRead = reads.get(id);
+	if (fullRead?.keyHash === beat.keyHash) {
+		await fullRead.finished;
+		return;
+	}
+	if (beat.inventorySupported) {
+		await requestHelperRead(inventoryReads, id, beat.keyHash);
+	} else if (Date.now() - beat.lastLegacyRefresh >= 60_000) {
+		// Original helpers upload ride history with the inventory. Bound that cost.
+		beat.lastLegacyRefresh = Date.now();
+		await requestHelperRead(reads, id, beat.keyHash);
+	}
 }
 
 // Details answer only the question that requested them. No detailed response is

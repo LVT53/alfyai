@@ -21,7 +21,10 @@ type State = {
 };
 
 import { refreshBoschGrant } from "./bosch-flow-oauth";
-import { collectBoschSnapshot } from "./bosch-flow-snapshot";
+import {
+	collectBoschBikeInventory,
+	collectBoschSnapshot,
+} from "./bosch-flow-snapshot";
 export const boschUploadUrl =
 	"https://ai.alfydesign.com/api/connections/bosch/sync";
 const pollUrl = "https://ai.alfydesign.com/api/connections/bosch/poll";
@@ -41,6 +44,7 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 		if (!ctx || !rider) return 2000;
 		let requestId: string | null = null;
 		let detailRequest = false;
+		let inventoryOnly = false;
 		const call = (endpoint: string, extra: RequestInit = {}) =>
 			fetcher(endpoint, {
 				method: "POST",
@@ -60,6 +64,7 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 			});
 		const protocolHeaders = () => ({
 			"X-Bosch-Protocol": "2",
+			"X-Bosch-Inventory": "1",
 			"X-Bosch-Grants": state.grants().join(","),
 		});
 		const disable = async () => {
@@ -99,7 +104,8 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 				(!query || !state.grants().includes(requiredBoschGrant(query)))
 			)
 				throw Error("Unapproved Bosch detail question");
-			const queryKey = JSON.stringify(query);
+			inventoryOnly = !detailRequest && data.inventoryOnly === true;
+			const queryKey = inventoryOnly ? "inventory" : JSON.stringify(query);
 			if (cache?.requestId === requestId && cache.queryKey !== queryKey) {
 				cache = null;
 				throw Error("Changed Bosch detail request");
@@ -128,7 +134,16 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 									boschFetch,
 								),
 							}
-						: collectBoschSnapshot(rider.accessToken, boschFetch);
+						: inventoryOnly
+							? {
+									bikes: (
+										await collectBoschBikeInventory(
+											rider.accessToken,
+											boschFetch,
+										)
+									).bikes,
+								}
+							: collectBoschSnapshot(rider.accessToken, boschFetch);
 				let result: Awaited<ReturnType<typeof collect>>;
 				try {
 					result = await collect();
@@ -166,7 +181,7 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 					headers: {
 						...protocolHeaders(),
 						"X-Bosch-Failed": requestId,
-						...(detailRequest &&
+						...((detailRequest || inventoryOnly) &&
 						(code === "not_found" || code === "access_denied")
 							? { "X-Bosch-Failure-Code": code }
 							: {}),
@@ -175,7 +190,7 @@ export function demandPolling(fetcher: typeof fetch, state: State) {
 				if (
 					code === "authorization_failed" ||
 					code === "expired" ||
-					(!detailRequest && code === "access_denied")
+					(!detailRequest && !inventoryOnly && code === "access_denied")
 				)
 					await disable();
 			}

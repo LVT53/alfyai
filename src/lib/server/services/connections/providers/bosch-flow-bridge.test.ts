@@ -173,6 +173,82 @@ describe("personal Bosch rider pairing", () => {
 			await acceptBoschUpload(first.pairingToken, async () => bikeData, id),
 		).toBe(409);
 	});
+	it("negotiates a bikes-only read and invalidates a cached summary after a sharing change", async () => {
+		const pair = await pairBoschBridge("one");
+		await acceptBoschUpload(pair.pairingToken, async () => bikeData);
+		const poll = () =>
+			pollBoschQuestion(pair.pairingToken, null, "2", "", null, "1");
+		await poll();
+		const finished = listBoschBikesForNaming("one");
+		const request = await vi.waitFor(async () => {
+			const next = await poll();
+			expect(next).toMatchObject({ inventoryOnly: true });
+			if (!next) throw new Error("Expected an authenticated poll");
+			return next;
+		});
+		expect(
+			await acceptBoschUpload(
+				pair.pairingToken,
+				async () => bikeData,
+				request.requestId,
+			),
+		).toBe(400);
+		expect(
+			await acceptBoschUpload(
+				pair.pairingToken,
+				async () => ({ bikes: [] }),
+				request.requestId,
+			),
+		).toBe(204);
+		await finished;
+		expect(await readBoschSnapshot("one", pair.connectionId)).toBeNull();
+	});
+	it("withholds the cached bikes and rides if Bosch denies the helper's inventory access", async () => {
+		const pair = await pairBoschBridge("one");
+		await acceptBoschUpload(pair.pairingToken, async () => bikeData);
+		const poll = (failed: string | null = null) =>
+			pollBoschQuestion(
+				pair.pairingToken,
+				failed,
+				"2",
+				"",
+				failed ? "access_denied" : null,
+				"1",
+			);
+		await poll();
+		const result = listBoschBikesForNaming("one");
+		const requestId = await vi.waitFor(async () => {
+			const next = await poll();
+			if (!next?.requestId) throw Error("Waiting for inventory request");
+			return next.requestId;
+		});
+		await poll(requestId);
+		expect(await result).toBeNull();
+		expect(await readBoschSnapshot("one", pair.connectionId)).toBeNull();
+	});
+	it("limits automatic full reads for older helpers", async () => {
+		const pair = await pairBoschBridge("one");
+		const poll = () => pollBoschQuestion(pair.pairingToken, null);
+		await poll();
+		const first = listBoschBikesForNaming("one");
+		const request = await vi.waitFor(async () => {
+			const next = await poll();
+			expect(next?.requestId).toBeTruthy();
+			if (!next) throw new Error("Expected an authenticated poll");
+			return next;
+		});
+		expect(request).not.toHaveProperty("inventoryOnly");
+		expect(
+			await acceptBoschUpload(
+				pair.pairingToken,
+				async () => bikeData,
+				request.requestId,
+			),
+		).toBe(204);
+		await first;
+		await listBoschBikesForNaming("one");
+		expect((await poll())?.requestId).toBeNull();
+	});
 	it("shares a pending read and preserves the dated snapshot if the helper fails mid-upload", async () => {
 		const pair = await pairBoschBridge("one");
 		await acceptBoschUpload(pair.pairingToken, async () => bikeData);

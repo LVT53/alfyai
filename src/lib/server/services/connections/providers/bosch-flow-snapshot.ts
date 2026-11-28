@@ -14,16 +14,26 @@ export type Snapshot = {
 	}[];
 	complete: boolean;
 };
+export async function collectBoschBikeInventory(
+	access: string,
+	fetcher?: typeof fetch,
+) {
+	const raw = await readBoschFlowBikes(access, fetcher);
+	return {
+		bikes: raw
+			.slice(0, 50)
+			.map((b) => ({ id: id(b.id), name: b.name?.slice(0, 180) ?? null })),
+		complete: raw.length <= 50,
+	};
+}
 export async function collectBoschSnapshot(
 	access: string,
 	fetcher?: typeof fetch,
 ): Promise<Snapshot> {
-	const raw = await readBoschFlowBikes(access, fetcher);
-	const bikes = raw
-		.slice(0, 50)
-		.map((b) => ({ id: id(b.id), name: b.name?.slice(0, 180) ?? null }));
+	const inventory = await collectBoschBikeInventory(access, fetcher);
+	const bikes = inventory.bikes;
 	const rides: Snapshot["rides"] = [];
-	let complete = raw.length <= 50;
+	let complete = inventory.complete;
 	const seen = new Set<string>();
 	let offset = 0;
 	for (let page = 0; page < 40; page++) {

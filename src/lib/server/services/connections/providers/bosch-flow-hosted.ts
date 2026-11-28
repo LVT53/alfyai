@@ -24,7 +24,11 @@ import {
 	exchangeBoschCode,
 	refreshBoschGrant,
 } from "./bosch-flow-oauth";
-import { collectBoschSnapshot, type Snapshot } from "./bosch-flow-snapshot";
+import {
+	collectBoschBikeInventory,
+	collectBoschSnapshot,
+	type Snapshot,
+} from "./bosch-flow-snapshot";
 
 type Hosted = {
 	authorizationId: string;
@@ -36,6 +40,7 @@ type Saved = {
 	hosted?: Hosted;
 	keyHash?: string;
 	snapshot?: Snapshot & { syncedAt: number };
+	bikeInventory?: { bikes: Snapshot["bikes"]; syncedAt: number; denied?: true };
 };
 async function read(userId: string, id: string) {
 	const data = await getConnectionSecretSnapshot(userId, id);
@@ -236,12 +241,22 @@ async function authorized(
 		throw new ConnectionHttpError("Permission required", "consent_required");
 	return { saved, hosted: saved.value.hosted };
 }
-async function access(userId: string, id: string, required?: BoschDetailGrant) {
+async function access(
+	userId: string,
+	id: string,
+	required?: BoschDetailGrant,
+	rejected?: { token: string; identity: string },
+) {
 	return serialized(id, async () => {
 		const current = await authorized(userId, id, required);
 		if (!current) return null;
 		const { hosted, saved } = current;
-		if (hosted.grant.expiresAt < Date.now() + 30_000) {
+		let version = saved.version;
+		if (rejected && rejected.identity !== hosted.authorizationId) return null;
+		if (
+			hosted.grant.expiresAt < Date.now() + 30_000 ||
+			hosted.grant.accessToken === rejected?.token
+		) {
 			const refresh = hosted.grant.refreshToken;
 			if (!refresh)
 				throw new ConnectionHttpError(
@@ -272,30 +287,141 @@ async function access(userId: string, id: string, required?: BoschDetailGrant) {
 				))
 			)
 				throw new Error("Bosch setup changed");
+			const renewed = await read(userId, id);
+			if (renewed?.value.hosted?.authorizationId !== hosted.authorizationId)
+				return null;
+			version = renewed.version;
 		}
 		return {
+			version,
 			token: hosted.grant.accessToken,
 			identity: hosted.authorizationId,
 		};
 	});
 }
+async function fetchAuthorized<T>(
+	userId: string,
+	id: string,
+	fetchData: (token: string) => Promise<T>,
+	required?: BoschDetailGrant,
+) {
+	let grant = await access(userId, id, required);
+	if (!grant) return null;
+	try {
+		return {
+			identity: grant.identity,
+			version: grant.version,
+			result: await fetchData(grant.token),
+		};
+	} catch (error) {
+		if (!(error instanceof ConnectionHttpError) || error.code !== "expired")
+			throw error;
+		grant = await access(userId, id, required, grant);
+		if (!grant) return null;
+		return {
+			identity: grant.identity,
+			version: grant.version,
+			result: await fetchData(grant.token),
+		};
+	}
+}
+
+function sameBikeIds(left: Snapshot["bikes"], right: Snapshot["bikes"]) {
+	const first = new Set(left.map((bike) => bike.id));
+	const second = new Set(right.map((bike) => bike.id));
+	return first.size === second.size && [...first].every((id) => second.has(id));
+}
+
+async function fetchSharedInventory(token: string) {
+	try {
+		return await collectBoschBikeInventory(token);
+	} catch (error) {
+		if (error instanceof ConnectionHttpError && error.code === "access_denied")
+			return null;
+		throw error;
+	}
+}
+
+// Remember the latest inventory separately from ride history. A grant can now
+// include fewer bikes, so a previous ride summary may no longer be shareable.
+export async function refreshHostedBoschInventory(userId: string, id: string) {
+	try {
+		const current = await fetchAuthorized(userId, id, fetchSharedInventory);
+		if (!current) return false;
+		const denied = current.result === null;
+		const bikes = current.result?.bikes ?? [];
+		return await serialized(id, async () => {
+			const latest = await authorized(userId, id);
+			if (!latest || latest.hosted.authorizationId !== current.identity)
+				return false;
+			const saved = latest.saved.value;
+			const previous = saved.bikeInventory ?? saved.snapshot;
+			if (denied && saved.bikeInventory?.denied) return false;
+			if (
+				!denied &&
+				previous &&
+				!saved.bikeInventory?.denied &&
+				sameBikeIds(previous.bikes, bikes)
+			)
+				return true;
+			if (!denied && previous && latest.saved.version !== current.version)
+				return false;
+			const updated = Boolean(
+				await updateConnection(
+					userId,
+					id,
+					{
+						secret: JSON.stringify({
+							...saved,
+							snapshot: undefined,
+							bikeInventory: {
+								bikes,
+								syncedAt: Date.now(),
+								...(denied && { denied: true }),
+							},
+						}),
+					},
+					latest.saved.version,
+				),
+			);
+			return updated && !denied;
+		});
+	} catch {
+		return false;
+	}
+}
 export async function readHostedBoschSummary(userId: string, id: string) {
 	try {
-		const current = await access(userId, id);
+		const current = await fetchAuthorized(userId, id, collectBoschSnapshot);
 		if (!current) return false;
 		const snapshot = {
-			...(await collectBoschSnapshot(current.token)),
+			...current.result,
 			syncedAt: Date.now(),
 		};
 		return await serialized(id, async () => {
 			const latest = await authorized(userId, id);
 			if (!latest || latest.hosted.authorizationId !== current.identity)
 				return false;
+			const previous =
+				latest.saved.value.bikeInventory ?? latest.saved.value.snapshot;
+			if (
+				previous &&
+				latest.saved.version !== current.version &&
+				(latest.saved.value.bikeInventory?.denied ||
+					!sameBikeIds(previous.bikes, snapshot.bikes))
+			)
+				return false;
 			return Boolean(
 				await updateConnection(
 					userId,
 					id,
-					{ secret: JSON.stringify({ ...latest.saved.value, snapshot }) },
+					{
+						secret: JSON.stringify({
+							...latest.saved.value,
+							bikeInventory: undefined,
+							snapshot,
+						}),
+					},
 					latest.saved.version,
 				),
 			);
@@ -311,9 +437,14 @@ export async function readHostedBoschDetail(
 ): Promise<BoschDetailAnswer> {
 	const required = requiredBoschGrant(query);
 	try {
-		const current = await access(userId, id, required);
+		const current = await fetchAuthorized(
+			userId,
+			id,
+			(token) => readBoschDetail(query, token),
+			required,
+		);
 		if (!current) return { status: "offline" as const };
-		const result = await readBoschDetail(query, current.token);
+		const result = current.result;
 		const latest = await authorized(userId, id, required);
 		if (latest?.hosted.authorizationId !== current.identity)
 			return { status: "offline" as const };

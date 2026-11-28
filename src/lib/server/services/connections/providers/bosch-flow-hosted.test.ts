@@ -6,10 +6,13 @@ import * as schema from "$lib/server/db/schema";
 import { resolveActiveCapabilities } from "../resolve";
 import { findConnectionByAccount, updateConnection } from "../store";
 import {
+	listBoschBikesForNaming,
 	loadBoschDetailForQuestion,
 	loadBoschForQuestion,
+	nameBoschBike,
 	pairBoschBridge,
 	pollBoschQuestion,
+	readBoschSnapshot,
 } from "./bosch-flow-bridge";
 import {
 	completeBoschHostedSetup,
@@ -169,6 +172,100 @@ describe("hosted Bosch setup", () => {
 			snapshot: { bikes: [{ id: "bike", name: "Personal Cube" }] },
 		});
 	});
+	it("picks up sharing changes under the existing grant without fetching ride history for settings", async () => {
+		const { state } = await startBoschHostedSetup("one", input, callback);
+		await completeBoschHostedSetup("one", "code", state, callback, token);
+		let ids: string[] = [];
+		const fetcher = vi.fn(async (url: string, request: RequestInit) => {
+			expect(url).toBe(
+				"https://api.bosch-ebike.com/bike-profile/smart-system/v1/bikes",
+			);
+			expect(new Headers(request.headers).get("Authorization")).toBe(
+				"Bearer rider-access",
+			);
+			return Response.json({ bikes: ids.map((id) => ({ id })) });
+		});
+		vi.stubGlobal("fetch", fetcher);
+		expect(await listBoschBikesForNaming("one")).toEqual([]);
+		ids = ["new-bike"];
+		expect(await listBoschBikesForNaming("one")).toEqual([
+			{ id: "new-bike", name: null },
+		]);
+		expect(await nameBoschBike("one", "new-bike", "Cube")).toBe(true);
+		expect(await listBoschBikesForNaming("one")).toEqual([
+			{ id: "new-bike", name: "Cube" },
+		]);
+		ids = [];
+		expect(await nameBoschBike("one", "new-bike", "Gone")).toBe(false);
+		expect(await listBoschBikesForNaming("one")).toEqual([]);
+	});
+	it("silently renews a still-dated access token when Bosch returns 401 for inventory", async () => {
+		const { state } = await startBoschHostedSetup("one", input, callback);
+		await completeBoschHostedSetup("one", "code", state, callback, token);
+		const fetcher = vi.fn(async (url: string, request: RequestInit) => {
+			if (url.endsWith("/token")) {
+				expect(String(request.body)).toContain("grant_type=refresh_token");
+				return Response.json({
+					access_token: "renewed",
+					expires_in: 600,
+					token_type: "bearer",
+				});
+			}
+			const auth = new Headers(request.headers).get("Authorization");
+			if (auth === "Bearer rider-access")
+				return new Response(null, { status: 401 });
+			expect(auth).toBe("Bearer renewed");
+			return Response.json({ bikes: [{ id: "shared" }] });
+		});
+		vi.stubGlobal("fetch", fetcher);
+		expect(await listBoschBikesForNaming("one")).toEqual([
+			{ id: "shared", name: null },
+		]);
+		expect(await listBoschBikesForNaming("one")).toEqual([
+			{ id: "shared", name: null },
+		]);
+		expect(
+			fetcher.mock.calls.filter(([url]) => url.endsWith("/token")),
+		).toHaveLength(1);
+	});
+
+	it.each([200, 403])(
+		"clears old rides after Flow withdraws access (%i) even if an earlier ride read finishes late",
+		async (status) => {
+			const { state } = await startBoschHostedSetup("one", input, callback);
+			await completeBoschHostedSetup("one", "code", state, callback, token);
+			const conn = await findConnectionByAccount("one", "bosch", "personal");
+			if (!conn) throw new Error("Expected hosted connection");
+			let shared = true;
+			let slow = false;
+			let finish: (() => void) | undefined;
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (url: string) => {
+					if (url.endsWith("/bikes"))
+						return shared || status === 200
+							? Response.json({ bikes: shared ? [{ id: "old" }] : [] })
+							: new Response(null, { status });
+					if (slow)
+						await new Promise<void>((resolve) => {
+							finish = resolve;
+						});
+					return Response.json({ activitySummaries: [] });
+				}),
+			);
+			expect((await loadBoschForQuestion("one", conn.id)).fresh).toBe(true);
+			slow = true;
+			const pending = loadBoschForQuestion("one", conn.id);
+			await vi.waitFor(() => expect(finish).toBeDefined());
+			shared = false;
+			expect(await listBoschBikesForNaming("one")).toEqual(
+				status === 200 ? [] : null,
+			);
+			finish?.();
+			expect((await pending).snapshot).toBeNull();
+			expect(await readBoschSnapshot("one", conn.id)).toBeNull();
+		},
+	);
 	it("discards a detail result if the rider withdraws access while the provider is answering", async () => {
 		const { state } = await startBoschHostedSetup("one", input, callback);
 		await completeBoschHostedSetup("one", "code", state, callback, token);

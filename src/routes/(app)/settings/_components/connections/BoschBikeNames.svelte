@@ -16,31 +16,59 @@ let bikes = $state<BikeRow[] | null>(null);
 let failed = $state(false);
 const lifetime = new AbortController();
 
+let loading = false;
+let saveVersion = 0;
+
 async function load() {
-	failed = false;
+	if (
+		loading ||
+		document.visibilityState === "hidden" ||
+		bikes?.some((bike) => bike.status === "saving")
+	)
+		return;
+	loading = true;
+	const version = saveVersion;
 	try {
 		const result = await fetchBoschBikeNames(lifetime.signal);
-		if (!lifetime.signal.aborted)
-			bikes = result.bikes.map(({ id, name }) => ({
-				id,
-				saved: name ?? "",
-				draft: name ?? "",
-				status: "idle",
-			}));
+		if (lifetime.signal.aborted || version !== saveVersion) return;
+		const existing = new Map(bikes?.map((row) => [row.id, row]));
+		bikes = result.bikes.map(({ id, name }): BikeRow => {
+			const row = existing.get(id);
+			const saved = name ?? "";
+			if (!row) return { id, saved, draft: saved, status: "idle" };
+			if (row.draft === row.saved && saved !== row.saved) {
+				row.draft = saved;
+				row.status = "idle";
+			}
+			row.saved = saved;
+			return row;
+		});
+		failed = false;
 	} catch {
 		if (!lifetime.signal.aborted) failed = true;
+	} finally {
+		loading = false;
 	}
 }
 
 onMount(() => {
 	void load();
-	return () => lifetime.abort();
+	const interval = window.setInterval(load, 30_000);
+	window.addEventListener("focus", load);
+	document.addEventListener("visibilitychange", load);
+	return () => {
+		window.clearInterval(interval);
+		window.removeEventListener("focus", load);
+		document.removeEventListener("visibilitychange", load);
+		lifetime.abort();
+	};
 });
 
 async function save(event: SubmitEvent, bike: BikeRow) {
 	event.preventDefault();
 	const name = bike.draft.trim();
 	if (bike.status === "saving" || bike.saved === name) return;
+	saveVersion++;
 	bike.status = "saving";
 	try {
 		await saveBoschBikeName(bike.id, name, lifetime.signal);
@@ -58,11 +86,12 @@ async function save(event: SubmitEvent, bike: BikeRow) {
 	{#if failed}
 		<p role="alert">{$t("connections.bosch.bikesLoadFail")}</p>
 		<button type="button" class="btn-secondary" onclick={load}>{$t("common.retry")}</button>
-	{:else if bikes === null}
+	{/if}
+	{#if bikes === null && !failed}
 		<p role="status">{$t("common.loading")}</p>
-	{:else if !bikes.length}
+	{:else if bikes?.length === 0 && !failed}
 		<p>{$t("connections.bosch.bikesEmpty")}</p>
-	{:else}
+	{:else if bikes?.length}
 		<p>{$t("connections.bosch.bikesHint")}</p>
 		{#each bikes as bike, index (bike.id)}
 			<form aria-labelledby={`bosch-bike-label-${index}`} onsubmit={(event) => save(event, bike)}>
