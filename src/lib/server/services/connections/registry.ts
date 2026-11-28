@@ -26,6 +26,7 @@ export type ConnectMethod =
 	| "oauth"
 	| "local-bridge"
 	| "login-flow-v2"
+	| "pin-link"
 	| "password-key"
 	| "app-password";
 
@@ -95,7 +96,7 @@ export const PROVIDER_META: Record<
 	},
 	plex: {
 		capabilities: ["media"],
-		connectMethod: "password-key",
+		connectMethod: "pin-link",
 		displayName: "Plex",
 		group: "product",
 	},

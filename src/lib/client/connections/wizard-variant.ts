@@ -4,7 +4,7 @@
 // mixed two different questions: "what connect METHOD does the catalogue
 // declare?" and "which of those methods actually needs its own screen?"
 // (OwnTracks is catalogued "password-key" but is really a device picker;
-// Immich, Plex, GitHub, Apple and CalDAV all share "password-key"/
+// Immich, GitHub, Apple and CalDAV all share "password-key"/
 // "app-password" but ask for completely different things). Pulling it out
 // makes the mapping one table that a test can walk, and gives the wizard a
 // single exhaustive switch instead of a chain of `initialProvider === '…'`

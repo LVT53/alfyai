@@ -139,6 +139,8 @@ const guideDict = {
 		"guide.entry.useADocument.name": "Use a document in a chat",
 		"guide.entry.useADocument.line":
 			"Pick a file from your Library and ask about it.",
+		"guide.connectedAccounts.plex":
+			"For Plex, choose Connect with Plex, approve AlfyAI, then choose your media server if several appear.",
 		"guide.connectedAccounts.tasks":
 			"Select Google Tasks in your Google connection to read lists and tasks. To make changes, request editing and turn on writes. You approve each change in chat.",
 		"guide.connectedAccounts.drive":
@@ -323,6 +325,8 @@ const guideDict = {
 		"guide.entry.useADocument.name": "Dokumentum a beszélgetésben",
 		"guide.entry.useADocument.line":
 			"Válassz egy fájlt a Könyvtáradból, és kérdezz róla.",
+		"guide.connectedAccounts.plex":
+			"A Plexnél válaszd a Csatlakozás Plexszel gombot, engedélyezd az AlfyAI hozzáférését, majd válassz médiaszervert, ha több is megjelenik.",
 		"guide.connectedAccounts.tasks":
 			"A Google-kapcsolatban a Google Tasks kiválasztásával elolvashatod a listáidat és feladataidat. Módosításhoz kérj szerkesztési engedélyt, és kapcsold be az írást. Minden változtatást a csevegésben hagysz jóvá.",
 		"guide.connectedAccounts.drive":

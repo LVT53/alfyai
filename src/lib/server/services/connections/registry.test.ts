@@ -15,6 +15,7 @@ import {
 const CONNECT_METHODS: readonly ConnectMethod[] = [
 	"oauth",
 	"login-flow-v2",
+	"pin-link",
 	"local-bridge",
 	"password-key",
 	"app-password",

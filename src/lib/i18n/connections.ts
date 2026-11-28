@@ -824,7 +824,35 @@ const connectionsDict = {
 		"connections.wizard.immich.subtitle":
 			"Sign in the same way you sign in to your own Immich server.",
 		"connections.wizard.plex.subtitle":
-			"Plex uses a token instead of a password.",
+			"Sign in with Plex to find your media servers.",
+		"connections.wizard.plex.start": "Connect with Plex",
+		"connections.wizard.plex.manual": "Use a server URL and token",
+		"connections.wizard.plex.back": "Back to Plex sign-in",
+		"connections.wizard.plex.expired":
+			"This Plex sign-in has expired. Start again to continue.",
+		"connections.wizard.plex.connected": "Connected to {name}.",
+		"connections.wizard.plex.unreachable":
+			"AlfyAI couldn’t connect to {name}. Check that the server is online and reachable from AlfyAI, then retry.",
+		"connections.wizard.plex.noGrant":
+			"Plex hasn’t granted access to {name}. Check that your Plex account has library access on this server, then check for servers again.",
+		"connections.wizard.plex.busy":
+			"Plex is busy. Wait a moment, then try again.",
+		"connections.wizard.plex.selectError":
+			"Couldn’t finish connecting to {name}. Try again.",
+		"connections.wizard.plex.discoveryError":
+			"Couldn’t fetch your Plex servers. Try again.",
+		"connections.wizard.plex.startError":
+			"Couldn’t start Plex sign-in. Try again.",
+		"connections.wizard.plex.connecting": "Connecting to {name}…",
+		"connections.wizard.plex.retry": "Retry connection",
+		"connections.wizard.plex.another": "Choose another server",
+		"connections.wizard.plex.noServers":
+			"You’re signed in. Plex hasn’t listed any media servers for this account. Check that you own a server or have received library access.",
+		"connections.wizard.plex.refresh": "Check for servers again",
+		"connections.wizard.plex.choose": "Choose a Plex server",
+		"connections.wizard.plex.waiting":
+			"Approve AlfyAI in Plex, then return to this tab.",
+		"connections.wizard.plex.open": "Open Plex sign-in",
 		"connections.wizard.caldav.subtitle":
 			"For any calendar or address book that speaks the standard protocol.",
 		"connections.wizard.contacts.subtitle": "Not available on its own yet.",
@@ -1656,7 +1684,36 @@ const connectionsDict = {
 			"Az Apple-höz kifejezetten az Alfy számára készített jelszó kell, nem a szokásos.",
 		"connections.wizard.immich.subtitle":
 			"Jelentkezz be ugyanúgy, ahogy a saját Immich szerveredre szoktál.",
-		"connections.wizard.plex.subtitle": "A Plex jelszó helyett tokent használ.",
+		"connections.wizard.plex.subtitle":
+			"Jelentkezz be a Plexbe a médiaszervereid megkereséséhez.",
+		"connections.wizard.plex.start": "Csatlakozás Plexszel",
+		"connections.wizard.plex.manual": "Szervercím és token megadása",
+		"connections.wizard.plex.back": "Vissza a Plex-bejelentkezéshez",
+		"connections.wizard.plex.expired":
+			"Ez a Plex-bejelentkezés lejárt. A folytatáshoz indítsd újra.",
+		"connections.wizard.plex.connected": "Csatlakoztatva: {name}.",
+		"connections.wizard.plex.unreachable":
+			"Az AlfyAI nem tudott csatlakozni ehhez a szerverhez: {name}. Ellenőrizd, hogy a szerver működik-e, és elérhető-e az AlfyAI számára, majd próbáld újra.",
+		"connections.wizard.plex.noGrant":
+			"A Plex nem adott hozzáférést ehhez a szerverhez: {name}. Ellenőrizd, hogy a Plex-fiókod hozzáfér-e a szerver egyik könyvtárához, majd keresd meg újra a szervereket.",
+		"connections.wizard.plex.busy":
+			"A Plex foglalt. Várj egy kicsit, majd próbáld újra.",
+		"connections.wizard.plex.selectError":
+			"Nem sikerült befejezni a csatlakozást ehhez a szerverhez: {name}. Próbáld újra.",
+		"connections.wizard.plex.discoveryError":
+			"Nem sikerült lekérni a Plex-szervereidet. Próbáld újra.",
+		"connections.wizard.plex.startError":
+			"Nem sikerült elindítani a Plex-bejelentkezést. Próbáld újra.",
+		"connections.wizard.plex.connecting": "Csatlakozás: {name}…",
+		"connections.wizard.plex.retry": "Csatlakozás újrapróbálása",
+		"connections.wizard.plex.another": "Másik szerver választása",
+		"connections.wizard.plex.noServers":
+			"Bejelentkeztél. A Plex nem sorolt fel médiaszervert ehhez a fiókhoz. Ellenőrizd, hogy tartozik-e hozzá saját szerver vagy megosztott könyvtár.",
+		"connections.wizard.plex.refresh": "Szerverek újbóli keresése",
+		"connections.wizard.plex.choose": "Válassz Plex-szervert",
+		"connections.wizard.plex.waiting":
+			"Engedélyezd az AlfyAI hozzáférését a Plexben, majd térj vissza erre a lapra.",
+		"connections.wizard.plex.open": "Plex-bejelentkezés megnyitása",
 		"connections.wizard.caldav.subtitle":
 			"Bármely naptárhoz vagy címjegyzékhez, amely a szabványos protokollt beszéli.",
 		"connections.wizard.contacts.subtitle": "Önállóan még nem elérhető.",

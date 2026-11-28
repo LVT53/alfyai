@@ -836,6 +836,60 @@ test.describe("settings connections tab", () => {
 			).toBeVisible();
 		});
 
+		test("signs into Plex and picks a server by name without entering a token", async ({
+			page,
+			context,
+		}) => {
+			const linked = connection({
+				id: "plex-cabin",
+				provider: "plex",
+				label: "Cabin",
+				capabilities: ["media"],
+			});
+			let approved = false;
+			const selections: unknown[] = [];
+			await context.route("https://app.plex.tv/auth*", async (route) => {
+				approved = true;
+				await route.fulfill({
+					contentType: "text/html",
+					body: "<p>Approved</p>",
+				});
+			});
+			await page.route("**/api/connections/plex/link/start", (route) =>
+				route.fulfill({
+					json: {
+						authUrl: "https://app.plex.tv/auth#?simulated",
+						attemptId: "setup",
+						expiresAt: Date.now() + 60_000,
+					},
+				}),
+			);
+			await page.route("**/api/connections/plex/link/status", (route) =>
+				route.fulfill({
+					json: approved
+						? {
+								status: "ready",
+								servers: [
+									{ id: "home", name: "Home" },
+									{ id: "cabin", name: "Cabin" },
+								],
+							}
+						: { status: "pending" },
+				}),
+			);
+			await page.route("**/api/connections/plex/link/select", async (route) => {
+				selections.push(route.request().postDataJSON());
+				await route.fulfill({ json: { connection: linked } });
+			});
+			await page.getByTestId("connections-add-plex").click();
+			const dialog = page.getByRole("dialog");
+			await expect(dialog.getByLabel("Plex token")).toHaveCount(0);
+			await dialog.getByRole("button", { name: "Connect with Plex" }).click();
+			await dialog.getByRole("button", { name: "Cabin" }).click();
+			await expect(dialog).toHaveCount(0);
+			expect(selections).toEqual([{ attemptId: "setup", serverId: "cabin" }]);
+		});
+
 		test("opens a form for every other provider it offers", async ({
 			page,
 		}) => {

@@ -288,6 +288,42 @@ export async function enableImmichWrites(
 	return connection;
 }
 
+type PlexServerChoice = { id: string; name: string };
+type PlexReady = { status: "ready"; servers: PlexServerChoice[] };
+export function startPlexLink(
+	connectionId: string | null,
+	signal: AbortSignal,
+) {
+	return postJson<
+		{ attemptId: string } & ({ authUrl: string; expiresAt: number } | PlexReady)
+	>(
+		"/api/connections/plex/link/start",
+		connectionId ? { connectionId } : {},
+		"Could not start Plex sign-in",
+		signal,
+	);
+}
+export function pollPlexLink(attemptId: string, signal: AbortSignal) {
+	return postJson<{ status: "pending" | "expired" } | PlexReady>(
+		"/api/connections/plex/link/status",
+		{ attemptId },
+		"Could not find Plex servers",
+		signal,
+	);
+}
+export function selectPlexServer(
+	attemptId: string,
+	serverId: string,
+	signal: AbortSignal,
+) {
+	return postJson<{ connection: ConnectionPublic }>(
+		"/api/connections/plex/link/select",
+		{ attemptId, serverId },
+		"Could not connect to the Plex server",
+		signal,
+	);
+}
+
 // POST /api/connections/plex/start — src/routes/api/connections/plex/start/+server.ts
 export async function startPlexConnect(
 	params: {

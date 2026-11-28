@@ -1,4 +1,5 @@
 <script lang="ts">
+import PlexHostedSetup from "./connections/PlexHostedSetup.svelte";
 import BoschHostedSetup from "./connections/BoschHostedSetup.svelte";
 // Connections redesign — the connect/reconnect wizard.
 //
@@ -533,8 +534,9 @@ const submitImmich = (event: Event) => {
 	);
 };
 
-// --- password-key (Plex) -------------------------------------------------
+// --- Advanced manual setup (Plex) -------------------------------------------------
 let plexServerUrl = $state(reconnectConfigString("origin"));
+let manualPlex = $state(false);
 let plexToken = $state("");
 let plexShowToken = $state(false);
 
@@ -1292,7 +1294,10 @@ const providerName = $derived(
 				/>
 				{#if submitting}
 					{@render connectingPanel()}
+				{:else if !manualPlex}
+					<PlexHostedSetup connectionId={initialReconnectConnectionId} {onConnected} {onClose} onManual={() => manualPlex = true} />
 				{:else}
+					<button type="button" class="btn-secondary mb-3" onclick={() => {manualPlex = false; plexToken = ""; clearError();}}>{$t("connections.wizard.plex.back")}</button>
 					<form onsubmit={submitPlex}>
 						<div class="mb-3">
 							<label class="settings-label" for="wizard-plex-server-url">

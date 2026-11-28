@@ -24,12 +24,17 @@ vi.mock("$lib/client/api/connections", () => ({
 	startOneDriveConnect: vi.fn(),
 	startOwnTracksConnect: vi.fn(),
 	startPlexConnect: vi.fn(),
+	startPlexLink: vi.fn(),
+	pollPlexLink: vi.fn(),
+	selectPlexServer: vi.fn(),
 }));
 
 import {
 	fetchHostedBoschSetup,
 	fetchOwnTracksDevices,
 	pollNextcloudConnect,
+	pollPlexLink,
+	selectPlexServer,
 	startAppleConnect,
 	startBoschPairing,
 	startCalDavConnect,
@@ -42,6 +47,7 @@ import {
 	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
+	startPlexLink,
 	updateHostedBoschGrants,
 } from "$lib/client/api/connections";
 
@@ -1059,7 +1065,144 @@ describe("ConnectWizardModal", () => {
 		});
 	});
 
-	describe("password-key (Plex)", () => {
+	describe("Plex sign-in", () => {
+		it("offers the same Plex sign-in link when popups are blocked and checks again on return", async () => {
+			vi.spyOn(window, "open").mockReturnValue(null);
+			const url = "https://app.plex.tv/auth#?sample";
+			vi.mocked(startPlexLink).mockResolvedValue({
+				attemptId: "current",
+				authUrl: url,
+				expiresAt: Date.now() + 60000,
+			});
+			vi.mocked(pollPlexLink)
+				.mockResolvedValueOnce({ status: "pending" })
+				.mockResolvedValueOnce({ status: "expired" });
+			render(ConnectWizardModal, baseProps({ provider: "plex" }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Connect with Plex" }),
+			);
+			expect(
+				(
+					await screen.findByRole("link", { name: "Open Plex sign-in" })
+				).getAttribute("href"),
+			).toBe(url);
+			await fireEvent.focus(window);
+			expect(await screen.findByRole("alert")).toHaveTextContent(
+				"This Plex sign-in has expired",
+			);
+			expect(
+				screen.getByRole("button", { name: "Connect with Plex" }),
+			).toBeEnabled();
+		});
+		it.each([
+			[403, "Plex hasn’t granted access to Cabin", "Check for servers again"],
+			[429, "Plex is busy", "Retry connection"],
+			[422, "AlfyAI couldn’t connect to Cabin", "Retry connection"],
+		] as const)(
+			"distinguishes selection failure %i and retries the authorized attempt",
+			async (status, explanation, action) => {
+				vi.spyOn(window, "open").mockReturnValue(null);
+				const ready = {
+					status: "ready" as const,
+					servers: [{ id: "cabin", name: "Cabin" }],
+				};
+				vi.mocked(startPlexLink).mockResolvedValue({
+					attemptId: "existing",
+					...ready,
+				});
+				vi.mocked(pollPlexLink).mockResolvedValue(ready);
+				vi.mocked(selectPlexServer)
+					.mockRejectedValueOnce(new ApiError("failed", { status }))
+					.mockResolvedValueOnce({ connection: {} as never });
+				const onConnected = vi.fn();
+				render(
+					ConnectWizardModal,
+					baseProps({ provider: "plex", onConnected }),
+				);
+				await fireEvent.click(
+					screen.getByRole("button", { name: "Connect with Plex" }),
+				);
+				expect(await screen.findByRole("alert")).toHaveTextContent(explanation);
+				await fireEvent.click(screen.getByRole("button", { name: action }));
+				await waitFor(() => expect(onConnected).toHaveBeenCalledOnce());
+				expect(startPlexLink).toHaveBeenCalledOnce();
+				if (status === 403) expect(pollPlexLink).toHaveBeenCalledOnce();
+			},
+		);
+		it("lets the user authorize Plex again when resuming a revoked grant", async () => {
+			vi.spyOn(window, "open").mockReturnValue(null);
+			vi.mocked(startPlexLink).mockRejectedValueOnce(
+				new ApiError("revoked", { status: 410 }),
+			);
+			render(ConnectWizardModal, baseProps({ provider: "plex" }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Connect with Plex" }),
+			);
+			expect(await screen.findByRole("alert")).toHaveTextContent(
+				"This Plex sign-in has expired",
+			);
+			expect(
+				screen.getByRole("button", { name: "Connect with Plex" }),
+			).toBeEnabled();
+		});
+		it("keeps an approved attempt when its only server is offline and connects on retry", async () => {
+			vi.spyOn(window, "open").mockReturnValue(null);
+			vi.mocked(startPlexLink).mockResolvedValue({
+				attemptId: "a1",
+				expiresAt: Date.now() + 20000,
+				authUrl: "https://app.plex.tv/auth#?test",
+			});
+			vi.mocked(pollPlexLink).mockResolvedValue({
+				status: "ready",
+				servers: [{ id: "living-room", name: "Living room" }],
+			});
+			vi.mocked(selectPlexServer)
+				.mockRejectedValueOnce(new ApiError("offline", { status: 422 }))
+				.mockResolvedValueOnce({ connection: {} as never });
+			const onConnected = vi.fn();
+			render(ConnectWizardModal, baseProps({ provider: "plex", onConnected }));
+			expect(screen.queryByLabelText("Plex token")).toBeNull();
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Connect with Plex" }),
+			);
+			await screen.findByRole("button", { name: "Retry connection" });
+			expect(screen.getByText(/Living room/)).toBeTruthy();
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Retry connection" }),
+			);
+			await waitFor(() => expect(onConnected).toHaveBeenCalledOnce());
+			expect(selectPlexServer).toHaveBeenCalledTimes(2);
+			expect(startPlexLink).toHaveBeenCalledOnce();
+		});
+		it("offers the servers by name and selects only the one the user chooses", async () => {
+			vi.spyOn(window, "open").mockReturnValue(null);
+			vi.mocked(startPlexLink).mockResolvedValue({
+				status: "ready",
+				attemptId: "previous",
+				servers: [
+					{ id: "s1", name: "Home" },
+					{ id: "s2", name: "Cabin" },
+				],
+			});
+			vi.mocked(selectPlexServer).mockResolvedValue({
+				connection: {} as never,
+			});
+			const onConnected = vi.fn();
+			render(ConnectWizardModal, baseProps({ provider: "plex", onConnected }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Connect with Plex" }),
+			);
+			const server = await screen.findByRole("button", { name: "Cabin" });
+			expect(selectPlexServer).not.toHaveBeenCalled();
+			await fireEvent.click(server);
+			await waitFor(() => expect(onConnected).toHaveBeenCalledOnce());
+			expect(selectPlexServer).toHaveBeenCalledWith(
+				"previous",
+				"s2",
+				expect.any(AbortSignal),
+			);
+		});
+
 		it("submits serverUrl/token and calls onConnected on success", async () => {
 			mockStartPlexConnect.mockResolvedValue({
 				connection: { id: "conn-plex", provider: "plex" },
@@ -1067,6 +1210,9 @@ describe("ConnectWizardModal", () => {
 			const onConnected = vi.fn();
 
 			render(ConnectWizardModal, baseProps({ provider: "plex", onConnected }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Use a server URL and token" }),
+			);
 
 			await fireEvent.input(screen.getByLabelText("Server URL"), {
 				target: { value: "https://plex.example.com" },
