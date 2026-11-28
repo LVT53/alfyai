@@ -428,7 +428,7 @@ const toolRowsDict = {
 		"toolRows.connector.media.category_disabled":
 			"This category is turned off for this Plex server in Settings › Connections.",
 		"toolRows.connector.media.history_unavailable":
-			"Personal watch history is unavailable on this shared Plex server.",
+			"Plex couldn’t provide your personal playback history on this server.",
 		"toolRows.connector.media.not_connected":
 			"Media isn't connected yet. You can connect it in Settings › Connections.",
 		"toolRows.connector.media.needs_reconnect":
@@ -1025,7 +1025,7 @@ const toolRowsDict = {
 		"toolRows.connector.media.category_disabled":
 			"Ez a kategória ki van kapcsolva ehhez a Plex-szerverhez a Beállítások › Kapcsolatok alatt.",
 		"toolRows.connector.media.history_unavailable":
-			"A személyes megtekintési előzmények nem érhetők el ezen a megosztott Plex-szerveren.",
+			"A Plex nem tudta lekérni a személyes lejátszási előzményeidet ezen a szerveren.",
 		"toolRows.connector.media.not_connected":
 			"A média még nincs csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod.",
 		"toolRows.connector.media.needs_reconnect":

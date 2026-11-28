@@ -491,6 +491,7 @@ export async function plexWatchHistory(
 	);
 	const limit = clampLimit(params.limit);
 	const history: WatchEntry[] = [];
+	let sharedAccount: number | undefined;
 	for (const section of sections) {
 		let linkedAccount: number | undefined;
 
@@ -499,12 +500,9 @@ export async function plexWatchHistory(
 			connectionId,
 			(config) => {
 				linkedAccount = config.accountId;
-				if (linkedAccount === undefined)
-					throw new PlexError(
-						"Plex history is unavailable for this account",
-						"history_unavailable",
-					);
-				let queryString = `sort=viewedAt:desc&limit=${limit}&accountID=${linkedAccount}`;
+				let queryString = `sort=viewedAt:desc&limit=${limit}`;
+				if (linkedAccount !== undefined)
+					queryString += `&accountID=${linkedAccount}`;
 				if (section)
 					queryString += `&librarySectionID=${encodeURIComponent(section)}`;
 				if (params.since) {
@@ -520,6 +518,12 @@ export async function plexWatchHistory(
 			// its own (only `limit=`), so it only ever asks for the first page.
 			{ size: limit, start: 0 },
 		);
+		if (response.status === 403) {
+			throw new PlexError(
+				"Plex denied personal playback history",
+				"history_unavailable",
+			);
+		}
 		if (!response.ok) {
 			throw new PlexError(
 				"Plex watch history request failed",
@@ -533,13 +537,33 @@ export async function plexWatchHistory(
 				"request_failed",
 			);
 		}
-		const entries = (body.MediaContainer.Metadata ?? [])
+		const metadata = body.MediaContainer.Metadata ?? [];
+		// PMS scopes a shared user's resource token to their own playback.
+		// Refuse the whole result if the server returns the owner (local ID 1),
+		// unidentified activity, or different accounts across section reads.
+		if (linkedAccount === undefined) {
+			for (const row of metadata) {
+				const id = row?.accountID;
+				if (
+					typeof id !== "number" ||
+					!Number.isSafeInteger(id) ||
+					id <= 1 ||
+					(sharedAccount !== undefined && id !== sharedAccount)
+				) {
+					throw new PlexError(
+						"Plex could not isolate personal history",
+						"history_unavailable",
+					);
+				}
+				sharedAccount = id;
+			}
+		}
+		const entries = metadata
 			.filter(
 				(entry) =>
 					permits(categories, entry.type) &&
 					(!params.type || entry.type === params.type) &&
-					linkedAccount !== undefined &&
-					entry.accountID === linkedAccount,
+					entry.accountID === (linkedAccount ?? sharedAccount),
 			)
 			.map(toWatchEntry)
 			.filter((entry): entry is WatchEntry => entry !== null);

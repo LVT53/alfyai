@@ -280,7 +280,7 @@ function mapAdapterError(err: unknown): {
 			case "history_unavailable":
 				return {
 					message:
-						"Personal watch history is unavailable for this shared Plex server. Library and continue-watching reads remain available.",
+						"Plex could not provide playback history for this account on this server.",
 					code: "history_unavailable",
 				};
 			case "needs_reauth":

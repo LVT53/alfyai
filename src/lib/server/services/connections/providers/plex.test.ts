@@ -940,16 +940,43 @@ describe("plexAdapter.checkHealth", () => {
 		expect(result.status).toBe("needs_reauth");
 		expect(fetch).not.toHaveBeenCalled();
 	});
-	it("does not query household history from a shared linked connection", async () => {
-		seedUser(USER_ID);
-		const conn = await seedPlexConnection({ accountId: null });
-		const { plexWatchHistory } = await import("./plex");
-		const fetch = vi.fn<typeof globalThis.fetch>();
-		await expect(
-			plexWatchHistory(USER_ID, conn.id, {}, { fetch }),
-		).rejects.toMatchObject({ code: "history_unavailable" });
-		expect(fetch).not.toHaveBeenCalled();
-	});
+	it.each([
+		{ accounts: [7, 7], allowed: true },
+		{ accounts: [], allowed: true },
+		{ accounts: [1], allowed: false },
+		{ accounts: [7, 8], allowed: false },
+		{ accounts: [undefined], allowed: false },
+	])(
+		"uses only the shared user's personal Plex history ($accounts)",
+		async ({ accounts, allowed }) => {
+			seedUser(USER_ID);
+			const conn = await seedPlexConnection({ accountId: null });
+			const { plexWatchHistory } = await import("./plex");
+			const fetch = vi.fn(async (input: RequestInfo | URL) => {
+				const url = new URL(String(input));
+				expect(url.pathname).toBe("/status/sessions/history/all");
+				expect(url.searchParams.has("accountID")).toBe(false);
+				return jsonResponse(200, {
+					MediaContainer: {
+						size: accounts.length,
+						Metadata: accounts.map((accountID) => ({
+							accountID,
+							type: "track",
+							title: "Song",
+							viewedAt: 1750000000,
+						})),
+					},
+				});
+			});
+			const result = plexWatchHistory(USER_ID, conn.id, {}, { fetch });
+			if (allowed) expect(await result).toHaveLength(accounts.length);
+			else
+				await expect(result).rejects.toMatchObject({
+					code: "history_unavailable",
+				});
+			expect(fetch).toHaveBeenCalledTimes(1);
+		},
+	);
 
 	it("a successful library read -> connected", async () => {
 		seedUser(USER_ID);
