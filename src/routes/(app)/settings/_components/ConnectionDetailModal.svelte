@@ -50,7 +50,10 @@ import { TASKS_MODIFY_SCOPE } from "$lib/shared/google-tasks-scopes";
 import { DRIVE_MODIFY_SCOPE } from "$lib/shared/google-drive-scopes";
 import { GMAIL_MODIFY_SCOPE } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
-import { enabledPlexCategories, PLEX_CATEGORIES } from "$lib/shared/plex-categories";
+import {
+	enabledPlexCategories,
+	PLEX_CATEGORIES,
+} from "$lib/shared/plex-categories";
 import BehaviourRow from "./connections/BehaviourRow.svelte";
 import BoschBikeNames from "./connections/BoschBikeNames.svelte";
 import CapabilityRow from "./connections/CapabilityRow.svelte";
