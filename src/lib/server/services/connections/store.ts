@@ -3,6 +3,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import { userConnections } from "$lib/server/db/schema";
+import {
+	enabledPlexCategories,
+	PLEX_CATEGORIES,
+	type PlexCategory,
+} from "$lib/shared/plex-categories";
 import { grantedCapabilitiesFor } from "./granted";
 import { decryptConnectionSecret, encryptConnectionSecret } from "./vault";
 
@@ -24,6 +29,7 @@ export type ConnectionPublic = {
 	allowWrites: boolean;
 	writeAllowlist: string[];
 	capabilities: string[];
+	plexCategories?: PlexCategory[];
 	// Connections redesign — what the PROVIDER granted, as opposed to
 	// `capabilities`, which is what the user has switched on. Derived (never
 	// stored): see granted.ts. A capability in the provider's catalogue but
@@ -84,7 +90,19 @@ function toEpochSeconds(date: Date): number {
 // The ONLY place a raw row is turned into the public shape. Every field is
 // named explicitly; secret columns are never touched here.
 function toPublic(row: ConnectionRow): ConnectionPublic {
-	const capabilities = parseJsonArray(row.capabilitiesJson);
+	const stored = parseJsonArray(row.capabilitiesJson);
+	// Older Plex rows store just "media" (all enabled) or [] (all disabled).
+	// New rows also record the selected categories alongside the routing capability.
+	const plexCategories =
+		row.provider === "plex"
+			? enabledPlexCategories({ capabilities: stored })
+			: undefined;
+	const capabilities =
+		plexCategories === undefined
+			? stored
+			: plexCategories.length
+				? ["media"]
+				: [];
 	const config = parseJsonObject(row.configJson);
 	const oauthScopes = parseJsonArray(row.oauthScopesJson);
 	return {
@@ -106,6 +124,7 @@ function toPublic(row: ConnectionRow): ConnectionPublic {
 		defaultOn: row.defaultOn,
 		allowWrites: row.allowWrites,
 		writeAllowlist: parseJsonArray(row.writeAllowlistJson),
+		...(plexCategories && { plexCategories }),
 		capabilities,
 		grantedCapabilities: grantedCapabilitiesFor({
 			provider: row.provider as ConnectionProvider,
@@ -506,6 +525,43 @@ export async function setEnabledCapabilities(
 		.where(scoped(userId, id))
 		.returning();
 	return row ? toPublic(row) : null;
+}
+
+// Change one category in a write transaction so edits from two tabs compose.
+export function setPlexCategoryEnabled(
+	userId: string,
+	id: string,
+	category: PlexCategory,
+	enabled: boolean,
+): ConnectionPublic | null {
+	return db.transaction(
+		(tx) => {
+			const owned = and(
+				scoped(userId, id),
+				eq(userConnections.provider, "plex"),
+			);
+			const row = tx.select().from(userConnections).where(owned).get();
+			if (!row) return null;
+			const before = enabledPlexCategories({
+				capabilities: parseJsonArray(row.capabilitiesJson),
+			});
+			const categories = PLEX_CATEGORIES.filter((c) =>
+				c === category ? enabled : before.includes(c),
+			);
+			const stored = categories.length ? ["media", ...categories] : [];
+			const updated = tx
+				.update(userConnections)
+				.set({
+					capabilitiesJson: JSON.stringify(stored),
+					updatedAt: new Date(),
+				})
+				.where(owned)
+				.returning()
+				.get();
+			return toPublic(updated);
+		},
+		{ behavior: "immediate" },
+	);
 }
 
 // Issue 7.1 — persists the (already-validated/normalized by the caller)

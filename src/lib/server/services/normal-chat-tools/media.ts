@@ -6,6 +6,7 @@ import {
 	type LibrarySearchResult,
 	type LibrarySection,
 	PlexError,
+	plexBrowseCatalog,
 	plexLibrarySearch,
 	plexLibrarySections,
 	plexOnDeck,
@@ -14,6 +15,10 @@ import {
 } from "$lib/server/services/connections/providers/plex";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import {
+	enabledPlexCategories,
+	plexCategoryForType,
+} from "$lib/shared/plex-categories";
 import type { ToolReasonCode } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
@@ -23,35 +28,67 @@ import {
 	withReasonCode,
 } from "./shared";
 
-// Read-only by construction: this schema's `action` enum only ever lists
-// read actions (watch_history, libraries, continue_watching, library_search).
-// Plex NEVER gets a write path — there is no scrobble/markWatched/
-// markPlayed/rate action here, not now and not in a later phase. A dedicated
-// test in media.test.ts pins this enum.
-export const mediaToolInputSchema = z.object({
-	action: z.enum([
-		"watch_history",
-		"libraries",
-		"continue_watching",
-		"library_search",
-	]),
-	query: z.string().optional(),
-	since: z.string().optional(),
-	limit: z.number().optional(),
-	// Multi-connection disambiguation — target ONE specific Media (Plex)
-	// connection when the user has more than one server. A provider name
-	// ("plex"), a connection label, or the account identifier all work — see
-	// selectConnection in resolve.ts. Omitted -> the first connection
-	// alphabetically (see pickDefaultConnection); this tool is read-only, so
-	// there is no write-preference branch.
-	account: z.string().optional(),
-});
+// Every action reads the connected user's library. No playback or edits.
+export const mediaToolInputSchema = z
+	.object({
+		action: z.enum([
+			"watch_history",
+			"libraries",
+			"continue_watching",
+			"library_search",
+			"recent",
+			"details",
+			"children",
+			"playlists",
+			"playlist_items",
+			"collections",
+			"extras",
+		]),
+		type: z
+			.enum(["movie", "show", "season", "episode", "artist", "album", "track"])
+			.optional(),
+		id: z
+			.string()
+			.regex(/^\d{1,20}$/)
+			.optional()
+			.describe(
+				"Plex ID from a previous result, required for details, children, playlist_items and extras.",
+			),
+		artist: z.string().optional(),
+		album: z.string().optional(),
+		offset: z
+			.number()
+			.int()
+			.nonnegative()
+			.max(1_000_000)
+			.optional()
+			.describe("Catalog offset. For recent additions, at most 1000."),
+		query: z.string().optional(),
+		since: z.string().optional(),
+		limit: z.number().optional(),
+		// Multi-connection disambiguation — target ONE specific Media (Plex)
+		// connection when the user has more than one server. A provider name
+		// ("plex"), a connection label, or the account identifier all work — see
+		// selectConnection in resolve.ts. Omitted -> the first connection
+		// alphabetically (see pickDefaultConnection); this tool is read-only, so
+		// there is no write-preference branch.
+		account: z.string().optional(),
+	})
+	.refine((input) => input.action !== "recent" || (input.offset ?? 0) <= 1000, {
+		message: "Recent additions support offsets up to 1000.",
+		path: ["offset"],
+	});
 
 export type MediaToolInput = z.infer<typeof mediaToolInputSchema>;
 
 export function sanitizeMediaToolInput(input: MediaToolInput): MediaToolInput {
 	return {
 		action: input.action,
+		...(input.type ? { type: input.type } : {}),
+		...(input.id ? { id: input.id } : {}),
+		...(input.artist?.trim() ? { artist: input.artist.trim() } : {}),
+		...(input.album?.trim() ? { album: input.album.trim() } : {}),
+		...(input.offset !== undefined ? { offset: input.offset } : {}),
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.since ? { since: input.since.trim() } : {}),
 		...(input.limit !== undefined ? { limit: input.limit } : {}),
@@ -61,13 +98,11 @@ export function sanitizeMediaToolInput(input: MediaToolInput): MediaToolInput {
 
 export type MediaCitation = { label: string; url: string };
 
-// One watch-history entry as surfaced to the model. `title`/`show` are the
-// "raw watch details" the locality Option-A distill gate (below) strips when
-// active — mirrors calendar.ts keeping id/start/end while stripping summary/
-// location. `type`/`viewedAt`/`season`/`episode`/`library` are structural
-// metadata; only title/show carry a recognizable name of what was watched,
-// so those are the fields treated as sensitive raw content.
+// History includes both video and listening activity. Names are withheld from
+// cloud models when private summarization is enabled.
 export type MediaToolWatchItem = {
+	artist?: string;
+	album?: string;
 	title?: string;
 	show?: string;
 	season?: number;
@@ -129,6 +164,8 @@ export type MediaToolOutcome = {
 function toToolWatchItem(entry: WatchEntry): MediaToolWatchItem {
 	return {
 		title: entry.title,
+		...(entry.artist ? { artist: entry.artist } : {}),
+		...(entry.album ? { album: entry.album } : {}),
 		...(entry.show ? { show: entry.show } : {}),
 		...(entry.season !== undefined ? { season: entry.season } : {}),
 		...(entry.episode !== undefined ? { episode: entry.episode } : {}),
@@ -156,7 +193,14 @@ function toToolOnDeckItem(entry: ContinueWatchingItem): MediaToolOnDeckItem {
 
 // Shared by watch_history and continue_watching citations — both item shapes
 // carry the same optional title/show pair.
-function citationLabel(item: { title?: string; show?: string }): string {
+function citationLabel(item: {
+	title?: string;
+	show?: string;
+	artist?: string;
+	album?: string;
+}): string {
+	if (item.artist && item.title)
+		return [item.artist, item.album, item.title].filter(Boolean).join(" — ");
 	if (item.show && item.title) return `${item.show} — ${item.title}`;
 	if (item.title) return item.title;
 	return "(watched item)";
@@ -242,7 +286,7 @@ function mapAdapterError(err: unknown): {
 			case "needs_reauth":
 				return {
 					message:
-						"Your Plex connection needs to be reconnected before I can access your watch history. Please reconnect it in Settings.",
+						"Your Plex connection needs to be reconnected before I can read your library. Please reconnect it in Settings.",
 					code,
 				};
 			case "connection_not_found":
@@ -280,8 +324,8 @@ function watchHistoryOutcome(
 	const candidates = citations.map(toCandidate);
 	const message =
 		items.length === 0
-			? "No watch history found."
-			: `Found ${items.length} watched ${items.length === 1 ? "item" : "items"}.`;
+			? "No playback history found."
+			: `Found ${items.length} played ${items.length === 1 ? "item" : "items"}.`;
 	return buildPayload({
 		success: true,
 		action: "watch_history",
@@ -340,7 +384,8 @@ function onDeckOutcome(
 }
 
 // GAP B3 — library search. Not gated by Option A (see MediaToolLibrarySearchItem).
-function librarySearchOutcome(
+function catalogOutcome(
+	action: MediaToolInput["action"],
 	conn: ConnectionPublic,
 	result: LibrarySearchResult,
 	ambiguous: boolean,
@@ -354,10 +399,17 @@ function librarySearchOutcome(
 			: `Found ${totalCount} matching ${totalCount === 1 ? "title" : "titles"} in your library${shown}.`;
 	return buildPayload({
 		success: true,
-		action: "library_search",
+		action,
 		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
 		librarySearch: items,
 		libraryMatchCount: totalCount,
+		candidates: items.map((item) => {
+			const label = citationLabel(item);
+			return {
+				...toCandidate({ label, url: "" }),
+				id: `media:${conn.id}:${item.id ?? label}`,
+			};
+		}),
 	});
 }
 
@@ -381,7 +433,7 @@ function redactCitationsForModel(
 		const viewedAt = items[index]?.viewedAt;
 		return {
 			...citation,
-			label: viewedAt ? `Watched item at ${viewedAt}` : fallbackLabel,
+			label: viewedAt ? `Played item at ${viewedAt}` : fallbackLabel,
 		};
 	});
 }
@@ -416,7 +468,13 @@ function distillMediaReadOutcome(params: {
 	// Loosely typed to the fields this gate actually needs — both
 	// MediaToolWatchItem (viewedAt required) and MediaToolOnDeckItem (no
 	// viewedAt at all) satisfy it structurally.
-	const items: { title?: string; show?: string; viewedAt?: string }[] =
+	const items: {
+		title?: string;
+		show?: string;
+		artist?: string;
+		album?: string;
+		viewedAt?: string;
+	}[] =
 		action === "watch_history" || action === "continue_watching"
 			? isHistory
 				? outcome.modelPayload.results
@@ -425,9 +483,12 @@ function distillMediaReadOutcome(params: {
 
 	const rawText = items
 		.map((item) => {
-			const descriptors = [item.show, item.title].filter(
-				(value): value is string => Boolean(value),
-			);
+			const descriptors = [
+				item.show,
+				item.artist,
+				item.album,
+				item.title,
+			].filter((value): value is string => Boolean(value));
 			if (descriptors.length === 0) return null;
 			const label = descriptors.join(" — ");
 			return isHistory ? `${label} (${item.viewedAt})` : label;
@@ -451,7 +512,13 @@ function distillMediaReadOutcome(params: {
 		isHistory
 			? {
 					results: outcome.modelPayload.results.map((item) => {
-						const { title: _title, show: _show, ...rest } = item;
+						const {
+							title: _title,
+							show: _show,
+							artist: _artist,
+							album: _album,
+							...rest
+						} = item;
 						return rest;
 					}),
 				}
@@ -490,8 +557,7 @@ function distillMediaReadOutcome(params: {
 	});
 }
 
-// Resolves the user's Media (Plex) connection(s) and executes a
-// watch_history/libraries/continue_watching/library_search lookup,
+// Resolves the user's Media (Plex) connection(s) and executes a read,
 // degrading gracefully (never throwing) so a connection problem never aborts
 // the chat turn: no connection, ambiguity, and adapter failures all resolve
 // to a `{ success: false, message }`-shaped payload instead. Read-only, and
@@ -503,7 +569,9 @@ export async function runMediaTool(
 	modelId: string,
 ): Promise<MediaToolOutcome> {
 	const notConnectedMessage =
-		"You don't have a Media connection set up yet. Connect your Plex server in Settings to check your watch history.";
+		input.action === "watch_history"
+			? "You don't have a Media connection set up yet. Connect your Plex server in Settings to check your watch history."
+			: "Connect your Plex server in Settings to read your library.";
 
 	const result = await withCapabilityConnection(
 		userId,
@@ -511,6 +579,17 @@ export async function runMediaTool(
 		{ account: input.account },
 		async (conn, { ambiguous, connections }): Promise<MediaToolOutcome> => {
 			try {
+				const requestedType =
+					input.type ?? (input.action === "recent" ? "album" : undefined);
+				const category = requestedType && plexCategoryForType(requestedType);
+				if (category && !enabledPlexCategories(conn).includes(category)) {
+					return buildPayload({
+						success: false,
+						action: input.action,
+						reason: "category_disabled",
+						message: `The ${category} category is turned off for this Plex connection in Settings.`,
+					});
+				}
 				if (input.action === "libraries") {
 					const sections = await plexLibrarySections(userId, conn.id);
 					return librariesOutcome(conn, sections, ambiguous, connections);
@@ -518,32 +597,63 @@ export async function runMediaTool(
 
 				if (input.action === "continue_watching") {
 					const items = await plexOnDeck(userId, conn.id, {
+						...(input.type && { type: input.type }),
 						...(input.limit !== undefined ? { limit: input.limit } : {}),
 					});
 					const outcome = onDeckOutcome(conn, items, ambiguous, connections);
 					return distillMediaReadOutcome({ userId, modelId, input, outcome });
 				}
 
-				if (input.action === "library_search") {
-					const result = await plexLibrarySearch(userId, conn.id, {
-						...(input.query !== undefined ? { query: input.query } : {}),
+				if (input.action === "watch_history") {
+					const entries = await plexWatchHistory(userId, conn.id, {
+						...(input.type && { type: input.type }),
+						...(input.since !== undefined ? { since: input.since } : {}),
 						...(input.limit !== undefined ? { limit: input.limit } : {}),
+						...(input.query !== undefined ? { query: input.query } : {}),
 					});
-					return librarySearchOutcome(conn, result, ambiguous, connections);
+					const outcome = watchHistoryOutcome(
+						conn,
+						entries,
+						ambiguous,
+						connections,
+					);
+					return distillMediaReadOutcome({ userId, modelId, input, outcome });
 				}
-
-				const entries = await plexWatchHistory(userId, conn.id, {
-					...(input.since !== undefined ? { since: input.since } : {}),
-					...(input.limit !== undefined ? { limit: input.limit } : {}),
-					...(input.query !== undefined ? { query: input.query } : {}),
-				});
-				const outcome = watchHistoryOutcome(
+				if (
+					["details", "children", "playlist_items", "extras"].includes(
+						input.action,
+					) &&
+					!input.id
+				) {
+					return buildPayload({
+						success: false,
+						action: input.action,
+						reason: "item_not_found",
+						message: "Find the Plex item first, then pass its returned id.",
+					});
+				}
+				const { type, offset, limit } = input;
+				const page = { type, offset, limit };
+				const result =
+					input.action === "library_search"
+						? await plexLibrarySearch(userId, conn.id, {
+								...page,
+								query: input.query,
+								artist: input.artist,
+								album: input.album,
+							})
+						: await plexBrowseCatalog(userId, conn.id, {
+								...page,
+								operation: input.action,
+								id: input.id,
+							});
+				return catalogOutcome(
+					input.action,
 					conn,
-					entries,
+					result,
 					ambiguous,
 					connections,
 				);
-				return distillMediaReadOutcome({ userId, modelId, input, outcome });
 			} catch (err) {
 				const failure = mapAdapterError(err);
 				return buildPayload({

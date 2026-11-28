@@ -10,6 +10,12 @@
 // Hosted sign-in uses the selected server and the user's encrypted Plex
 // device grant.
 
+import {
+	enabledPlexCategories,
+	PLEX_CATEGORIES,
+	type PlexCategory,
+	plexCategoryForType,
+} from "$lib/shared/plex-categories";
 import { registerConnectionAdapter } from "../adapters";
 import { ConnectionHttpError } from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
@@ -17,9 +23,19 @@ import {
 	type ConnectionPublic,
 	createConnection,
 	findConnectionByAccount,
+	getConnection,
 	getConnectionWithCredential,
 	updateConnection,
 } from "../store";
+import {
+	type CatalogItem,
+	type CatalogType,
+	catalogItem,
+	parseCatalogPage,
+	playlistAllowed,
+	plexTypeId,
+	validPlexId,
+} from "./plex-catalog";
 import type { PlexDevice, PlexServerResource } from "./plex-cloud";
 import {
 	type LinkedPlexSecret,
@@ -166,6 +182,8 @@ export async function connectLinkedPlex(
 // ---------------------------------------------------------------------------
 
 export type WatchEntry = {
+	artist?: string;
+	album?: string;
 	title: string;
 	show?: string;
 	season?: number;
@@ -390,6 +408,18 @@ async function plexAuthorizedRequest(
 	return read(renewed.config.origin, buildPath(renewed.config), renewed.token);
 }
 
+async function readCategories(userId: string, connectionId: string) {
+	const conn = await getConnection(userId, connectionId);
+	if (conn?.provider !== "plex")
+		throw new PlexError("Plex connection not found", "connection_not_found");
+	return enabledPlexCategories(conn);
+}
+
+function permits(categories: readonly PlexCategory[], type: unknown) {
+	const category = typeof type === "string" && plexCategoryForType(type);
+	return !!category && categories.includes(category);
+}
+
 const DEFAULT_HISTORY_LIMIT = 50;
 const MAX_HISTORY_LIMIT = 200;
 
@@ -405,9 +435,17 @@ function toWatchEntry(entry: HistoryMetadataEntry): WatchEntry | null {
 	if (!entry.title || !entry.type || entry.viewedAt === undefined) return null;
 	return {
 		title: entry.title,
-		...(entry.grandparentTitle ? { show: entry.grandparentTitle } : {}),
-		...(entry.parentIndex !== undefined ? { season: entry.parentIndex } : {}),
-		...(entry.index !== undefined ? { episode: entry.index } : {}),
+		...(entry.type === "track"
+			? { artist: entry.grandparentTitle, album: entry.parentTitle }
+			: entry.grandparentTitle
+				? { show: entry.grandparentTitle }
+				: {}),
+		...(entry.type === "episode" && entry.parentIndex !== undefined
+			? { season: entry.parentIndex }
+			: {}),
+		...(entry.type === "episode" && entry.index !== undefined
+			? { episode: entry.index }
+			: {}),
 		type: entry.type,
 		viewedAt: new Date(entry.viewedAt * 1000).toISOString(),
 		...(entry.librarySectionTitle
@@ -420,7 +458,9 @@ function matchesQuery(entry: WatchEntry, query: string): boolean {
 	const needle = query.trim().toLowerCase();
 	if (!needle) return true;
 	if (entry.title.toLowerCase().includes(needle)) return true;
-	return Boolean(entry.show?.toLowerCase().includes(needle));
+	return [entry.show, entry.artist, entry.album].some((label) =>
+		label?.toLowerCase().includes(needle),
+	);
 }
 
 // `GET {origin}/status/sessions/history/all` — the query string is built by
@@ -433,57 +473,84 @@ function matchesQuery(entry: WatchEntry, query: string): boolean {
 export async function plexWatchHistory(
 	userId: string,
 	connectionId: string,
-	params: { since?: string; limit?: number; query?: string },
+	params: {
+		since?: string;
+		limit?: number;
+		query?: string;
+		type?: CatalogType;
+	},
 	opts?: FetchOpt,
 ): Promise<WatchEntry[]> {
-	const limit = clampLimit(params.limit);
-	let linkedAccount: number | undefined;
-
-	const response = await plexAuthorizedRequest(
+	const categories = await readCategories(userId, connectionId);
+	const sections = await historySections(
 		userId,
 		connectionId,
-		(config) => {
-			linkedAccount = config.accountId;
-			if (linkedAccount === undefined)
-				throw new PlexError(
-					"Plex history is unavailable for this account",
-					"history_unavailable",
-				);
-			let queryString = `sort=viewedAt:desc&limit=${limit}&accountID=${linkedAccount}`;
-			if (params.since) {
-				const sinceDate = new Date(params.since);
-				if (!Number.isNaN(sinceDate.getTime())) {
-					queryString += `&viewedAt>=${Math.floor(sinceDate.getTime() / 1000)}`;
-				}
-			}
-			return `/status/sessions/history/all?${queryString}`;
-		},
+		categories,
+		params.type,
 		opts,
-		// -Start is always 0: this call has no offset/pagination parameter of
-		// its own (only `limit=`), so it only ever asks for the first page.
-		{ size: limit, start: 0 },
 	);
-	if (!response.ok) {
-		throw new PlexError("Plex watch history request failed", "request_failed");
-	}
-	const body: unknown = await response.json().catch(() => null);
-	if (!isValidHistoryResponse(body)) {
-		throw new PlexError(
-			"Plex returned an unexpected response",
-			"request_failed",
+	const limit = clampLimit(params.limit);
+	const history: WatchEntry[] = [];
+	for (const section of sections) {
+		let linkedAccount: number | undefined;
+
+		const response = await plexAuthorizedRequest(
+			userId,
+			connectionId,
+			(config) => {
+				linkedAccount = config.accountId;
+				if (linkedAccount === undefined)
+					throw new PlexError(
+						"Plex history is unavailable for this account",
+						"history_unavailable",
+					);
+				let queryString = `sort=viewedAt:desc&limit=${limit}&accountID=${linkedAccount}`;
+				if (section)
+					queryString += `&librarySectionID=${encodeURIComponent(section)}`;
+				if (params.since) {
+					const sinceDate = new Date(params.since);
+					if (!Number.isNaN(sinceDate.getTime())) {
+						queryString += `&viewedAt>=${Math.floor(sinceDate.getTime() / 1000)}`;
+					}
+				}
+				return `/status/sessions/history/all?${queryString}`;
+			},
+			opts,
+			// -Start is always 0: this call has no offset/pagination parameter of
+			// its own (only `limit=`), so it only ever asks for the first page.
+			{ size: limit, start: 0 },
 		);
+		if (!response.ok) {
+			throw new PlexError(
+				"Plex watch history request failed",
+				"request_failed",
+			);
+		}
+		const body: unknown = await response.json().catch(() => null);
+		if (!isValidHistoryResponse(body)) {
+			throw new PlexError(
+				"Plex returned an unexpected response",
+				"request_failed",
+			);
+		}
+		const entries = (body.MediaContainer.Metadata ?? [])
+			.filter(
+				(entry) =>
+					permits(categories, entry.type) &&
+					(!params.type || entry.type === params.type) &&
+					linkedAccount !== undefined &&
+					entry.accountID === linkedAccount,
+			)
+			.map(toWatchEntry)
+			.filter((entry): entry is WatchEntry => entry !== null);
+		const filtered = params.query
+			? entries.filter((entry) => matchesQuery(entry, params.query as string))
+			: entries;
+		history.push(...filtered);
 	}
-	const entries = (body.MediaContainer.Metadata ?? [])
-		.filter(
-			(entry) =>
-				linkedAccount !== undefined && entry.accountID === linkedAccount,
-		)
-		.map(toWatchEntry)
-		.filter((entry): entry is WatchEntry => entry !== null);
-	const filtered = params.query
-		? entries.filter((entry) => matchesQuery(entry, params.query as string))
-		: entries;
-	return filtered.slice(0, limit);
+	if (sections.length > 1)
+		history.sort((a, b) => b.viewedAt.localeCompare(a.viewedAt));
+	return history.slice(0, limit);
 }
 
 // GET /library/sections has no limit/offset parameter of its own — a user's
@@ -493,6 +560,31 @@ export async function plexWatchHistory(
 // generous fixed ceiling (well above any real deployment) rather than a
 // value derived from a query param this call doesn't have; -Start is always
 // 0 for the same reason plexWatchHistory's is when it has no `since`/offset.
+async function historySections(
+	userId: string,
+	connectionId: string,
+	categories: readonly PlexCategory[],
+	type: CatalogType | undefined,
+	opts?: FetchOpt,
+): Promise<(string | undefined)[]> {
+	if (!categories.length || (type && !permits(categories, type))) return [];
+	if (!type && categories.length === PLEX_CATEGORIES.length) return [undefined];
+	const sections = await fetchLibrarySectionsWithKeys(
+		userId,
+		connectionId,
+		categories,
+		opts,
+	);
+	return sections
+		.filter(
+			(section) =>
+				!type ||
+				plexCategoryForType(section.type) === plexCategoryForType(type),
+		)
+		.slice(0, MAX_SEARCH_SECTIONS)
+		.map((s) => s.key);
+}
+
 const LIBRARY_SECTIONS_CONTAINER_SIZE = 200;
 
 // Shared by plexLibrarySections (public, key-stripped) and plexLibrarySearch
@@ -502,6 +594,7 @@ const LIBRARY_SECTIONS_CONTAINER_SIZE = 200;
 async function fetchLibrarySectionsWithKeys(
 	userId: string,
 	connectionId: string,
+	categories: readonly PlexCategory[],
 	opts?: FetchOpt,
 ): Promise<{ key: string; title: string; type: string }[]> {
 	const response = await plexAuthorizedRequest(
@@ -528,7 +621,8 @@ async function fetchLibrarySectionsWithKeys(
 		(directory): directory is { key: string; title: string; type: string } =>
 			typeof directory.key === "string" &&
 			typeof directory.title === "string" &&
-			typeof directory.type === "string",
+			typeof directory.type === "string" &&
+			permits(categories, directory.type),
 	);
 }
 
@@ -537,9 +631,12 @@ export async function plexLibrarySections(
 	connectionId: string,
 	opts?: FetchOpt,
 ): Promise<LibrarySection[]> {
+	const categories = await readCategories(userId, connectionId);
+	if (!categories.length) return [];
 	const sections = await fetchLibrarySectionsWithKeys(
 		userId,
 		connectionId,
+		categories,
 		opts,
 	);
 	return sections.map(({ title, type }) => ({ title, type }));
@@ -572,6 +669,7 @@ export type ContinueWatchingItem = {
 };
 
 type OnDeckMetadataEntry = {
+	lastViewedAt?: number;
 	title?: string;
 	type?: string;
 	grandparentTitle?: string;
@@ -638,29 +736,51 @@ function toContinueWatchingItem(
 export async function plexOnDeck(
 	userId: string,
 	connectionId: string,
-	params: { limit?: number } = {},
+	params: { limit?: number; type?: CatalogType } = {},
 	opts?: FetchOpt,
 ): Promise<ContinueWatchingItem[]> {
-	const limit = clampOnDeckLimit(params.limit);
-
-	const response = await plexAuthorizedRequest(
+	const categories = await readCategories(userId, connectionId);
+	const sections = await historySections(
 		userId,
 		connectionId,
-		() => `/library/onDeck?limit=${limit}`,
+		categories,
+		params.type,
 		opts,
-		{ size: limit, start: 0 },
 	);
-	if (!response.ok) {
-		throw new PlexError("Plex on-deck request failed", "request_failed");
-	}
-	const body: unknown = await response.json().catch(() => null);
-	if (!isValidOnDeckResponse(body)) {
-		throw new PlexError(
-			"Plex returned an unexpected response",
-			"request_failed",
+	const queue: OnDeckMetadataEntry[] = [];
+	const limit = clampOnDeckLimit(params.limit);
+
+	for (const section of sections) {
+		const response = await plexAuthorizedRequest(
+			userId,
+			connectionId,
+			() =>
+				section
+					? `/library/sections/${encodeURIComponent(section)}/onDeck?limit=${limit}`
+					: `/library/onDeck?limit=${limit}`,
+			opts,
+			{ size: limit, start: 0 },
 		);
+		if (!response.ok) {
+			throw new PlexError("Plex on-deck request failed", "request_failed");
+		}
+		const body: unknown = await response.json().catch(() => null);
+		if (!isValidOnDeckResponse(body)) {
+			throw new PlexError(
+				"Plex returned an unexpected response",
+				"request_failed",
+			);
+		}
+		queue.push(...(body.MediaContainer.Metadata ?? []));
 	}
-	return (body.MediaContainer.Metadata ?? [])
+	if (sections.length > 1)
+		queue.sort((a, b) => (b.lastViewedAt ?? 0) - (a.lastViewedAt ?? 0));
+	return queue
+		.filter(
+			(entry) =>
+				permits(categories, entry.type) &&
+				(!params.type || entry.type === params.type),
+		)
 		.map(toContinueWatchingItem)
 		.filter((item): item is ContinueWatchingItem => item !== null)
 		.slice(0, limit);
@@ -677,121 +797,369 @@ export async function plexOnDeck(
 // powers the "how many X do I own" case without requiring a text query.
 // ---------------------------------------------------------------------------
 
-export type LibrarySearchItem = {
-	title: string;
-	year?: number;
-	type: string;
-	section: string;
-};
-
+export type LibrarySearchItem = CatalogItem;
 export type LibrarySearchResult = {
 	items: LibrarySearchItem[];
-	// The true match count across all searched sections (from each section's
-	// MediaContainer size/totalSize), NOT capped by `limit` — `items` is
-	// capped for readability, `totalCount` answers "how many do I own" even
-	// when there are more matches than were returned.
 	totalCount: number;
 };
-
-type LibrarySearchMetadataEntry = {
-	title?: string;
-	type?: string;
-	year?: number;
+type SearchParams = {
+	type?: CatalogType;
+	query?: string;
+	artist?: string;
+	album?: string;
+	offset?: number;
+	limit?: number;
 };
-
-type LibrarySearchResponse = {
-	MediaContainer: {
-		size?: number;
-		totalSize?: number;
-		Metadata?: LibrarySearchMetadataEntry[];
-	};
+type BrowseParams = {
+	operation:
+		| "recent"
+		| "details"
+		| "children"
+		| "playlists"
+		| "playlist_items"
+		| "collections"
+		| "extras";
+	id?: string;
+	type?: CatalogType;
+	limit?: number;
+	offset?: number;
 };
-
-function isValidLibrarySearchResponse(
-	value: unknown,
-): value is LibrarySearchResponse {
-	if (!value || typeof value !== "object") return false;
-	const mediaContainer = (value as Record<string, unknown>).MediaContainer;
-	if (!mediaContainer || typeof mediaContainer !== "object") return false;
-	const metadata = (mediaContainer as Record<string, unknown>).Metadata;
-	return metadata === undefined || Array.isArray(metadata);
-}
-
-const DEFAULT_LIBRARY_SEARCH_LIMIT = 25;
-const MAX_LIBRARY_SEARCH_LIMIT = 100;
-// Request-bounds guard: a search fans out to one request per library
-// section, in addition to the one `/library/sections` lookup — cap the
-// number of sections walked so a server with an unusually large number of
-// sections can't turn one tool call into an unbounded number of requests.
 const MAX_SEARCH_SECTIONS = 25;
+const MAX_RESULTS = 100;
 
-function clampLibrarySearchLimit(limit: number | undefined): number {
-	const requested = limit ?? DEFAULT_LIBRARY_SEARCH_LIMIT;
-	if (!Number.isFinite(requested) || requested <= 0) {
-		return DEFAULT_LIBRARY_SEARCH_LIMIT;
-	}
-	return Math.min(Math.floor(requested), MAX_LIBRARY_SEARCH_LIMIT);
+function pageWindow(params: { limit?: number; offset?: number }) {
+	const limit =
+		params.limit && Number.isFinite(params.limit) && params.limit > 0
+			? Math.min(MAX_RESULTS, Math.max(1, Math.floor(params.limit)))
+			: 25;
+	const start = params.offset ?? 0;
+	if (!Number.isSafeInteger(start) || start < 0 || start > 1000000)
+		throw new PlexError("Invalid Plex page", "invalid_config");
+	return { size: limit, start };
 }
 
-export async function plexLibrarySearch(
+async function catalogPage(
 	userId: string,
 	connectionId: string,
-	params: { query?: string; limit?: number },
+	path: string,
+	window: { size: number; start: number },
+	opts?: FetchOpt,
+	skipUnsupported = false,
+) {
+	const response = await plexAuthorizedRequest(
+		userId,
+		connectionId,
+		() => path,
+		opts,
+		window,
+	);
+	if (!response.ok) {
+		if (skipUnsupported && [400, 404].includes(response.status)) return null;
+		throw new PlexError("Plex catalog request failed", "request_failed");
+	}
+	const page = parseCatalogPage(await response.json().catch(() => null));
+	if (!page)
+		throw new PlexError(
+			"Plex returned an unexpected catalog response",
+			"request_failed",
+		);
+	return page;
+}
+
+function sectionUrl(
+	key: string,
+	params: SearchParams,
+	mode: "search" | "recent" | "collections",
+	type?: CatalogType,
+) {
+	const filter = new URLSearchParams();
+	if (params.query?.trim()) filter.set("title", params.query.trim());
+	if (type) filter.set("type", String(plexTypeId[type]));
+	if (params.artist?.trim()) filter.set("artist.title", params.artist.trim());
+	if (params.album?.trim()) filter.set("album.title", params.album.trim());
+	if (mode === "recent") filter.set("sort", "addedAt:desc");
+	const suffix = filter.size
+		? `?${filter.toString().replaceAll("+", "%20")}`
+		: "";
+	return (
+		"/library/sections/" +
+		encodeURIComponent(key) +
+		(mode === "collections" ? "/collections" : "/all") +
+		suffix
+	);
+}
+
+async function sectionCatalog(
+	userId: string,
+	connectionId: string,
+	params: SearchParams,
+	mode: "search" | "recent" | "collections",
 	opts?: FetchOpt,
 ): Promise<LibrarySearchResult> {
-	const limit = clampLibrarySearchLimit(params.limit);
-	const query = params.query?.trim();
-
-	const sections = (
-		await fetchLibrarySectionsWithKeys(userId, connectionId, opts)
-	).slice(0, MAX_SEARCH_SECTIONS);
-
-	const items: LibrarySearchItem[] = [];
-	let totalCount = 0;
-
-	for (const section of sections) {
-		const response = await plexAuthorizedRequest(
-			userId,
-			connectionId,
-			() =>
-				query
-					? `/library/sections/${encodeURIComponent(section.key)}/all?title=${encodeURIComponent(query)}`
-					: `/library/sections/${encodeURIComponent(section.key)}/all`,
-			opts,
-			{ size: MAX_LIBRARY_SEARCH_LIMIT, start: 0 },
+	const window = pageWindow(params);
+	if (mode === "recent" && window.start > 1000)
+		throw new PlexError(
+			"Recently added supports offsets up to 1,000",
+			"invalid_config",
 		);
-		// Best-effort per section: a section whose type doesn't support this
-		// query shape shouldn't fail the whole cross-library search — skip it
-		// and keep going. A 401 still propagates (plexAuthorizedRequest throws
-		// before returning a response in that case), so an invalid/expired
-		// token still surfaces as needs_reauth.
-		if (!response.ok) continue;
-		const body: unknown = await response.json().catch(() => null);
-		if (!isValidLibrarySearchResponse(body)) continue;
-
-		const entries = body.MediaContainer.Metadata ?? [];
-		totalCount +=
-			body.MediaContainer.totalSize ??
-			body.MediaContainer.size ??
-			entries.length;
-
-		for (const entry of entries) {
-			if (!entry.title || !entry.type) continue;
-			if (items.length < limit) {
-				items.push({
-					title: entry.title,
-					...(entry.year !== undefined ? { year: entry.year } : {}),
-					type: entry.type,
-					section: section.title,
+	const categories = await readCategories(userId, connectionId);
+	const result: LibrarySearchResult = { items: [], totalCount: 0 };
+	const kind = params.type && plexCategoryForType(params.type);
+	if (
+		!categories.length ||
+		(params.type && (!kind || !categories.includes(kind)))
+	)
+		return result;
+	const sections = await fetchLibrarySectionsWithKeys(
+		userId,
+		connectionId,
+		categories,
+		opts,
+	);
+	const recent = mode === "recent";
+	const sectionsToRead = sections
+		.filter((s) => !kind || plexCategoryForType(s.type) === kind)
+		.slice(0, MAX_SEARCH_SECTIONS);
+	const recentPages: {
+		items: CatalogItem[];
+		next: number;
+		total: number;
+		path: string;
+		section: (typeof sections)[number];
+	}[] = [];
+	for (const section of sectionsToRead) {
+		// An untyped title search in a music section covers all three levels.
+		const levels: (CatalogType | undefined)[] =
+			section.type === "artist" &&
+			!params.type &&
+			params.query &&
+			mode === "search"
+				? ["artist", "album", "track"]
+				: [params.type];
+		for (const type of levels) {
+			const path = sectionUrl(section.key, params, mode, type);
+			const start = recent ? 0 : Math.max(0, window.start - result.totalCount);
+			const page = await catalogPage(
+				userId,
+				connectionId,
+				path,
+				{ size: window.size, start },
+				opts,
+				true,
+			);
+			if (!page) continue;
+			const rows = projectSection(page, section, mode, type);
+			result.totalCount +=
+				rows.length === page.entries.length ? page.total : rows.length;
+			if (recent)
+				recentPages.push({
+					items: rows,
+					next: page.entries.length,
+					total: page.total,
+					path,
+					section,
 				});
+			else
+				result.items.push(...rows.slice(0, window.size - result.items.length));
+		}
+	}
+	if (recent) {
+		// Merge individually sorted sections. Fetch another page only when the
+		// winning section has run dry, preserving a single global offset.
+		for (let pos = 0; pos < window.start + window.size; pos++) {
+			const first = recentPages.reduce<
+				(typeof recentPages)[number] | undefined
+			>(
+				(winner, page) =>
+					page.items.length &&
+					(!winner ||
+						(page.items[0].addedAt ?? 0) > (winner.items[0].addedAt ?? 0))
+						? page
+						: winner,
+				undefined,
+			);
+			const item = first?.items.shift();
+			if (!first || !item) break;
+			if (pos >= window.start) result.items.push(item);
+			if (
+				!first.items.length &&
+				first.next < first.total &&
+				pos + 1 < window.start + window.size
+			) {
+				const page = await catalogPage(
+					userId,
+					connectionId,
+					first.path,
+					{ size: MAX_RESULTS, start: first.next },
+					opts,
+				);
+				if (page) {
+					first.items = projectSection(page, first.section, mode, params.type);
+					first.next += page.entries.length;
+				}
 			}
 		}
 	}
-
-	return { items, totalCount };
+	return result;
+}
+type Page = NonNullable<ReturnType<typeof parseCatalogPage>>;
+function projectSection(
+	page: Page,
+	section: { type: string; title: string },
+	mode: "search" | "recent" | "collections",
+	type?: CatalogType,
+) {
+	return page.entries
+		.filter((row) =>
+			mode === "collections"
+				? row.type === "collection"
+				: typeof row.type === "string" &&
+					plexCategoryForType(row.type) === plexCategoryForType(section.type) &&
+					(!type || type === row.type),
+		)
+		.map((row) => catalogItem(row, section.title))
+		.filter((row): row is CatalogItem => !!row);
 }
 
-// ---------------------------------------------------------------------------
+export function plexLibrarySearch(
+	userId: string,
+	connectionId: string,
+	params: SearchParams,
+	opts?: FetchOpt,
+) {
+	return sectionCatalog(userId, connectionId, params, "search", opts);
+}
+
+export async function plexBrowseCatalog(
+	userId: string,
+	connectionId: string,
+	params: BrowseParams,
+	opts?: FetchOpt,
+): Promise<LibrarySearchResult> {
+	if (params.operation === "recent")
+		return sectionCatalog(
+			userId,
+			connectionId,
+			{ ...params, type: params.type ?? "album" },
+			"recent",
+			opts,
+		);
+	if (params.operation === "collections")
+		return sectionCatalog(userId, connectionId, params, "collections", opts);
+	const categories = await readCategories(userId, connectionId);
+	const empty: LibrarySearchResult = { items: [], totalCount: 0 };
+	if (!categories.length || (params.type && !permits(categories, params.type)))
+		return empty;
+	const window = pageWindow(params);
+	const playlist =
+		params.operation === "playlists" || params.operation === "playlist_items";
+	if (!playlist || params.operation === "playlist_items") {
+		if (!validPlexId(params.id))
+			throw new PlexError(
+				"A numeric Plex item ID is required",
+				"invalid_config",
+			);
+	}
+	if (playlist) {
+		const music = categories.includes("music");
+		const video = categories.includes("movies") && categories.includes("tv");
+		if (!music && !video) return empty;
+		if (params.operation === "playlists") {
+			const kinds = (
+				params.type
+					? [plexCategoryForType(params.type) === "music" ? "audio" : "video"]
+					: ["audio", "video"]
+			).filter((kind) => (kind === "audio" ? music : video));
+			for (const kind of kinds) {
+				const page = await catalogPage(
+					userId,
+					connectionId,
+					`/playlists?playlistType=${kind}`,
+					{
+						size: window.size,
+						start: Math.max(0, window.start - empty.totalCount),
+					},
+					opts,
+				);
+				if (!page) continue;
+				const rows = page.entries
+					.filter((row) => row.type === "playlist" && row.playlistType === kind)
+					.map((row) => catalogItem(row, "", true))
+					.filter((item): item is CatalogItem => !!item);
+				empty.items.push(...rows.slice(0, window.size - empty.items.length));
+				empty.totalCount +=
+					rows.length === page.entries.length ? page.total : rows.length;
+			}
+			return empty;
+		}
+	}
+	const parentPath =
+		(playlist ? "/playlists/" : "/library/metadata/") + params.id;
+	const parent = await catalogPage(
+		userId,
+		connectionId,
+		parentPath,
+		{ size: 1, start: 0 },
+		opts,
+	);
+	const row = parent?.entries[0];
+	if (!row || !parent) return empty;
+	let enabled = permits(categories, row.type);
+	let section = parent.section || String(row.librarySectionTitle ?? "");
+	if (row.type === "collection") {
+		const directories = await fetchLibrarySectionsWithKeys(
+			userId,
+			connectionId,
+			categories,
+			opts,
+		);
+		const owner = directories.find(
+			(dir) => dir.key === String(row.librarySectionID ?? parent.sectionId),
+		);
+		enabled = !!owner;
+		section = owner?.title ?? "";
+	}
+	if (playlist)
+		enabled =
+			row.type === "playlist" &&
+			playlistAllowed(row, categories) &&
+			(!params.type ||
+				(plexCategoryForType(params.type) === "music") ===
+					(row.playlistType === "audio"));
+	if (!enabled) return empty;
+	if (params.operation === "details") {
+		const item = catalogItem(row, section, true);
+		return item ? { items: [item], totalCount: 1 } : empty;
+	}
+	const suffix = playlist
+		? "/items"
+		: params.operation === "extras"
+			? "/extras"
+			: "/children";
+	const page = await catalogPage(
+		userId,
+		connectionId,
+		parentPath + suffix,
+		window,
+		opts,
+	);
+	if (!page) return empty;
+	const rows = page.entries
+		.filter(
+			(item) =>
+				permits(categories, item.type) ||
+				(params.operation === "extras" && item.type === "clip"),
+		)
+		.map((item) =>
+			catalogItem(item, playlist ? "" : section, params.operation === "extras"),
+		)
+		.filter((item): item is CatalogItem => !!item);
+	return {
+		items: rows,
+		totalCount: rows.length === page.entries.length ? page.total : rows.length,
+	};
+}
+
 // Health uses the same authenticated library read and renewal path as chat.
 async function checkHealth(
 	_secret: string,

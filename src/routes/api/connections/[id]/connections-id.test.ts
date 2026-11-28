@@ -5,6 +5,7 @@ vi.mock("$lib/server/services/connections/store", () => ({
 	setAllowWrites: vi.fn(),
 	setDefaultOn: vi.fn(),
 	setEnabledCapabilities: vi.fn(),
+	setPlexCategoryEnabled: vi.fn(),
 	setWriteAllowlist: vi.fn(),
 	deleteConnection: vi.fn(),
 }));
@@ -15,6 +16,7 @@ import {
 	setAllowWrites,
 	setDefaultOn,
 	setEnabledCapabilities,
+	setPlexCategoryEnabled,
 	setWriteAllowlist,
 } from "$lib/server/services/connections/store";
 import { DELETE, PATCH } from "./+server";
@@ -85,6 +87,43 @@ describe("/api/connections/[id]", () => {
 	});
 
 	describe("PATCH", () => {
+		it("validates a Plex toggle and limits it to the caller's Plex connection", async () => {
+			const change = { plexCategory: { category: "music", enabled: false } };
+			expect((await PATCH(makeEvent(change))).status).toBe(400);
+			const plex = {
+				...googleConnection,
+				provider: "plex",
+				capabilities: ["media"],
+				plexCategories: ["movies", "tv"],
+			};
+			mockGetConnection.mockResolvedValue(plex);
+			expect(
+				(
+					await PATCH(
+						makeEvent({ plexCategory: { category: "photo", enabled: true } }),
+					)
+				).status,
+			).toBe(400);
+			expect(
+				(await PATCH(makeEvent({ ...change, capabilities: ["media"] }))).status,
+			).toBe(400);
+			expect(setPlexCategoryEnabled).not.toHaveBeenCalled();
+			vi.mocked(setPlexCategoryEnabled).mockReturnValue({
+				...googleConnection,
+				provider: "plex",
+				plexCategories: ["movies", "tv"],
+			});
+			const res = await PATCH(makeEvent(change));
+			expect(res.status).toBe(200);
+			expect((await res.json()).plexCategories).toEqual(["movies", "tv"]);
+			expect(setPlexCategoryEnabled).toHaveBeenCalledWith(
+				"owner-user",
+				"conn-1",
+				"music",
+				false,
+			);
+		});
+
 		it("keeps a cycling bridge read-only even if writes are requested directly", async () => {
 			mockGetConnection.mockResolvedValue({
 				...googleConnection,

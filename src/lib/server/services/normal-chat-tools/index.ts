@@ -466,7 +466,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	media: {
 		description:
-			"Read the user's connected media server (Plex): `watch_history` and `libraries` for analytics ('what did we watch this week'); `continue_watching` for in-progress or up-next titles; `library_search` to search the OWNED library (titles the user has, watched or not) with match counts. `watch_history`'s `query` filters HISTORY only — for 'do I own X?' use `library_search`, not history. Do not use it for the user's own photos and home videos (photos), for facts about a film or show (research_web), or for files on their storage (files). Returns titles with watch state and counts. Read-only; with several accounts connected, pass `account` (provider, label, or email).",
+			"Read the user's Plex movies, TV and music. Use library_search on owned titles by type, artist or album; recent for new additions. Use returned IDs for details, extras and children (artist albums, album tracklists, show seasons, episodes, collection members). List playlists then playlist_items for their contents. Use watch_history for listening or viewing history; libraries, collections and continue_watching are also available. Page with offset/limit, select a server with account. Do not use it for personal photos (photos), public facts (research_web) or storage (files).",
 		errorPrefix: "Media lookup failed",
 	},
 	location: {
@@ -3029,7 +3029,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													evidenceReady:
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
-													resultCount: modelPayload.results.length,
+													resultCount:
+														modelPayload.results.length +
+														modelPayload.libraries.length +
+														modelPayload.onDeck.length +
+														modelPayload.librarySearch.length,
 													...reasonMetadataOf(modelPayload),
 												},
 											},

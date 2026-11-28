@@ -7,6 +7,7 @@ import {
 } from "$lib/server/services/connections/locality";
 import {
 	PlexError,
+	plexBrowseCatalog,
 	plexLibrarySearch,
 	plexLibrarySections,
 	plexOnDeck,
@@ -56,6 +57,7 @@ vi.mock("$lib/server/services/connections/providers/plex", async () => {
 		plexLibrarySections: vi.fn(),
 		plexOnDeck: vi.fn(),
 		plexLibrarySearch: vi.fn(),
+		plexBrowseCatalog: vi.fn(),
 	};
 });
 vi.mock("$lib/server/services/connections/locality", () => ({
@@ -125,23 +127,31 @@ function resetAllMocks() {
 // ---------------------------------------------------------------------------
 
 describe("mediaToolInputSchema", () => {
-	it("only accepts read actions (watch_history, libraries, continue_watching, library_search) — no write action exists", () => {
-		const actionSchema = mediaToolInputSchema.shape.action;
-		const values = actionSchema.options as readonly string[];
-		expect(values).toEqual(
-			expect.arrayContaining([
-				"watch_history",
-				"libraries",
-				"continue_watching",
-				"library_search",
-			]),
-		);
-		for (const value of values) {
-			expect(value).not.toMatch(
-				/write|create|update|delete|mark|scrobble|rate|play/i,
-			);
-		}
-		expect(values).toHaveLength(4);
+	it("bounds recent merges while allowing deeper pages of large searchable libraries", () => {
+		expect(
+			mediaToolInputSchema.safeParse({ action: "recent", offset: 1001 })
+				.success,
+		).toBe(false);
+		expect(
+			mediaToolInputSchema.safeParse({ action: "library_search", offset: 1001 })
+				.success,
+		).toBe(true);
+	});
+
+	it("only accepts the supported read actions", () => {
+		expect(mediaToolInputSchema.shape.action.options).toEqual([
+			"watch_history",
+			"libraries",
+			"continue_watching",
+			"library_search",
+			"recent",
+			"details",
+			"children",
+			"playlists",
+			"playlist_items",
+			"collections",
+			"extras",
+		]);
 	});
 });
 
@@ -487,6 +497,70 @@ describe("runMediaTool", () => {
 	// GAP B3 — library_search
 	// -------------------------------------------------------------------------
 
+	it("explains a disabled category before sending an explicitly typed request to Plex", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ plexCategories: ["movies"] }),
+		]);
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "library_search", type: "track", query: "Echo" },
+			LOCAL_MODEL_ID,
+		);
+		expect(reasonCodeOf(outcome.modelPayload)).toBe("category_disabled");
+		expect(plexLibrarySearchMock).not.toHaveBeenCalled();
+	});
+
+	it("passes a typed music search and its paging and parent filters to Plex", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		plexLibrarySearchMock.mockResolvedValue({ items: [], totalCount: 0 });
+		const input = sanitizeMediaToolInput({
+			action: "library_search",
+			query: "  Echo  ",
+			type: "track",
+			artist: "  Jem  ",
+			album: "  Live  ",
+			offset: 25,
+		});
+		await runMediaTool("user-1", input, LOCAL_MODEL_ID);
+		expect(plexLibrarySearchMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			query: "Echo",
+			type: "track",
+			artist: "Jem",
+			album: "Live",
+			offset: 25,
+		});
+	});
+
+	it.each([
+		"details",
+		"children",
+		"recent",
+		"playlists",
+		"playlist_items",
+		"collections",
+		"extras",
+	] as const)("routes %s to the personal catalog", async (action) => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		const items = [
+			{ id: "32", title: "Live", section: "Music", type: "album" },
+		];
+		vi.mocked(plexBrowseCatalog).mockResolvedValue({ items, totalCount: 1 });
+		const input = { action, id: "31", limit: 10, offset: 0 };
+		const outcome = await runMediaTool("user-1", input, LOCAL_MODEL_ID);
+		expect(plexBrowseCatalog).toHaveBeenCalledWith("user-1", "conn-1", {
+			operation: action,
+			id: "31",
+			limit: 10,
+			offset: 0,
+		});
+		expect(outcome.modelPayload).toMatchObject({
+			action,
+			success: true,
+			librarySearch: items,
+			libraryMatchCount: 1,
+		});
+	});
+
 	it("library_search: returns matched items and the true match count in the message", async () => {
 		const conn = makeConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
@@ -511,6 +585,7 @@ describe("runMediaTool", () => {
 			{ title: "The Matrix", year: 1999, type: "movie", section: "Movies" },
 		]);
 		expect(outcome.modelPayload.libraryMatchCount).toBe(1);
+		expect(outcome.candidates[0]?.title).toBe("The Matrix");
 		expect(outcome.modelPayload.message).toContain("Found 1 matching title");
 	});
 
@@ -688,6 +763,34 @@ describe("runMediaTool — locality Option A distillation gate", () => {
 			"whichever-model",
 		);
 	}
+
+	it("privately summarizes the artist, album and track together for listening history", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		plexWatchHistoryMock.mockResolvedValue([
+			{
+				title: "Neon Rain",
+				artist: "Jem",
+				album: "Live at Dawn",
+				type: "track",
+				viewedAt: "2026-06-01T09:55:00.000Z",
+			},
+		]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "One track was played.",
+		});
+		const outcome = await watchHistoryOnce();
+		expect(distillConnectorPayloadMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				rawText: expect.stringContaining("Jem — Live at Dawn — Neon Rain"),
+			}),
+		);
+		expect(JSON.stringify(outcome.modelPayload)).not.toMatch(
+			/Jem|Live at Dawn|Neon Rain/,
+		);
+		expect(outcome.candidates[0]?.title).toBe("Jem — Live at Dawn — Neon Rain");
+	});
 
 	it("Option A off: raw watch-history data is returned unchanged and distill is not called", async () => {
 		seedHistory();

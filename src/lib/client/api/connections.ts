@@ -3,6 +3,7 @@ import type {
 	BoschHostedSetup,
 	BoschHostedStart,
 } from "$lib/shared/bosch-hosted";
+import type { PlexCategory } from "$lib/shared/plex-categories";
 import { requestJson, requestVoid } from "./http";
 
 // Client-side mirror of the server ConnectionPublic DTO
@@ -19,6 +20,7 @@ export type ConnectionPublic = {
 	allowWrites: boolean;
 	writeAllowlist: string[];
 	capabilities: string[];
+	plexCategories?: PlexCategory[];
 	// Connections redesign — what the PROVIDER granted, as opposed to
 	// `capabilities`, which is what the user has switched on. A capability in
 	// the provider's catalogue but missing here was denied (Google Contacts
@@ -56,6 +58,7 @@ export async function updateConnection(
 		allowWrites?: boolean;
 		defaultOn?: boolean;
 		capabilities?: string[];
+		plexCategory?: { category: PlexCategory; enabled: boolean };
 		// Issue 7.1 — root paths a path-based write provider (e.g. nextcloud)
 		// is allowed to write under. Server-side validated/normalized; see
 		// src/routes/api/connections/[id]/+server.ts.

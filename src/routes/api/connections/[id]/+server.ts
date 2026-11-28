@@ -17,6 +17,7 @@ import {
 	setAllowWrites,
 	setDefaultOn,
 	setEnabledCapabilities,
+	setPlexCategoryEnabled,
 	setWriteAllowlist,
 } from "$lib/server/services/connections/store";
 import { normalizeAllowlistPath } from "$lib/server/services/connections/write-guard";
@@ -29,6 +30,7 @@ import {
 	type MicrosoftWritePermission,
 	microsoftCanWrite,
 } from "$lib/shared/microsoft-permissions";
+import { isPlexCategory } from "$lib/shared/plex-categories";
 import type { RequestHandler } from "./$types";
 
 interface PatchBody {
@@ -36,6 +38,7 @@ interface PatchBody {
 	defaultOn?: unknown;
 	capabilities?: unknown;
 	writeAllowlist?: unknown;
+	plexCategory?: unknown;
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -69,6 +72,30 @@ export const PATCH: RequestHandler = async (event) => {
 		return createJsonErrorResponse("Invalid JSON", 400);
 	}
 
+	if (body.plexCategory !== undefined) {
+		const change = body.plexCategory;
+		if (
+			Object.keys(body).length !== 1 ||
+			connection.provider !== "plex" ||
+			!change ||
+			typeof change !== "object" ||
+			!("category" in change) ||
+			!isPlexCategory(change.category) ||
+			!("enabled" in change) ||
+			typeof change.enabled !== "boolean"
+		) {
+			return createJsonErrorResponse("Invalid Plex category change", 400);
+		}
+		const updated = setPlexCategoryEnabled(
+			userId,
+			id,
+			change.category,
+			change.enabled,
+		);
+		return updated
+			? json(updated)
+			: createJsonErrorResponse("Connection not found", 404);
+	}
 	if (body.allowWrites !== undefined && typeof body.allowWrites !== "boolean") {
 		return createJsonErrorResponse("allowWrites must be a boolean", 400);
 	}

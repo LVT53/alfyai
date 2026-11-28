@@ -140,7 +140,7 @@ const guideDict = {
 		"guide.entry.useADocument.line":
 			"Pick a file from your Library and ask about it.",
 		"guide.connectedAccounts.plex":
-			"For Plex, choose Connect with Plex, approve AlfyAI, then choose your media server if several appear.",
+			"For Plex, choose Connect with Plex, approve AlfyAI, then choose your media server if several appear. Open the connected server to switch Movies, TV Shows and Music on or off separately. Ask about artists, album tracklists, recent albums or playlists.",
 		"guide.connectedAccounts.tasks":
 			"Select Google Tasks in your Google connection to read lists and tasks. To make changes, request editing and turn on writes. You approve each change in chat.",
 		"guide.connectedAccounts.drive":
@@ -326,7 +326,7 @@ const guideDict = {
 		"guide.entry.useADocument.line":
 			"Válassz egy fájlt a Könyvtáradból, és kérdezz róla.",
 		"guide.connectedAccounts.plex":
-			"A Plexnél válaszd a Csatlakozás Plexszel gombot, engedélyezd az AlfyAI hozzáférését, majd válassz médiaszervert, ha több is megjelenik.",
+			"A Plexnél válaszd a Csatlakozás Plexszel gombot, engedélyezd az AlfyAI hozzáférését, majd válassz médiaszervert, ha több is megjelenik. A csatlakoztatott szerver adatlapján külön kapcsolhatod be a filmeket, a sorozatokat és a zenét. Kérdezhetsz előadókról, az albumok számlistájáról, újonnan hozzáadott albumokról és lejátszási listákról.",
 		"guide.connectedAccounts.tasks":
 			"A Google-kapcsolatban a Google Tasks kiválasztásával elolvashatod a listáidat és feladataidat. Módosításhoz kérj szerkesztési engedélyt, és kapcsold be az írást. Minden változtatást a csevegésben hagysz jóvá.",
 		"guide.connectedAccounts.drive":

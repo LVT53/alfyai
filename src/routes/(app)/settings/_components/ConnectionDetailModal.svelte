@@ -50,6 +50,7 @@ import { TASKS_MODIFY_SCOPE } from "$lib/shared/google-tasks-scopes";
 import { DRIVE_MODIFY_SCOPE } from "$lib/shared/google-drive-scopes";
 import { GMAIL_MODIFY_SCOPE } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
+import { enabledPlexCategories, PLEX_CATEGORIES } from "$lib/shared/plex-categories";
 import BehaviourRow from "./connections/BehaviourRow.svelte";
 import BoschBikeNames from "./connections/BoschBikeNames.svelte";
 import CapabilityRow from "./connections/CapabilityRow.svelte";
@@ -479,10 +480,6 @@ function capabilityLabel(provider: string, capability: string): string {
 	if (provider === "google" && capability === "tasks") return "Google Tasks";
 	if (provider === "google" && capability === "files") return "Google Drive";
 	if (provider === "google" && capability === "email") return "Gmail";
-	// Plex's library is films and shows, not "media".
-	if (provider === "plex" && capability === "media") {
-		return $t("connections.capability.mediaPlex");
-	}
 	return $t(`connections.capability.${capability}` as Parameters<typeof $t>[0]);
 }
 
@@ -498,7 +495,8 @@ function capabilityAbout(capability: string): string {
 	{@const entry = getProviderCatalogEntry(conn.provider, gmailPilotEnabled, drivePilotEnabled)}
 	{@const name = providerDisplayName(conn.provider, $t)}
 	{@const grammar = connectionStatusGrammar(conn, formatters, name)}
-	{@const granted = grantedCapabilitiesOf(conn, gmailPilotEnabled, drivePilotEnabled)}
+	{@const granted = conn.provider === "plex" ? PLEX_CATEGORIES : grantedCapabilitiesOf(conn, gmailPilotEnabled, drivePilotEnabled)}
+	{@const enabled = conn.provider === "plex" ? enabledPlexCategories(conn) as readonly string[] : conn.capabilities}
 	{@const denied = deniedCapabilitiesOf(conn, gmailPilotEnabled, drivePilotEnabled)}
 	{@const isOAuth = entry.connectMethod === 'oauth'}
 	<DialogShell
@@ -598,6 +596,7 @@ function capabilityAbout(capability: string): string {
 				<section class="detail-section">
 					<p class="detail-eyebrow">{$t('connections.detail.whatAlfyMayUse')}</p>
 					{#each granted as capability (capability)}
+						{@const pendingKey = conn.provider === "plex" ? "plex-category" : `capability:${capability}`}
 						<CapabilityRow
 							label={capabilityLabel(conn.provider, capability)}
 							description={isOAuth
@@ -606,11 +605,11 @@ function capabilityAbout(capability: string): string {
 									})
 								: capabilityAbout(capability)}
 							granted
-							checked={conn.capabilities.includes(capability)}
-							busy={isPending(`capability:${capability}`)}
+							checked={enabled.includes(capability)}
+							busy={isPending(pendingKey)}
 							testId={`capability-${capability}`}
 							onChange={(next) =>
-								withPending(`capability:${capability}`, () =>
+								withPending(pendingKey, () =>
 									onToggleCapability(conn.id, capability, next),
 								)}
 						/>

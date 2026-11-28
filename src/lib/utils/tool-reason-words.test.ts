@@ -196,6 +196,7 @@ describe("the words of every tool outcome", () => {
 			"out_of_coverage",
 			"region_preparing",
 			"history_unavailable",
+			"category_disabled",
 			"multi_region",
 			"transit_unavailable",
 			"transparent_unavailable",

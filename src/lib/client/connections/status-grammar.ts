@@ -13,6 +13,11 @@
 // composer's account list alike.
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import type { I18nKey } from "$lib/i18n";
+import {
+	enabledPlexCategories,
+	PLEX_CATEGORIES,
+	type PlexCategory,
+} from "$lib/shared/plex-categories";
 import { intlLocale } from "$lib/utils/locale";
 import { type Capability, getProviderCatalogEntry } from "./provider-catalog";
 
@@ -248,7 +253,11 @@ export function deniedCapabilitiesOf(
 export type CapabilityChipState = "on" | "off" | "denied";
 
 export type CapabilityChip =
-	| { kind: "capability"; capability: Capability; state: CapabilityChipState }
+	| {
+			kind: "capability";
+			capability: Capability | PlexCategory;
+			state: CapabilityChipState;
+	  }
 	| { kind: "writes"; variant: "folders"; folderCount: number }
 	| { kind: "writes"; variant: "drafts" }
 	| { kind: "writes"; variant: "confirm" };
@@ -265,11 +274,23 @@ export type CapabilityChip =
 export function capabilityChipsOf(
 	conn: Pick<
 		ConnectionPublic,
-		"provider" | "capabilities" | "allowWrites" | "writeAllowlist"
+		| "provider"
+		| "capabilities"
+		| "plexCategories"
+		| "allowWrites"
+		| "writeAllowlist"
 	> & { grantedCapabilities?: string[] },
 	gmailPilotEnabled = false,
 	drivePilotEnabled = false,
 ): CapabilityChip[] {
+	if (conn.provider === "plex") {
+		const enabled = enabledPlexCategories(conn);
+		return PLEX_CATEGORIES.map((capability) => ({
+			kind: "capability",
+			capability,
+			state: enabled.includes(capability) ? "on" : "off",
+		}));
+	}
 	const entry = getProviderCatalogEntry(
 		conn.provider,
 		gmailPilotEnabled,

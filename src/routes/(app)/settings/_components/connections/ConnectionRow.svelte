@@ -109,7 +109,7 @@ const chips = $derived(
 	{#if chips.length > 0}
 		<div class="connection-chips">
 			{#each chips as chip, index (index)}
-				<CapabilityChip {chip} provider={connection.provider} />
+				<CapabilityChip {chip} />
 			{/each}
 		</div>
 	{/if}

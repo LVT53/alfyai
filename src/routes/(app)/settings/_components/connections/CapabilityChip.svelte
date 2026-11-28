@@ -13,6 +13,8 @@ import {
 	MessageSquare,
 	MessagesSquare,
 	Clapperboard,
+	Music,
+	Tv,
 	Folder,
 	GitBranch,
 	Image as ImageIcon,
@@ -24,15 +26,19 @@ import {
 } from "@lucide/svelte";
 import type { CapabilityChip } from "$lib/client/connections/status-grammar";
 import type { Capability } from "$lib/client/connections/provider-catalog";
+import type { PlexCategory } from "$lib/shared/plex-categories";
 import { t } from "$lib/i18n";
 
-const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
+const CAPABILITY_ICONS: Record<Capability | PlexCategory, typeof Calendar> = {
 	cycling: Bike,
 	calendar: Calendar,
 	files: Folder,
 	photos: ImageIcon,
 	email: Mail,
 	media: Clapperboard,
+	movies: Clapperboard,
+	tv: Tv,
+	music: Music,
 	location: MapPin,
 	contacts: Users,
 	repos: GitBranch,
@@ -42,15 +48,10 @@ const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
 	teams_files: Folder,
 };
 
-let { chip, provider }: { chip: CapabilityChip; provider: string } = $props();
+let { chip }: { chip: CapabilityChip } = $props();
 
-// Plex's "media" is films and shows, and calling it that is the difference
-// between a label and a category name.
 const capabilityLabel = $derived.by(() => {
 	if (chip.kind !== "capability") return "";
-	if (provider === "plex" && chip.capability === "media") {
-		return $t("connections.capability.mediaPlex");
-	}
 	return $t(
 		`connections.capability.${chip.capability}` as Parameters<typeof $t>[0],
 	);

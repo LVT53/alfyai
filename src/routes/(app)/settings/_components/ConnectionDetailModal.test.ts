@@ -406,21 +406,26 @@ describe("ConnectionDetailModal", () => {
 			).toBeInTheDocument();
 		});
 
-		// Plex's library is films and shows, not "media".
-		it("calls Plex's capability films and shows", () => {
+		it("shows independent switches for movies, TV shows and music", async () => {
+			const onToggleCapability = vi.fn();
 			render(
 				ConnectionDetailModal,
 				baseProps({
+					onToggleCapability,
 					connection: makeConnection({
 						provider: "plex",
 						capabilities: ["media"],
 						grantedCapabilities: ["media"],
+						plexCategories: ["movies", "tv"],
 					}),
 				}),
 			);
-			expect(
-				screen.getByRole("switch", { name: "Films and shows" }),
-			).toBeInTheDocument();
+			expect(screen.getByRole("switch", { name: "Movies" })).toBeChecked();
+			expect(screen.getByRole("switch", { name: "TV Shows" })).toBeChecked();
+			const music = screen.getByRole("switch", { name: "Music" });
+			expect(music).not.toBeChecked();
+			await fireEvent.click(music);
+			expect(onToggleCapability).toHaveBeenCalledWith("conn-1", "music", true);
 		});
 	});
 

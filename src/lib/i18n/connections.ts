@@ -607,7 +607,8 @@ const connectionsDict = {
 		"connections.provider.bosch.blurb": "Your bikes, rides and distance ridden",
 		"connections.provider.apple.blurb":
 			"Your iCloud calendar, contacts and mail",
-		"connections.provider.plex.blurb": "Films and shows you own",
+		"connections.provider.plex.blurb":
+			"Movies, TV shows and music on your server",
 		"connections.provider.owntracks.blurb":
 			"Where you are, from your own phone",
 		"connections.provider.github.blurb": "Your repositories and issues",
@@ -646,8 +647,14 @@ const connectionsDict = {
 			"Read posts and replies in your work or school channels.",
 		"connections.capabilityAbout.teams_files":
 			"Find and download files from your work or school channels.",
-		// Plex calls its library films and shows, not "media".
-		"connections.capability.mediaPlex": "Films and shows",
+
+		"connections.capability.movies": "Movies",
+		"connections.capability.tv": "TV Shows",
+		"connections.capability.music": "Music",
+		"connections.capabilityAbout.movies": "Browse movies in your Plex library.",
+		"connections.capabilityAbout.tv": "Browse shows, seasons and episodes.",
+		"connections.capabilityAbout.music":
+			"Browse artists, albums, tracks and playlists.",
 
 		// The privacy control, now the first thing on the page.
 		"connections.locality.headline": "Keep connected data on this device",
@@ -1473,7 +1480,8 @@ const connectionsDict = {
 			"Kerékpárjaid, útjaid és a megtett távolság",
 		"connections.provider.apple.blurb":
 			"iCloud-naptárad, névjegyeid és leveleid",
-		"connections.provider.plex.blurb": "A saját filmjeid és sorozataid",
+		"connections.provider.plex.blurb":
+			"Filmek, sorozatok és zenék a szerveredről",
 		"connections.provider.owntracks.blurb": "Hol vagy — a saját telefonodról",
 		"connections.provider.github.blurb": "A tárolóid és hibajegyeid",
 		"connections.provider.onedrive.blurb":
@@ -1508,7 +1516,15 @@ const connectionsDict = {
 			"Bejegyzések és válaszok olvasása a munkahelyi vagy iskolai csatornáidon.",
 		"connections.capabilityAbout.teams_files":
 			"Fájlok keresése és letöltése a munkahelyi vagy iskolai csatornáidról.",
-		"connections.capability.mediaPlex": "Filmek és sorozatok",
+		"connections.capability.movies": "Filmek",
+		"connections.capability.tv": "Sorozatok",
+		"connections.capability.music": "Zene",
+		"connections.capabilityAbout.movies":
+			"Filmek böngészése a Plex-könyvtáradban.",
+		"connections.capabilityAbout.tv":
+			"Sorozatok, évadok és epizódok böngészése.",
+		"connections.capabilityAbout.music":
+			"Előadók, albumok, dalok és lejátszási listák böngészése.",
 
 		"connections.locality.headline":
 			"A csatlakoztatott adatok maradjanak ezen a gépen",

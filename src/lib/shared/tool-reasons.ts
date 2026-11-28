@@ -117,7 +117,11 @@ export const TOOL_REASON_CODES = {
 	email: CONNECTOR_REASON_CODES,
 	files: CONNECTOR_REASON_CODES,
 	location: CONNECTOR_REASON_CODES,
-	media: [...CONNECTOR_REASON_CODES, "history_unavailable"],
+	media: [
+		...CONNECTOR_REASON_CODES,
+		"history_unavailable",
+		"category_disabled",
+	],
 	photos: CONNECTOR_REASON_CODES,
 	repos: CONNECTOR_REASON_CODES,
 	tasks: [

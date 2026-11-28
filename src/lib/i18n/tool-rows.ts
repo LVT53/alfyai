@@ -208,11 +208,19 @@ const toolRowsDict = {
 		"toolRows.connector.photos.add_to_album":
 			"Proposed adding photos to an album",
 		"toolRows.connector.photos.other": "Used your photos",
-		"toolRows.connector.media.watch_history": "Looked at what you watched",
+		"toolRows.connector.media.watch_history": "Checked your playback history",
 		"toolRows.connector.media.libraries": "Looked at your libraries",
 		"toolRows.connector.media.continue_watching":
 			"Looked at what you're watching",
 		"toolRows.connector.media.library_search": "Searched your library",
+		"toolRows.connector.media.recent": "Looked up recent additions",
+		"toolRows.connector.media.details": "Read details about a library item",
+		"toolRows.connector.media.extras": "Looked up extras",
+		"toolRows.connector.media.children":
+			"Listed the contents of a library item",
+		"toolRows.connector.media.playlists": "Looked up your playlists",
+		"toolRows.connector.media.playlist_items": "Read a playlist",
+		"toolRows.connector.media.collections": "Looked up your collections",
 		"toolRows.connector.media.other": "Used your media",
 		"toolRows.connector.location.last": "Looked at where you were last",
 		"toolRows.connector.location.history": "Looked at your location history",
@@ -417,6 +425,8 @@ const toolRowsDict = {
 		"toolRows.connector.location.fallback":
 			"Alfy couldn't use your location this time.",
 
+		"toolRows.connector.media.category_disabled":
+			"This category is turned off for this Plex server in Settings › Connections.",
 		"toolRows.connector.media.history_unavailable":
 			"Personal watch history is unavailable on this shared Plex server.",
 		"toolRows.connector.media.not_connected":
@@ -795,10 +805,21 @@ const toolRowsDict = {
 		"toolRows.connector.photos.add_to_album":
 			"Fényképek hozzáadását javasolta egy albumhoz",
 		"toolRows.connector.photos.other": "Használta a fényképeidet",
-		"toolRows.connector.media.watch_history": "Megnézte, mit néztél",
+		"toolRows.connector.media.watch_history":
+			"Megnézte a lejátszási előzményeidet",
 		"toolRows.connector.media.libraries": "Megnézte a médiatáraidat",
 		"toolRows.connector.media.continue_watching": "Megnézte, mit nézel éppen",
 		"toolRows.connector.media.library_search": "Keresett a médiatáradban",
+		"toolRows.connector.media.recent": "Megnézte a médiatár újdonságait",
+		"toolRows.connector.media.details":
+			"Megnézte a kiválasztott elem részleteit",
+		"toolRows.connector.media.extras": "Megnézte az extrákat",
+		"toolRows.connector.media.children":
+			"Listázta a kiválasztott elem tartalmát",
+		"toolRows.connector.media.playlists": "Megnézte a lejátszási listáidat",
+		"toolRows.connector.media.playlist_items":
+			"Megnézte egy lejátszási listád tartalmát",
+		"toolRows.connector.media.collections": "Megnézte a gyűjteményeidet",
 		"toolRows.connector.media.other": "Használta a médiádat",
 		"toolRows.connector.location.last": "Megnézte, hol voltál utoljára",
 		"toolRows.connector.location.history": "Megnézte a helyelőzményeidet",
@@ -1001,6 +1022,8 @@ const toolRowsDict = {
 		"toolRows.connector.location.fallback":
 			"Alfy most nem tudta használni a helyadataidat.",
 
+		"toolRows.connector.media.category_disabled":
+			"Ez a kategória ki van kapcsolva ehhez a Plex-szerverhez a Beállítások › Kapcsolatok alatt.",
 		"toolRows.connector.media.history_unavailable":
 			"A személyes megtekintési előzmények nem érhetők el ezen a megosztott Plex-szerveren.",
 		"toolRows.connector.media.not_connected":

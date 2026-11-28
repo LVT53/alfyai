@@ -1,4 +1,5 @@
 <script lang="ts">
+import { isPlexCategory } from "$lib/shared/plex-categories";
 import { onMount } from "svelte";
 import { get } from "svelte/store";
 import { goto, invalidate } from "$app/navigation";
@@ -934,6 +935,16 @@ async function toggleConnectionCapability(
 	capability: string,
 	next: boolean,
 ) {
+	if (isPlexCategory(capability)) {
+		const updated = await updateConnection(id, {
+			plexCategory: { category: capability, enabled: next },
+		});
+		patchConnectionLocal(id, {
+			capabilities: updated.capabilities,
+			plexCategories: updated.plexCategories,
+		});
+		return;
+	}
 	const previous = connections.find((conn) => conn.id === id)?.capabilities;
 	if (!previous) return;
 	const nextCapabilities = next

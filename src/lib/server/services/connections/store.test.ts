@@ -54,6 +54,45 @@ const WRITE_SECRET_KEYS = [
 ] as const;
 
 describe("connections store", () => {
+	it("persists independent Plex library switches and preserves legacy disabled connections", async () => {
+		const { createConnection, getConnection, setPlexCategoryEnabled } =
+			await import("./store");
+		seedUser("userA");
+		const legacy = await createConnection({
+			userId: "userA",
+			provider: "plex",
+			label: "Home",
+			accountIdentifier: "home",
+			capabilities: ["media"],
+		});
+		const disabled = await createConnection({
+			userId: "userA",
+			provider: "plex",
+			label: "Other",
+			accountIdentifier: "other",
+			capabilities: [],
+		});
+		expect(legacy.plexCategories).toEqual(["movies", "tv", "music"]);
+		expect(disabled.plexCategories).toEqual([]);
+		expect(
+			await setPlexCategoryEnabled("other", legacy.id, "music", false),
+		).toBeNull();
+		await setPlexCategoryEnabled("userA", legacy.id, "music", false);
+		await setPlexCategoryEnabled("userA", legacy.id, "movies", false);
+		expect(await getConnection("userA", legacy.id)).toMatchObject({
+			capabilities: ["media"],
+			plexCategories: ["tv"],
+		});
+		expect(
+			await setPlexCategoryEnabled("userA", legacy.id, "tv", false),
+		).toMatchObject({ capabilities: [], plexCategories: [] });
+		expect(
+			await setPlexCategoryEnabled("userA", legacy.id, "music", true),
+		).toMatchObject({ capabilities: ["media"], plexCategories: ["music"] });
+		expect((await getConnection("userA", disabled.id))?.capabilities).toEqual(
+			[],
+		);
+	});
 	it("createConnection then getConnection returns the public DTO with no secret fields", async () => {
 		const { createConnection, getConnection } = await import("./store");
 		seedUser("userA");

@@ -1022,3 +1022,339 @@ describe("plex module surface — no write path", () => {
 		expect(writeLikeNames).toEqual([]);
 	});
 });
+
+it("searches tracks by title inside enabled music sections with artist and album attribution", async () => {
+	seedUser(USER_ID);
+	const conn = await seedPlexConnection();
+	const { plexLibrarySearch } = await import("./plex");
+	const fetch = vi.fn(async (input: RequestInfo | URL) => {
+		const url = new URL(String(input));
+		if (url.pathname === "/library/sections")
+			return jsonResponse(200, {
+				MediaContainer: {
+					Directory: [
+						{ key: "1", title: "Films", type: "movie" },
+						{ key: "3", title: "Music", type: "artist" },
+					],
+				},
+			});
+		expect(url.pathname).toBe("/library/sections/3/all");
+		expect(url.searchParams.get("type")).toBe("10");
+		expect(url.searchParams.get("title")).toBe("Home");
+		return jsonResponse(200, {
+			MediaContainer: {
+				Metadata: [
+					{
+						type: "track",
+						title: "Home",
+						grandparentTitle: "Alex",
+						parentTitle: "Live",
+						ratingKey: "27",
+						file: "/private/stuff",
+					},
+				],
+			},
+		});
+	});
+	const result = await plexLibrarySearch(
+		USER_ID,
+		conn.id,
+		{ type: "track", query: "Home" },
+		{ fetch },
+	);
+	expect(result.items).toEqual([
+		{
+			id: "27",
+			type: "track",
+			title: "Home",
+			artist: "Alex",
+			album: "Live",
+			section: "Music",
+		},
+	]);
+});
+
+describe("Plex catalog browsing", () => {
+	const directory = [
+		{ key: "1", title: "Films", type: "movie" },
+		{ key: "2", title: "TV", type: "show" },
+		{ key: "3", title: "Music", type: "artist" },
+		{ key: "4", title: "More Music", type: "artist" },
+	];
+	const album = {
+		type: "album",
+		title: "Live",
+		ratingKey: "12",
+		librarySectionTitle: "Music",
+		parentTitle: "Alex",
+	};
+	const movie = {
+		type: "movie",
+		title: "Hidden Film",
+		ratingKey: "31",
+		librarySectionTitle: "Films",
+	};
+	function catalogFetch(routes: Record<string, Record<string, unknown>>) {
+		return vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input));
+			const data =
+				url.pathname === "/library/sections"
+					? { Directory: directory }
+					: routes[url.pathname + url.search];
+			return data
+				? jsonResponse(200, { MediaContainer: data })
+				: jsonResponse(404, {});
+		});
+	}
+	it("preserves disc/track order and uses only the requested window after checking album access", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexBrowseCatalog } = await import("./plex");
+		const fetch = catalogFetch({
+			"/library/metadata/12": { Metadata: [album] },
+			"/library/metadata/12/children": {
+				totalSize: 30,
+				Metadata: [
+					{ title: "Overture", type: "track", parentIndex: 2, index: 1 },
+					{ title: "Finale", type: "track", parentIndex: 2, index: 2 },
+				],
+			},
+		});
+		const result = await plexBrowseCatalog(
+			USER_ID,
+			conn.id,
+			{ operation: "children", id: "12", offset: 15, limit: 2 },
+			{ fetch },
+		);
+		expect(result.totalCount).toBe(30);
+		expect(
+			result.items.map((item) => [item.title, item.disc, item.track]),
+		).toEqual([
+			["Overture", 2, 1],
+			["Finale", 2, 2],
+		]);
+		expect(
+			new Headers(
+				(fetch.mock.calls as unknown as [string, RequestInit][])[1][1].headers,
+			).get("X-Plex-Container-Start"),
+		).toBe("15");
+	});
+	it("reads catalogue metadata and track languages while excluding playback history, keys and filesystem paths", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexBrowseCatalog } = await import("./plex");
+		const fetch = catalogFetch({
+			"/library/metadata/31": {
+				Metadata: [
+					{
+						...movie,
+						Genre: [{ tag: "Comedy" }],
+						viewCount: 12345,
+						Media: [
+							{
+								videoResolution: "4k",
+								Part: [
+									{
+										file: "/secret/path",
+										Stream: [
+											{
+												streamType: 3,
+												language: "Hungarian",
+												key: "/secret/key",
+											},
+										],
+									},
+								],
+							},
+						],
+					},
+				],
+			},
+		});
+		const result = await plexBrowseCatalog(
+			USER_ID,
+			conn.id,
+			{ operation: "details", id: "31" },
+			{ fetch },
+		);
+		expect(result.items[0]?.metadata).toEqual({
+			Genre: ["Comedy"],
+			videoResolution: "4k",
+			languages: ["Subtitles: Hungarian"],
+		});
+		expect(JSON.stringify(result)).not.toMatch(/secret|12345/);
+	});
+	it("merges recently added albums from multiple music sections by added date, before applying the limit and offset", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexBrowseCatalog } = await import("./plex");
+		const fetch = catalogFetch({
+			"/library/sections/3/all?type=9&sort=addedAt%3Adesc": {
+				Metadata: [
+					{ ...album, title: "Third", addedAt: 1 },
+					{ ...album, title: "Fourth", addedAt: 0 },
+				],
+			},
+			"/library/sections/4/all?type=9&sort=addedAt%3Adesc": {
+				Metadata: [
+					{ ...album, title: "First", addedAt: 3 },
+					{ ...album, title: "Second", addedAt: 2 },
+				],
+			},
+		});
+		const result = await plexBrowseCatalog(
+			USER_ID,
+			conn.id,
+			{ operation: "recent", offset: 1, limit: 2 },
+			{ fetch },
+		);
+		expect(result.items.map((item) => item.title)).toEqual(["Second", "Third"]);
+		expect(result.totalCount).toBe(4);
+		await expect(
+			plexBrowseCatalog(
+				USER_ID,
+				conn.id,
+				{ operation: "recent", offset: 1001 },
+				{ fetch },
+			),
+		).rejects.toMatchObject({ code: "invalid_config" });
+		expect(fetch).toHaveBeenCalledTimes(3);
+	});
+	it("blocks disabled category search, direct-ID children, extras, and mixed video playlist lookup", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { setEnabledCapabilities } = await import("../store");
+		await setEnabledCapabilities(USER_ID, conn.id, ["media", "music", "tv"]);
+		const { plexBrowseCatalog, plexLibrarySearch, plexLibrarySections } =
+			await import("./plex");
+		const fetch = catalogFetch({
+			"/library/metadata/31": { Metadata: [movie] },
+			"/playlists/7": {
+				Metadata: [
+					{
+						type: "playlist",
+						playlistType: "video",
+						title: "Sensitive mixed videos",
+					},
+				],
+			},
+			"/playlists?playlistType=audio": {
+				Metadata: [
+					{
+						ratingKey: "8",
+						type: "playlist",
+						playlistType: "audio",
+						title: "Road music",
+					},
+				],
+			},
+		});
+		const empty = { items: [], totalCount: 0 };
+		expect(
+			await plexLibrarySearch(USER_ID, conn.id, { type: "movie" }, { fetch }),
+		).toEqual(empty);
+		expect(fetch).not.toHaveBeenCalled();
+		for (const operation of ["details", "children", "extras"] as const)
+			expect(
+				await plexBrowseCatalog(
+					USER_ID,
+					conn.id,
+					{ operation, id: "31" },
+					{ fetch },
+				),
+			).toEqual(empty);
+		expect(
+			await plexBrowseCatalog(
+				USER_ID,
+				conn.id,
+				{ operation: "playlist_items", id: "7" },
+				{ fetch },
+			),
+		).toEqual(empty);
+		const lists = await plexBrowseCatalog(
+			USER_ID,
+			conn.id,
+			{ operation: "playlists" },
+			{ fetch },
+		);
+		expect(lists.items.map((p) => p.title)).toEqual(["Road music"]);
+		expect(
+			await plexLibrarySections(USER_ID, conn.id, { fetch }),
+		).not.toContainEqual({ type: "movie", title: "Films" });
+		expect(fetch.mock.calls.map(([url]) => String(url))).not.toContainEqual(
+			expect.stringMatching(/\/31\/|\/7\/items|playlistType=video/),
+		);
+	});
+	it("reads playlist tracks in order and filters disabled content from both rows and count", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { setEnabledCapabilities } = await import("../store");
+		await setEnabledCapabilities(USER_ID, conn.id, ["media", "music"]);
+		const { plexBrowseCatalog } = await import("./plex");
+		const fetch = catalogFetch({
+			"/playlists/7": {
+				Metadata: [
+					{ type: "playlist", playlistType: "audio", title: "Cycling" },
+				],
+			},
+			"/playlists/7/items": {
+				totalSize: 9,
+				Metadata: [
+					{ type: "track", title: "Three" },
+					movie,
+					{ type: "track", title: "One" },
+				],
+			},
+		});
+		const result = await plexBrowseCatalog(
+			USER_ID,
+			conn.id,
+			{ operation: "playlist_items", id: "7" },
+			{ fetch },
+		);
+		expect(result.items.map((row) => row.title)).toEqual(["Three", "One"]);
+		expect(result.totalCount).toBe(2);
+	});
+	it("uses only enabled history sections, enforcing type and account again on Plex's response", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { setEnabledCapabilities } = await import("../store");
+		await setEnabledCapabilities(USER_ID, conn.id, ["media", "music"]);
+		const { plexWatchHistory } = await import("./plex");
+		const entry = {
+			type: "track",
+			title: "One",
+			grandparentTitle: "Alex",
+			parentTitle: "Live",
+			viewedAt: 1200,
+			accountID: 1,
+		};
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input));
+			if (url.pathname === "/library/sections")
+				return jsonResponse(200, { MediaContainer: { Directory: directory } });
+			expect(["3", "4"]).toContain(url.searchParams.get("librarySectionID"));
+			expect(url.searchParams.get("accountID")).toBe("1");
+			return jsonResponse(200, {
+				MediaContainer: {
+					Metadata:
+						url.searchParams.get("librarySectionID") === "3"
+							? [entry, { ...entry, type: "movie" }, { ...entry, accountID: 2 }]
+							: [],
+				},
+			});
+		});
+		const rows = await plexWatchHistory(
+			USER_ID,
+			conn.id,
+			{ type: "track" },
+			{ fetch },
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			title: "One",
+			artist: "Alex",
+			album: "Live",
+		});
+	});
+});

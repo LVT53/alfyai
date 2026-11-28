@@ -358,6 +358,7 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		codes: {
 			...mediaWords.codes,
 			history_unavailable: stop("toolRows.connector.media.history_unavailable"),
+			category_disabled: stop("toolRows.connector.media.category_disabled"),
 		},
 	},
 	photos: connectorTable({

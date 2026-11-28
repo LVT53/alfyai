@@ -222,6 +222,47 @@ test.describe("settings connections tab", () => {
 		await expect(page.getByTestId("connections-add-caldav")).toBeVisible();
 	});
 
+	test("changes Music on one connected Plex server and keeps its video categories enabled", async ({
+		page,
+	}) => {
+		await login(page);
+		const home = connection({
+			id: "plex-home",
+			label: "Home",
+			provider: "plex",
+			capabilities: ["media"],
+			grantedCapabilities: ["media"],
+		});
+		const cabin = { ...home, id: "plex-cabin", label: "Cabin" };
+		await stubConnections(page, [home, cabin]);
+		await page.route("**/api/connections/plex-home", async (route) => {
+			expect(route.request().method()).toBe("PATCH");
+			expect(route.request().postDataJSON()).toEqual({
+				plexCategory: { category: "music", enabled: false },
+			});
+			home.plexCategories = ["movies", "tv"];
+			await route.fulfill({ json: home });
+		});
+		await openConnectionsTab(page);
+		await page.getByTestId("connection-details-plex-home").click();
+		const dialog = page.getByRole("dialog");
+		await dialog.getByRole("switch", { name: "Music", exact: true }).click();
+		await expect(
+			dialog.getByRole("switch", { name: "Music", exact: true }),
+		).not.toBeChecked();
+		await expect(
+			dialog.getByRole("switch", { name: "Movies", exact: true }),
+		).toBeChecked();
+		await expect(
+			dialog.getByRole("switch", { name: "TV Shows", exact: true }),
+		).toBeChecked();
+		await openConnectionsTab(page);
+		await page.getByTestId("connection-details-plex-cabin").click();
+		await expect(
+			dialog.getByRole("switch", { name: "Music", exact: true }),
+		).toBeChecked();
+	});
+
 	test("opens the detail dialog with switches only for granted capabilities", async ({
 		page,
 	}) => {
