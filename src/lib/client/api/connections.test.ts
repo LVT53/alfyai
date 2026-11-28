@@ -16,7 +16,7 @@ import {
 	startNextcloudConnect,
 	startOneDriveConnect,
 	startOwnTracksConnect,
-	startPlexConnect,
+	startPlexLink,
 	updateHostedBoschGrants,
 } from "./connections";
 
@@ -300,28 +300,21 @@ describe("enableImmichWrites", () => {
 	});
 });
 
-describe("startPlexConnect", () => {
-	it("posts serverUrl/token and returns the connection", async () => {
-		const connection = { id: "conn-2", provider: "plex" };
-		const fetchMock = vi.fn(async () => jsonResponse({ connection }));
+describe("startPlexLink", () => {
+	it("starts Plex-hosted sign-in without requesting server credentials", async () => {
+		const approval = {
+			attemptId: "attempt",
+			authUrl: "https://app.plex.tv/auth#?sample",
+			expiresAt: 123,
+		};
+		const fetchMock = vi.fn(async () => jsonResponse(approval));
 		vi.stubGlobal("fetch", fetchMock);
-
-		const result = await startPlexConnect({
-			serverUrl: "https://plex.example.com",
-			token: "plex-token",
-		});
-
+		const signal = new AbortController().signal;
+		expect(await startPlexLink(null, signal)).toEqual(approval);
 		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/connections/plex/start",
-			expect.objectContaining({
-				method: "POST",
-				body: JSON.stringify({
-					serverUrl: "https://plex.example.com",
-					token: "plex-token",
-				}),
-			}),
+			"/api/connections/plex/link/start",
+			expect.objectContaining({ method: "POST", body: "{}", signal }),
 		);
-		expect(result).toEqual({ connection });
 	});
 });
 

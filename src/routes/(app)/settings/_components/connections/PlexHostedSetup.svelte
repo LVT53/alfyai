@@ -14,12 +14,10 @@ let {
 	connectionId,
 	onConnected,
 	onClose,
-	onManual,
 }: {
 	connectionId: string | null;
 	onConnected: () => void;
 	onClose: () => void;
-	onManual: () => void;
 } = $props();
 type Choice = { id: string; name: string };
 const lifetime = new AbortController();
@@ -192,7 +190,6 @@ async function begin() {
 		{#if failure}<button type="button" class="btn-secondary" onclick={check}>{$t("common.retry")}</button>{/if}
 	{:else}
 		<button type="button" class="btn-primary" disabled={busy} onclick={begin}>{$t(busy ? "common.loading" : "connections.wizard.plex.start")}</button>
-		<button type="button" class="manual" disabled={busy} onclick={onManual}>{$t("connections.wizard.plex.manual")}</button>
 	{/if}
 	<div class="foot"><button type="button" class="btn-secondary" onclick={onClose}>{$t("common.cancel")}</button></div>
 </div>
@@ -201,8 +198,8 @@ async function begin() {
 	.plex-setup { display: grid; gap: var(--space-sm); }
 	h3, p { margin: 0; }
 	h3 { font-size: 1rem; }
-	p, .manual { font-size: .875rem; color: var(--text-secondary); }
-	.manual { justify-self: start; text-decoration: underline; text-underline-offset: .16em; }
+	p { font-size: .875rem; color: var(--text-secondary); }
+
 	.server { justify-content: flex-start; overflow-wrap: anywhere; }
 	.foot { display: flex; justify-content: flex-end; margin-top: var(--space-sm); }
 	[role="alert"] { color: var(--danger); }

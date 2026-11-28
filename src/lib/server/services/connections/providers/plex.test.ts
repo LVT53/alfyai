@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
@@ -56,8 +56,19 @@ function jsonResponse(status: number, body: unknown): Response {
 const USER_ID = "userA";
 const SERVER_URL = "https://plex.example.com";
 
+const device = {
+	clientId: "test-plex-device",
+	kid: "kid",
+	privateKey: generateKeyPairSync("ed25519")
+		.privateKey.export({ type: "pkcs8", format: "pem" })
+		.toString(),
+};
 async function seedPlexConnection(
-	overrides: { token?: string; accountId?: number } = {},
+	overrides: {
+		token?: string;
+		accountId?: number | null;
+		legacy?: boolean;
+	} = {},
 ) {
 	const { createConnection } = await import("../store");
 	return createConnection({
@@ -67,368 +78,63 @@ async function seedPlexConnection(
 		accountIdentifier: "machine-abc",
 		capabilities: ["media"],
 		status: "connected",
-		secret: overrides.token ?? "plex-secret-token",
+		secret: overrides.legacy
+			? "old-token"
+			: JSON.stringify({
+					device,
+					tokenOrigin: SERVER_URL,
+					serverToken: overrides.token ?? "plex-secret-token",
+				}),
 		config: {
 			origin: SERVER_URL,
 			machineIdentifier: "machine-abc",
-			...(overrides.accountId !== undefined
-				? { accountId: overrides.accountId }
+			...(!overrides.legacy ? { linked: true } : {}),
+			...(overrides.accountId !== null
+				? { accountId: overrides.accountId ?? 1 }
 				: {}),
 		},
 	});
 }
 
 // ---------------------------------------------------------------------------
-// plexConnect
+// Hosted reconnect of a saved connection
 // ---------------------------------------------------------------------------
 
-describe("plexConnect", () => {
-	it("validates the token against /identity and stores it (never plaintext-logged) with a normalized origin", async () => {
-		seedUser(USER_ID);
-		const { plexConnect } = await import("./plex");
-		const { getConnectionSecret } = await import("../store");
-
-		const fetchMock = vi.fn(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = String(input);
-				const headers = new Headers(init?.headers);
-				expect(headers.get("X-Plex-Token")).toBe("token-abc");
-				expect(headers.get("Accept")).toBe("application/json");
-				if (url === "https://plex.example.com/identity") {
-					return jsonResponse(200, {
-						MediaContainer: {
-							machineIdentifier: "machine-abc",
-							version: "1.32.0",
-						},
-					});
-				}
-				if (url === "https://plex.example.com/accounts") {
-					return jsonResponse(200, {
-						MediaContainer: {
-							size: 1,
-							Account: [{ id: 1, name: "token-owner" }],
-						},
-					});
-				}
-				throw new Error(`unexpected url ${url}`);
-			},
-		);
-
-		const { connection } = await plexConnect({
-			userId: USER_ID,
-			serverUrl: "https://plex.example.com/",
-			token: "token-abc",
-			fetch: fetchMock as unknown as typeof fetch,
-		});
-
-		expect(connection.provider).toBe("plex");
-		expect(connection.accountIdentifier).toBe("machine-abc");
-		expect(connection.capabilities).toEqual(["media"]);
-		expect(connection.status).toBe("connected");
-		expect(connection.hasSecret).toBe(true);
-		expect("secret" in connection).toBe(false);
-		expect(connection.config).toEqual({
-			origin: "https://plex.example.com",
-			machineIdentifier: "machine-abc",
-			accountId: 1,
-		});
-
-		// The raw token must never appear anywhere in the stored/serialized DTO.
-		expect(JSON.stringify(connection)).not.toContain("token-abc");
-
-		const decrypted = await getConnectionSecret(USER_ID, connection.id);
-		expect(decrypted).toBe("token-abc");
-	});
-
-	it("accepts a bare host (no scheme) and connects as https:// (Task 6)", async () => {
-		seedUser(USER_ID);
-		const { plexConnect } = await import("./plex");
-
-		const fetchMock = vi.fn(
-			async (input: RequestInfo | URL, init?: RequestInit) => {
-				const url = String(input);
-				const headers = new Headers(init?.headers);
-				expect(headers.get("X-Plex-Token")).toBe("token-abc");
-				if (url === "https://plex.example.com/identity") {
-					return jsonResponse(200, {
-						MediaContainer: {
-							machineIdentifier: "machine-abc",
-							version: "1.32.0",
-						},
-					});
-				}
-				if (url === "https://plex.example.com/accounts") {
-					return jsonResponse(200, {
-						MediaContainer: {
-							size: 1,
-							Account: [{ id: 1, name: "token-owner" }],
-						},
-					});
-				}
-				throw new Error(`unexpected url ${url}`);
-			},
-		);
-
-		const { connection } = await plexConnect({
-			userId: USER_ID,
-			// No "https://" prefix — the shared SSRF guard normalizes it.
-			serverUrl: "plex.example.com",
-			token: "token-abc",
-			fetch: fetchMock as unknown as typeof fetch,
-		});
-
-		expect(connection.config).toEqual({
-			origin: "https://plex.example.com",
-			machineIdentifier: "machine-abc",
-			accountId: 1,
-		});
-		// Confirms the bare host really was fetched over https, not skipped.
-		expect(fetchMock).toHaveBeenCalledWith(
-			"https://plex.example.com/identity",
-			expect.anything(),
-		);
-	});
-
-	it("rejects a non-http(s) server URL as invalid_config without ever calling fetch", async () => {
-		seedUser(USER_ID);
-		const { plexConnect, PlexError } = await import("./plex");
-		const fetchMock = vi.fn();
-
-		try {
-			await plexConnect({
-				userId: USER_ID,
-				serverUrl: "ftp://plex.example.com",
-				token: "token-abc",
-				fetch: fetchMock as unknown as typeof fetch,
-			});
-			throw new Error("expected plexConnect to throw");
-		} catch (err) {
-			expect(err).toBeInstanceOf(PlexError);
-			expect((err as InstanceType<typeof PlexError>).code).toBe(
-				"invalid_config",
-			);
-		}
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
-
-	it.each([
-		["a plain http:// URL", "http://plex.example.com"],
-		["a loopback IPv4 host", "https://127.0.0.1:32400"],
-		["a private RFC1918 host", "https://192.168.1.10:32400"],
-		["the cloud metadata address", "https://169.254.169.254/latest"],
-		["a loopback IPv6 host", "https://[::1]:32400"],
-	])(
-		"rejects %s as invalid_config without ever calling fetch (SSRF guard)",
-		async (_label, serverUrl) => {
-			seedUser(USER_ID);
-			const { plexConnect, PlexError } = await import("./plex");
-			const fetchMock = vi.fn();
-
-			try {
-				await plexConnect({
-					userId: USER_ID,
-					serverUrl,
-					token: "token-abc",
-					fetch: fetchMock as unknown as typeof fetch,
-				});
-				throw new Error("expected plexConnect to throw");
-			} catch (err) {
-				expect(err).toBeInstanceOf(PlexError);
-				expect((err as InstanceType<typeof PlexError>).code).toBe(
-					"invalid_config",
-				);
-			}
-			expect(fetchMock).not.toHaveBeenCalled();
-		},
+it("upgrades an existing saved token in place when the same server is selected", async () => {
+	seedUser(USER_ID);
+	const existing = await seedPlexConnection({ legacy: true });
+	const { getConnectionWithCredential, listConnectionsForUser } = await import(
+		"../store"
 	);
-
-	it("a 401 on /identity surfaces a clear invalid_token error with no token in the message", async () => {
-		seedUser(USER_ID);
-		const { plexConnect, PlexError } = await import("./plex");
-
-		const fetchMock = vi.fn(async () =>
-			jsonResponse(401, { error: "Unauthorized" }),
-		);
-
-		try {
-			await plexConnect({
-				userId: USER_ID,
-				serverUrl: SERVER_URL,
-				token: "wrong-token",
-				fetch: fetchMock as unknown as typeof fetch,
-			});
-			throw new Error("expected plexConnect to throw");
-		} catch (err) {
-			expect(err).toBeInstanceOf(PlexError);
-			expect((err as InstanceType<typeof PlexError>).code).toBe(
-				"invalid_token",
-			);
-			expect((err as Error).message).not.toContain("wrong-token");
-			expect((err as Error).message.toLowerCase()).toContain("invalid");
-		}
+	const saved = await getConnectionWithCredential(USER_ID, existing.id);
+	if (!saved?.credential) throw Error("Missing stored credential");
+	const { connectLinkedPlex } = await import("./plex");
+	const connection = await connectLinkedPlex({
+		userId: USER_ID,
+		device: { clientId: "client", kid: "kid", privateKey: "key" },
+		accountToken: "account-token",
+		server: {
+			id: "machine-abc",
+			name: "Personal library",
+			owned: true,
+			accessToken: "scoped",
+			connections: [{ uri: SERVER_URL, local: false, relay: false }],
+		},
+		repair: { id: existing.id, version: saved.credential.version },
+		fetch: async (input) =>
+			String(input).endsWith("/identity")
+				? jsonResponse(200, {
+						MediaContainer: { machineIdentifier: "machine-abc" },
+					})
+				: jsonResponse(200, { MediaContainer: { Directory: [] } }),
 	});
-
-	it("requires a non-empty token without ever calling fetch", async () => {
-		seedUser(USER_ID);
-		const { plexConnect, PlexError } = await import("./plex");
-		const fetchMock = vi.fn();
-
-		try {
-			await plexConnect({
-				userId: USER_ID,
-				serverUrl: SERVER_URL,
-				token: "   ",
-				fetch: fetchMock as unknown as typeof fetch,
-			});
-			throw new Error("expected plexConnect to throw");
-		} catch (err) {
-			expect(err).toBeInstanceOf(PlexError);
-			expect((err as InstanceType<typeof PlexError>).code).toBe(
-				"invalid_config",
-			);
-		}
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
-
-	// -------------------------------------------------------------------------
-	// BUG 1 (privacy) — the token owner's Plex accountID must be resolved and
-	// stored at connect time so watch-history reads can be scoped to it (see
-	// the `plexWatchHistory` "BUG1" test below for the read-side half).
-	// -------------------------------------------------------------------------
-
-	it("BUG1: resolves and stores the token's accountID from /accounts when it's the only account visible", async () => {
-		seedUser(USER_ID);
-		const { plexConnect } = await import("./plex");
-
-		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-			const url = String(input);
-			if (url === "https://plex.example.com/identity") {
-				return jsonResponse(200, {
-					MediaContainer: { machineIdentifier: "machine-abc" },
-				});
-			}
-			if (url === "https://plex.example.com/accounts") {
-				return jsonResponse(200, {
-					MediaContainer: {
-						size: 1,
-						Account: [{ id: 5, name: "solo-user" }],
-					},
-				});
-			}
-			throw new Error(`unexpected url ${url}`);
-		});
-
-		const { connection } = await plexConnect({
-			userId: USER_ID,
-			serverUrl: SERVER_URL,
-			token: "token-abc",
-			fetch: fetchMock as unknown as typeof fetch,
-		});
-
-		expect(connection.config).toEqual({
-			origin: "https://plex.example.com",
-			machineIdentifier: "machine-abc",
-			accountId: 5,
-		});
-	});
-
-	it("BUG1: resolves the owner (accountID 1) from /accounts when the token can see every household account", async () => {
-		seedUser(USER_ID);
-		const { plexConnect } = await import("./plex");
-
-		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-			const url = String(input);
-			if (url === "https://plex.example.com/identity") {
-				return jsonResponse(200, {
-					MediaContainer: { machineIdentifier: "machine-abc" },
-				});
-			}
-			if (url === "https://plex.example.com/accounts") {
-				return jsonResponse(200, {
-					MediaContainer: {
-						size: 3,
-						Account: [
-							{ id: 0, name: "" },
-							{ id: 1, name: "owner" },
-							{ id: 9, name: "kid" },
-						],
-					},
-				});
-			}
-			throw new Error(`unexpected url ${url}`);
-		});
-
-		const { connection } = await plexConnect({
-			userId: USER_ID,
-			serverUrl: SERVER_URL,
-			token: "token-abc",
-			fetch: fetchMock as unknown as typeof fetch,
-		});
-
-		expect(connection.config.accountId).toBe(1);
-	});
-
-	it("BUG1: still connects (without an accountID) when /accounts can't be resolved", async () => {
-		seedUser(USER_ID);
-		const { plexConnect } = await import("./plex");
-
-		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-			const url = String(input);
-			if (url === "https://plex.example.com/identity") {
-				return jsonResponse(200, {
-					MediaContainer: { machineIdentifier: "machine-abc" },
-				});
-			}
-			if (url === "https://plex.example.com/accounts") {
-				return jsonResponse(500, { error: "boom" });
-			}
-			throw new Error(`unexpected url ${url}`);
-		});
-
-		const { connection } = await plexConnect({
-			userId: USER_ID,
-			serverUrl: SERVER_URL,
-			token: "token-abc",
-			fetch: fetchMock as unknown as typeof fetch,
-		});
-
-		expect(connection.status).toBe("connected");
-		expect(connection.config.accountId).toBeUndefined();
-	});
-
-	it("re-connecting the same server (same machineIdentifier) updates (not duplicates) the connection and refreshes the stored token", async () => {
-		seedUser(USER_ID);
-		const { plexConnect } = await import("./plex");
-		const { listConnectionsForUser, getConnectionSecret } = await import(
-			"../store"
-		);
-
-		const makeFetch = () =>
-			vi.fn(async () =>
-				jsonResponse(200, {
-					MediaContainer: { machineIdentifier: "machine-abc" },
-				}),
-			);
-
-		const first = await plexConnect({
-			userId: USER_ID,
-			serverUrl: SERVER_URL,
-			token: "first-token",
-			fetch: makeFetch() as unknown as typeof fetch,
-		});
-		const second = await plexConnect({
-			userId: USER_ID,
-			serverUrl: SERVER_URL,
-			token: "second-token",
-			fetch: makeFetch() as unknown as typeof fetch,
-		});
-
-		expect(second.connection.id).toBe(first.connection.id);
-		const rows = await listConnectionsForUser(USER_ID);
-		expect(rows).toHaveLength(1);
-		const decrypted = await getConnectionSecret(USER_ID, second.connection.id);
-		expect(decrypted).toBe("second-token");
-	});
+	expect(connection.id).toBe(existing.id);
+	expect(connection.config).toMatchObject({ linked: true, accountId: 1 });
+	expect(await listConnectionsForUser(USER_ID)).toHaveLength(1);
+	const renewed = await getConnectionWithCredential(USER_ID, existing.id);
+	expect(JSON.parse(renewed?.credential?.value ?? "null").serverToken).toBe(
+		"scoped",
+	);
 });
 
 // ---------------------------------------------------------------------------
@@ -553,7 +259,9 @@ describe("plexWatchHistory", () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			expect(url).toContain("limit=5");
-			expect(url).toContain(`viewedAt>=${Math.floor(since.getTime() / 1000)}`);
+			expect(decodeURIComponent(url)).toContain(
+				`viewedAt>=${Math.floor(since.getTime() / 1000)}`,
+			);
 			return jsonResponse(200, { MediaContainer: { size: 0, Metadata: [] } });
 		});
 
@@ -609,11 +317,13 @@ describe("plexWatchHistory", () => {
 							type: "episode",
 							grandparentTitle: "Breaking Bad",
 							viewedAt: 1750000000,
+							accountID: 1,
 						},
 						{
 							title: "Inception",
 							type: "movie",
 							viewedAt: 1750100000,
+							accountID: 1,
 						},
 					],
 				},
@@ -1221,32 +931,18 @@ describe("plexLibrarySearch", () => {
 // ---------------------------------------------------------------------------
 
 describe("plexAdapter.checkHealth", () => {
-	it("never transmits a linked secret through a mismatched manual health config", async () => {
+	it("requires hosted sign-in for a legacy connection without contacting its saved server", async () => {
 		seedUser(USER_ID);
-		const conn = await seedPlexConnection();
+		const conn = await seedPlexConnection({ legacy: true });
 		const { plexAdapter } = await import("./plex");
 		const fetch = vi.fn<typeof globalThis.fetch>();
-		const result = await plexAdapter.checkHealth(
-			JSON.stringify({ device: { privateKey: "private-key" } }),
-			conn,
-			{ fetch },
-		);
-		expect(result.status).toBe("error");
-		expect(JSON.stringify(result)).not.toContain("private-key");
+		const result = await plexAdapter.checkHealth("old-token", conn, { fetch });
+		expect(result.status).toBe("needs_reauth");
 		expect(fetch).not.toHaveBeenCalled();
 	});
 	it("does not query household history from a shared linked connection", async () => {
 		seedUser(USER_ID);
-		const conn = await seedPlexConnection();
-		const { updateConnection } = await import("../store");
-		await updateConnection(USER_ID, conn.id, {
-			config: { ...conn.config, linked: true },
-			secret: JSON.stringify({
-				device: { clientId: "client", kid: "kid", privateKey: "key" },
-				serverToken: "scoped",
-				tokenOrigin: SERVER_URL,
-			}),
-		});
+		const conn = await seedPlexConnection({ accountId: null });
 		const { plexWatchHistory } = await import("./plex");
 		const fetch = vi.fn<typeof globalThis.fetch>();
 		await expect(
@@ -1255,14 +951,14 @@ describe("plexAdapter.checkHealth", () => {
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
-	it("a successful /identity call -> connected", async () => {
+	it("a successful library read -> connected", async () => {
 		seedUser(USER_ID);
 		const conn = await seedPlexConnection();
 		const { plexAdapter } = await import("./plex");
 
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
-				expect(String(input)).toBe("https://plex.example.com/identity");
+				expect(String(input)).toBe("https://plex.example.com/library/sections");
 				const headers = new Headers(init?.headers);
 				expect(headers.get("X-Plex-Token")).toBe("plex-secret-token");
 				return jsonResponse(200, {

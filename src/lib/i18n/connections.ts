@@ -218,12 +218,6 @@ const connectionsDict = {
 		"connections.wizard.immich.help":
 			"Use the same email and password you use to log in to your Immich server.",
 
-		"connections.wizard.plex.serverUrlLabel": "Server URL",
-		"connections.wizard.plex.serverUrlPlaceholder": "plex.example.com",
-		"connections.wizard.plex.tokenLabel": "Plex token",
-		"connections.wizard.plex.help":
-			"Find your token by signing in to Plex Web, opening any item's “Get Info” → “View XML”, and copying the X-Plex-Token value from the URL.",
-
 		"connections.wizard.github.tokenLabel": "Personal access token",
 		"connections.wizard.github.tokenPlaceholder": "ghp_... or github_pat_...",
 		"connections.wizard.github.help":
@@ -826,8 +820,7 @@ const connectionsDict = {
 		"connections.wizard.plex.subtitle":
 			"Sign in with Plex to find your media servers.",
 		"connections.wizard.plex.start": "Connect with Plex",
-		"connections.wizard.plex.manual": "Use a server URL and token",
-		"connections.wizard.plex.back": "Back to Plex sign-in",
+
 		"connections.wizard.plex.expired":
 			"This Plex sign-in has expired. Start again to continue.",
 		"connections.wizard.plex.connected": "Connected to {name}.",
@@ -1100,12 +1093,6 @@ const connectionsDict = {
 		"connections.wizard.immich.passwordLabel": "Jelszó",
 		"connections.wizard.immich.help":
 			"Add meg ugyanazt az e-mail-címet és jelszót, amellyel az Immich szerveredre bejelentkezel.",
-
-		"connections.wizard.plex.serverUrlLabel": "Szerver URL",
-		"connections.wizard.plex.serverUrlPlaceholder": "plex.pelda.hu",
-		"connections.wizard.plex.tokenLabel": "Plex token",
-		"connections.wizard.plex.help":
-			"A tokenedet a Plex Web-be bejelentkezve találod: nyiss meg egy elemet, válaszd a „Get Info” → „View XML” lehetőséget, majd másold ki az URL-ből az X-Plex-Token értékét.",
 
 		"connections.wizard.github.tokenLabel": "Személyes hozzáférési token",
 		"connections.wizard.github.tokenPlaceholder": "ghp_... vagy github_pat_...",
@@ -1687,8 +1674,7 @@ const connectionsDict = {
 		"connections.wizard.plex.subtitle":
 			"Jelentkezz be a Plexbe a médiaszervereid megkereséséhez.",
 		"connections.wizard.plex.start": "Csatlakozás Plexszel",
-		"connections.wizard.plex.manual": "Szervercím és token megadása",
-		"connections.wizard.plex.back": "Vissza a Plex-bejelentkezéshez",
+
 		"connections.wizard.plex.expired":
 			"Ez a Plex-bejelentkezés lejárt. A folytatáshoz indítsd újra.",
 		"connections.wizard.plex.connected": "Csatlakoztatva: {name}.",

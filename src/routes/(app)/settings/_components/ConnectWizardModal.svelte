@@ -39,7 +39,6 @@ import {
 	startNextcloudConnect,
 	startOneDriveConnect,
 	startOwnTracksConnect,
-	startPlexConnect,
 } from "$lib/client/api/connections";
 import { ApiError } from "$lib/client/api/http";
 import { rememberRequestedCapabilities } from "$lib/client/connections/oauth-request-memo";
@@ -529,22 +528,6 @@ const submitImmich = (event: Event) => {
 				email: immichEmail.trim(),
 				password: immichPassword,
 			},
-			signal,
-		).then(() => undefined),
-	);
-};
-
-// --- Advanced manual setup (Plex) -------------------------------------------------
-let plexServerUrl = $state(reconnectConfigString("origin"));
-let manualPlex = $state(false);
-let plexToken = $state("");
-let plexShowToken = $state(false);
-
-const submitPlex = (event: Event) => {
-	event.preventDefault();
-	return submitCredentials((signal) =>
-		startPlexConnect(
-			{ serverUrl: plexServerUrl.trim(), token: plexToken.trim() },
 			signal,
 		).then(() => undefined),
 	);
@@ -1292,51 +1275,7 @@ const providerName = $derived(
 					title={$t('connections.wizard.titleConnect', { provider: providerName })}
 					subtitle={$t('connections.wizard.plex.subtitle')}
 				/>
-				{#if submitting}
-					{@render connectingPanel()}
-				{:else if !manualPlex}
-					<PlexHostedSetup connectionId={initialReconnectConnectionId} {onConnected} {onClose} onManual={() => manualPlex = true} />
-				{:else}
-					<button type="button" class="btn-secondary mb-3" onclick={() => {manualPlex = false; plexToken = ""; clearError();}}>{$t("connections.wizard.plex.back")}</button>
-					<form onsubmit={submitPlex}>
-						<div class="mb-3">
-							<label class="settings-label" for="wizard-plex-server-url">
-								{$t('connections.wizard.plex.serverUrlLabel')}
-							</label>
-							<input
-								id="wizard-plex-server-url"
-								type="text"
-								inputmode="url"
-								autocomplete="url"
-								class="settings-input"
-								bind:value={plexServerUrl}
-								placeholder={$t('connections.wizard.plex.serverUrlPlaceholder')}
-							/>
-						</div>
-						<PasswordField
-							id="wizard-plex-token"
-							label={$t('connections.wizard.plex.tokenLabel')}
-							bind:value={plexToken}
-							bind:shown={plexShowToken}
-							autocomplete="off"
-						/>
-						<p class="wizard-field-help">{$t('connections.wizard.plex.help')}</p>
-						{@render errorBlock()}
-						<div class="wizard-foot">
-							<span class="wizard-foot-spacer"></span>
-							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
-								{$t('common.cancel')}
-							</button>
-							<button
-								type="submit"
-								class="btn-primary w-full whitespace-nowrap sm:w-auto"
-								disabled={!plexServerUrl.trim() || !plexToken.trim()}
-							>
-								{$t('connections.actions.connect')}
-							</button>
-						</div>
-					</form>
-				{/if}
+				<PlexHostedSetup connectionId={initialReconnectConnectionId} {onConnected} {onClose} />
 
 			{:else if variant === 'github'}
 				<WizardHeader

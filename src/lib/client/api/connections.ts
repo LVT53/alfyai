@@ -324,22 +324,6 @@ export function selectPlexServer(
 	);
 }
 
-// POST /api/connections/plex/start — src/routes/api/connections/plex/start/+server.ts
-export async function startPlexConnect(
-	params: {
-		serverUrl: string;
-		token: string;
-	},
-	signal?: AbortSignal,
-): Promise<{ connection: ConnectionPublic }> {
-	return postJson<{ connection: ConnectionPublic }>(
-		"/api/connections/plex/start",
-		params,
-		"Failed to connect to the Plex server",
-		signal,
-	);
-}
-
 // POST /api/connections/github/start — src/routes/api/connections/github/start/+server.ts
 export async function startGitHubConnect(
 	params: {

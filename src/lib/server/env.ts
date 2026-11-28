@@ -203,7 +203,7 @@ interface Config {
 	mineruStructureChunkingEnabled: boolean;
 	// On-box OwnTracks Recorder base URL (e.g. http://127.0.0.1:8083). Admin
 	// config only — the user never supplies this (see providers/owntracks.ts)
-	// — so, unlike Immich/Plex/Nextcloud's user-pasted serverUrl, this is
+	// — so, unlike Immich/Nextcloud's user-pasted serverUrl, this is
 	// intentionally NOT run through the SSRF guard (assertPublicHttpsUrl):
 	// there is no user-controlled fetch target here to protect against.
 	owntracksRecorderUrl: string;

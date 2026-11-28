@@ -23,7 +23,6 @@ vi.mock("$lib/client/api/connections", () => ({
 	startNextcloudConnect: vi.fn(),
 	startOneDriveConnect: vi.fn(),
 	startOwnTracksConnect: vi.fn(),
-	startPlexConnect: vi.fn(),
 	startPlexLink: vi.fn(),
 	pollPlexLink: vi.fn(),
 	selectPlexServer: vi.fn(),
@@ -46,7 +45,6 @@ import {
 	startNextcloudConnect,
 	startOneDriveConnect,
 	startOwnTracksConnect,
-	startPlexConnect,
 	startPlexLink,
 	updateHostedBoschGrants,
 } from "$lib/client/api/connections";
@@ -70,7 +68,6 @@ const mockStartOneDriveConnect = startOneDriveConnect as ReturnType<
 const mockStartOwnTracksConnect = startOwnTracksConnect as ReturnType<
 	typeof vi.fn
 >;
-const mockStartPlexConnect = startPlexConnect as ReturnType<typeof vi.fn>;
 const mockStartGitHubConnect = startGitHubConnect as ReturnType<typeof vi.fn>;
 const mockStartCalDavConnect = startCalDavConnect as ReturnType<typeof vi.fn>;
 
@@ -1203,32 +1200,14 @@ describe("ConnectWizardModal", () => {
 			);
 		});
 
-		it("submits serverUrl/token and calls onConnected on success", async () => {
-			mockStartPlexConnect.mockResolvedValue({
-				connection: { id: "conn-plex", provider: "plex" },
-			});
-			const onConnected = vi.fn();
-
-			render(ConnectWizardModal, baseProps({ provider: "plex", onConnected }));
-			await fireEvent.click(
-				screen.getByRole("button", { name: "Use a server URL and token" }),
-			);
-
-			await fireEvent.input(screen.getByLabelText("Server URL"), {
-				target: { value: "https://plex.example.com" },
-			});
-			await fireEvent.input(screen.getByLabelText("Plex token"), {
-				target: { value: "plex-token" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-
-			await waitFor(() => {
-				expect(mockStartPlexConnect).toHaveBeenCalledWith(
-					{ serverUrl: "https://plex.example.com", token: "plex-token" },
-					expect.any(AbortSignal),
-				);
-			});
-			expect(onConnected).toHaveBeenCalledOnce();
+		it("offers hosted sign-in as the only Plex setup method", () => {
+			render(ConnectWizardModal, baseProps({ provider: "plex" }));
+			expect(
+				screen.getByRole("button", { name: "Connect with Plex" }),
+			).toBeEnabled();
+			expect(screen.queryByRole("button", { name: /token/i })).toBeNull();
+			expect(screen.queryByRole("textbox")).toBeNull();
+			expect(screen.queryByLabelText("Plex token")).toBeNull();
 		});
 	});
 
