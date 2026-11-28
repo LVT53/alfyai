@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
 	beginBoschLogin,
+	boschRejectsCallback,
 	exchangeBoschCode,
 	refreshBoschGrant,
 } from "./bosch-flow-oauth";
@@ -45,4 +46,35 @@ it("distinguishes a temporary token service failure from a revoked rider grant",
 	await expect(
 		refreshBoschGrant(client, "refresh", fetch),
 	).rejects.toMatchObject({ code: "provider_unavailable" });
+});
+
+it("checks only the public redirect registration through a separate silent request", async () => {
+	const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+		const probe = new URL(String(url));
+		expect(probe.origin).toBe("https://p9.authz.bosch.com");
+		expect(probe.searchParams.get("redirect_uri")).toBe(callback.href);
+		expect(probe.searchParams.get("prompt")).toBe("none");
+		expect(probe.searchParams.has("client_secret")).toBe(false);
+		expect(init?.redirect).toBe("manual");
+		return Response.json(
+			{ error: "Invalid parameter: redirect_uri" },
+			{ status: 400 },
+		);
+	});
+	expect(await boschRejectsCallback(client.clientId, callback, fetcher)).toBe(
+		true,
+	);
+	for (const response of [
+		Response.redirect(callback),
+		Response.json({ error: "invalid_client" }, { status: 400 }),
+		new Response(null, { status: 503 }),
+	]) {
+		expect(
+			await boschRejectsCallback(
+				client.clientId,
+				callback,
+				async () => response,
+			),
+		).toBe(false);
+	}
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import { userConnections } from "$lib/server/db/schema";
@@ -305,6 +305,30 @@ export async function updateConnection(
 		)
 		.returning();
 	return row ? toPublic(row) : null;
+}
+
+// Merge at write time so independent preference edits do not lose one another.
+// Fence the edit to the authorization/snapshot against which it was validated.
+export async function mergeConnectionConfig(
+	userId: string,
+	id: string,
+	expectedSecretVersion: string,
+	patch: Record<string, unknown>,
+) {
+	const result = await db
+		.update(userConnections)
+		.set({
+			configJson: sql`json_patch(${userConnections.configJson}, ${JSON.stringify(patch)})`,
+			updatedAt: new Date(),
+		})
+		.where(
+			and(
+				scoped(userId, id),
+				eq(userConnections.status, "connected"),
+				eq(userConnections.secretIv, expectedSecretVersion),
+			),
+		);
+	return result.changes === 1;
 }
 
 export async function setConnectionSecret(

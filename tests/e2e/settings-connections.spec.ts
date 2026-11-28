@@ -439,12 +439,20 @@ test.describe("settings connections tab", () => {
 				page.url(),
 			).href;
 			let start: unknown;
+			let rejectCallback = true;
 			await page.route("**/api/connections/bosch/hosted", (route) => {
 				if (route.request().method() === "GET")
 					return route.fulfill({
 						json: { mode: "none", grants: [], callbackUrl },
 					});
 				start = route.request().postDataJSON();
+				if (rejectCallback) {
+					rejectCallback = false;
+					return route.fulfill({
+						status: 422,
+						json: { error: "redirect_uri_mismatch" },
+					});
+				}
 				return route.fulfill({
 					json: {
 						authUrl: new URL(
@@ -465,9 +473,20 @@ test.describe("settings connections tab", () => {
 			await dialog.getByLabel("Bosch client ID").fill("example-client");
 			await dialog.getByLabel("Fitness measurements", { exact: true }).check();
 			await dialog.getByRole("button", { name: "Sign in with Bosch" }).click();
+			await expect(dialog.getByRole("alert")).toContainText(
+				"Bosch rejected this Redirect URI",
+			);
+			await expect(
+				dialog.getByLabel("Redirect URI", { exact: true }),
+			).toHaveValue(callbackUrl);
+			await expect(
+				dialog.getByLabel("Fitness measurements", { exact: true }),
+			).toBeChecked();
+			await dialog.getByLabel("Bosch client ID").fill("corrected-client");
+			await dialog.getByRole("button", { name: "Sign in with Bosch" }).click();
 			await expect
 				.poll(() => start)
-				.toEqual({ clientId: "example-client", grants: ["fitness"] });
+				.toEqual({ clientId: "corrected-client", grants: ["fitness"] });
 			await expect(dialog).not.toBeVisible();
 		});
 		test("pairs one personal Bosch rider service and keeps the pairing code on the setup screen", async ({

@@ -6,6 +6,7 @@ import {
 	startHostedBoschSetup,
 	updateHostedBoschGrants,
 } from "$lib/client/api/connections";
+import { ApiError } from "$lib/client/api/http";
 import BoschSetupSteps from "$lib/components/guide/BoschSetupSteps.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import {
@@ -97,8 +98,11 @@ async function submit(event: SubmitEvent) {
 				onSaved();
 			}
 		}
-	} catch {
-		if (!lifetime.signal.aborted)
+	} catch (error) {
+		if (authorize && error instanceof ApiError && error.status === 422) {
+			if (!lifetime.signal.aborted)
+				failure = "connections.wizard.bosch.redirectMismatch";
+		} else if (!lifetime.signal.aborted)
 			failure = authorize
 				? "connections.wizard.bosch.submitFail"
 				: "connections.wizard.bosch.saveFail";
@@ -142,7 +146,9 @@ async function submit(event: SubmitEvent) {
 				<a class="portal" href="https://portal.bosch-ebike.com/data-act" target="_blank" rel="noopener noreferrer">Bosch Partner Portal <ExternalLink size={13} aria-hidden="true" />
 				</a>
 				{@render address("bosch-login-url", "Login URL", new URL("/settings?section=connections", setup.callbackUrl).href)}
-				{@render address("bosch-redirect-uri", "Redirect URI", setup.callbackUrl)}
+				{#if failure !== "connections.wizard.bosch.redirectMismatch"}
+					{@render address("bosch-redirect-uri", "Redirect URI", setup.callbackUrl)}
+				{/if}
 				{#if copyFailed}<p role="status">{$t("connections.wizard.bosch.copyFail")}</p>{/if}
 				<BoschSetupSteps/>
 				<div>
@@ -171,7 +177,13 @@ async function submit(event: SubmitEvent) {
 			<a class="portal" href="https://flow.bosch-ebike.com/data-act" target="_blank" rel="noopener noreferrer">Bosch Flow <ExternalLink size={13} aria-hidden="true" />
 				</a>
 		</div>
-		{#if failure}<p role="alert">{$t(failure)}</p>{/if}
+		{#if failure === "connections.wizard.bosch.redirectMismatch"}
+			<div class="section">
+				<p role="alert">{$t(failure)}</p>
+				{@render address("bosch-rejected-redirect", "Redirect URI", setup.callbackUrl)}
+				<a class="portal" href="https://portal.bosch-ebike.com/data-act" target="_blank" rel="noopener noreferrer">Bosch Partner Portal <ExternalLink size={13} aria-hidden="true" /></a>
+			</div>
+		{:else if failure}<p role="alert">{$t(failure)}</p>{/if}
 		<div class="actions">
 			{#if !authorize}
 				<button type="button" class="btn-secondary" disabled={busy} onclick={() => authorize = true}>{$t("connections.wizard.bosch.authorizeAgain")}</button>

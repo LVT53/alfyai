@@ -416,6 +416,33 @@ export async function fetchNextcloudFolders(
 	return folders;
 }
 
+const boschBikesPath = "/api/connections/bosch/bikes";
+
+export function fetchBoschBikeNames(signal: AbortSignal) {
+	return requestJson<{ bikes: { id: string; name: string | null }[] }>(
+		boschBikesPath,
+		{ signal },
+		"Could not load Bosch bikes",
+	);
+}
+
+export function saveBoschBikeName(
+	id: string,
+	name: string,
+	signal: AbortSignal,
+) {
+	return requestVoid(
+		boschBikesPath,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ id, name }),
+			signal,
+		},
+		"Could not save Bosch bike name",
+	);
+}
+
 const boschHostedPath = "/api/connections/bosch/hosted";
 
 export function fetchHostedBoschSetup(signal?: AbortSignal) {

@@ -50,6 +50,7 @@ import { DRIVE_MODIFY_SCOPE } from "$lib/shared/google-drive-scopes";
 import { GMAIL_MODIFY_SCOPE } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import BehaviourRow from "./connections/BehaviourRow.svelte";
+import BoschBikeNames from "./connections/BoschBikeNames.svelte";
 import CapabilityRow from "./connections/CapabilityRow.svelte";
 import ConnectionStatusCell from "./connections/ConnectionStatusCell.svelte";
 import Disclosure from "./connections/Disclosure.svelte";
@@ -630,6 +631,13 @@ function capabilityAbout(capability: string): string {
 							{$t('connections.detail.readOnlyNote', { provider: name })}
 						</p>
 					{/if}
+				</section>
+			{/if}
+
+			{#if conn.provider === "bosch"}
+				<section class="detail-section" aria-labelledby="bosch-bike-names">
+					<h3 class="detail-eyebrow" id="bosch-bike-names">{$t("connections.bosch.bikes")}</h3>
+					{#key conn.id}<BoschBikeNames />{/key}
 				</section>
 			{/if}
 

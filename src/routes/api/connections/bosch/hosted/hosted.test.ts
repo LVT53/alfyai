@@ -13,6 +13,11 @@ vi.mock(
 	() => service,
 );
 
+const rejectsCallback = vi.hoisted(() => vi.fn());
+vi.mock("$lib/server/services/connections/providers/bosch-flow-oauth", () => ({
+	boschRejectsCallback: rejectsCallback,
+}));
+
 const origin = "https://app.example";
 const path = "/api/connections/bosch/hosted";
 const state = "a".repeat(43);
@@ -67,6 +72,18 @@ describe("hosted Bosch setup", () => {
 		});
 		expect(response.headers.get("cache-control")).toContain("no-store");
 		expect(service.getBoschHostedSetup).toHaveBeenCalledWith("rider");
+	});
+	it("keeps the rider in setup when Bosch rejects the hosted callback", async () => {
+		rejectsCallback.mockResolvedValue(true);
+		await expect(
+			POST(event("POST", path, JSON.stringify(details))),
+		).rejects.toMatchObject({ status: 422 });
+		expect(rejectsCallback).toHaveBeenCalledWith(
+			details.clientId,
+			new URL(`${origin + path}/callback`),
+		);
+		expect(service.startBoschHostedSetup).not.toHaveBeenCalled();
+		expect(cookie.set).not.toHaveBeenCalled();
 	});
 	it("starts PKCE in the browser's own session without revealing client credentials", async () => {
 		const response = await POST(event("POST", path, JSON.stringify(details)));

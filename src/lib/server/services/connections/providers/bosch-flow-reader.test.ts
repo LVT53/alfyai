@@ -8,6 +8,7 @@ describe("Bosch Flow authorized ride data", () => {
 				activitySummaries: [
 					{
 						id: "ride",
+						bikeId: "bike-one",
 						distance: 1400,
 						track: ["private route"],
 						startTime: "2026-11-01T10:00:00Z",
@@ -21,6 +22,7 @@ describe("Bosch Flow authorized ride data", () => {
 			rides: [
 				{
 					id: "ride",
+					bikeId: "bike-one",
 					distanceMeters: 1400,
 					startTime: "2026-11-01T10:00:00Z",
 					endTime: null,

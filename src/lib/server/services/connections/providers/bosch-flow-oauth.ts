@@ -28,6 +28,37 @@ export function beginBoschLogin(clientId: string, callback: URL) {
 	return { url: url.href, state, verifier };
 }
 
+// A rejected redirect never returns the browser to AlfyAI. Ask Bosch anonymously
+// with a separate PKCE attempt so the rider can correct their client in setup.
+export async function boschRejectsCallback(
+	clientId: string,
+	callback: URL,
+	fetcher: typeof fetch = fetch,
+): Promise<boolean> {
+	const probe = new URL(beginBoschLogin(clientId, callback).url);
+	probe.searchParams.set("prompt", "none");
+	try {
+		const response = await fetcher(probe, {
+			headers: { Accept: "application/json", "Accept-Language": "en" },
+			redirect: "manual",
+			credentials: "omit",
+			signal: AbortSignal.timeout(4000),
+		});
+		if (response.status !== 400) {
+			await response.body?.cancel();
+			return false;
+		}
+		const body = await boschJson(response, 8192);
+		return (
+			typeof body.error === "string" &&
+			/invalid parameter:\s*redirect_uri/i.test(body.error)
+		);
+	} catch {
+		// An inconclusive probe must still allow the regular interactive sign-in.
+		return false;
+	}
+}
+
 async function tokenRequest(
 	client: BoschClient,
 	params: URLSearchParams,

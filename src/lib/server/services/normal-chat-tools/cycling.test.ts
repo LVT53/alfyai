@@ -8,6 +8,7 @@ import {
 	loadBoschDetailForQuestion,
 	loadBoschForQuestion,
 } from "../connections/providers/bosch-flow-bridge";
+import { bikeNameKey } from "../connections/providers/bosch-flow-names";
 import { resolveConnectionsForCapability } from "../connections/resolve";
 import type { ConnectionPublic } from "../connections/store";
 import { runCyclingTool } from "./cycling";
@@ -238,6 +239,28 @@ it("distills detailed location locally and never returns the raw fields or candi
 	}
 });
 
+it.each(["bike_profile", "ride_detail"] as const)(
+	"attaches a rider's bike name to %s only in the permitted output",
+	async (action) => {
+		vi.mocked(resolveConnectionsForCapability).mockResolvedValue([
+			{ ...conn, config: { bikeNames: { [bikeNameKey("b1")]: "My Cube" } } },
+		]);
+		vi.mocked(loadBoschDetailForQuestion).mockResolvedValue({
+			status: "ready",
+			result: { fields: [{ path: "bikeId", value: "b1" }], nextOffset: null },
+		});
+		const input = { action, id: action === "bike_profile" ? "b1" : "r1" };
+		expect(
+			(await runCyclingTool("rider", input, "model")).modelPayload.bikes,
+		).toEqual([{ id: "b1", name: "My Cube" }]);
+		vi.mocked(hasLocalDistillEnabled).mockResolvedValue(true);
+		vi.mocked(isCloudModel).mockResolvedValue(true);
+		vi.mocked(distillConnectorPayload).mockResolvedValue({ unavailable: true });
+		expect(
+			JSON.stringify(await runCyclingTool("rider", input, "cloud")),
+		).not.toContain("My Cube");
+	},
+);
 it("includes Bosch units for a requested odometer, preserving the selected bike and path", async () => {
 	vi.mocked(loadBoschDetailForQuestion).mockResolvedValue({
 		status: "ready",

@@ -10,6 +10,7 @@ import {
 	boschDetailActions,
 	parseBoschDetailQuery,
 } from "../connections/providers/bosch-flow-details";
+import { savedBikeName } from "../connections/providers/bosch-flow-names";
 import {
 	matchingConnections,
 	resolveConnectionsForCapability,
@@ -217,8 +218,19 @@ export async function runCyclingTool(
 					"detail_unavailable",
 					"The rider's helper could not provide these details now. No detail cache is available; do not infer a value.",
 				);
+			const bikeId = query.action.startsWith("ride_")
+				? answer.result.fields.find((field) => field.path === "bikeId")?.value
+				: query.id;
+			const bikeName =
+				typeof bikeId === "string"
+					? savedBikeName(selected[0].config, bikeId)
+					: null;
 			const data: Payload = {
 				...base,
+				bikes:
+					typeof bikeId === "string" && bikeName
+						? [{ id: bikeId, name: bikeName }]
+						: [],
 				success: true,
 				fresh: true,
 				syncedAt: new Date().toISOString(),
@@ -254,7 +266,11 @@ export async function runCyclingTool(
 				capability: "cycling",
 				userQuestion: [input.action, input.field].filter(Boolean).join(" "),
 				rawText: answer.result.fields.length
-					? JSON.stringify({ detail: answer.result, units: data.units })
+					? JSON.stringify({
+							bikes: data.bikes,
+							detail: answer.result,
+							units: data.units,
+						})
 					: "",
 				onDistilled: (_o, summary) => redacted(summary),
 				onUnavailable: () =>
@@ -324,7 +340,11 @@ export async function runCyclingTool(
 				data.rides = rides.slice(offset, offset + (input.limit ?? 20));
 				if (offset + data.rides.length < rides.length)
 					data.nextOffset = offset + data.rides.length;
-			} else
+			} else {
+				const riddenIds = new Set(rides.map((ride) => ride.bikeId));
+				data.bikes = snapshot.bikes.filter(
+					(bike) => bike.id && riddenIds.has(bike.id),
+				);
 				data.summary = {
 					rideCount: rides.length,
 					distanceMeters: rides.reduce(
@@ -334,6 +354,7 @@ export async function runCyclingTool(
 					ridesWithoutDistance: rides.filter((r) => r.distanceMeters === null)
 						.length,
 				};
+			}
 			if (data.summary?.ridesWithoutDistance)
 				data.message +=
 					" Some rides lack measured distance. Give the measured subtotal and the number missing distance.";

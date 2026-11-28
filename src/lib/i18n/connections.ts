@@ -3,6 +3,20 @@
 
 const connectionsDict = {
 	en: {
+		"connections.wizard.bosch.redirectMismatch":
+			"Bosch rejected this Redirect URI. In the Bosch Partner Portal, open the Smart System client for the client ID you entered. Add the exact address below as its Redirect URI and save, then try signing in again. If you can’t edit that client, register a new one with this address and enter the new client ID here.",
+		"connections.capabilityAbout.cycling":
+			"Read your bikes, rides and cycling statistics.",
+		"connections.bosch.bikes": "Bike names",
+		"connections.bosch.bikesHint":
+			"Choose the names Alfy uses for your bikes in chat.",
+		"connections.bosch.bikeLabel": "Bike · {id}",
+		"connections.bosch.bikesEmpty":
+			"No bikes are shared yet. In Bosch Flow, open Manage Access and enable sharing for your bike.",
+		"connections.bosch.bikesLoadFail": "Your bikes couldn’t be loaded.",
+		"connections.bosch.nameSaveFail":
+			"The bike name couldn’t be saved. Try again.",
+		"connections.bosch.nameSaved": "Bike name saved.",
 		"connections.wizard.bosch.chatAccess":
 			"For this chat, open the plug beside the message box and turn on Bosch eBike Flow. To use Bosch by default, open its account in Settings → Connections and turn on “Use it without asking”.",
 		"connections.wizard.bosch.chatChoice":
@@ -818,6 +832,20 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.wizard.bosch.redirectMismatch":
+			"A Bosch elutasította ezt a visszairányítási címet. A Bosch Partner Portal felületén nyisd meg a megadott kliensazonosítóhoz tartozó Smart System-klienst. A Redirect URI mezőbe másold be pontosan az alábbi címet, mentsd el, majd próbálj újra bejelentkezni. Ha a kliens nem szerkeszthető, regisztrálj egy újat ezzel a címmel, és itt add meg az új kliensazonosítót.",
+		"connections.capabilityAbout.cycling":
+			"Kerékpárok, utak és kerékpáros statisztikák olvasása.",
+		"connections.bosch.bikes": "Kerékpárnevek",
+		"connections.bosch.bikesHint":
+			"Add meg, milyen néven hivatkozzon Alfy a kerékpárjaidra a beszélgetésekben.",
+		"connections.bosch.bikeLabel": "Kerékpár · {id}",
+		"connections.bosch.bikesEmpty":
+			"Még nincs megosztott kerékpárod. A Bosch Flow „Manage Access” menüjében engedélyezd a kerékpárod megosztását.",
+		"connections.bosch.bikesLoadFail": "Nem sikerült betölteni a kerékpárokat.",
+		"connections.bosch.nameSaveFail":
+			"Nem sikerült menteni a kerékpár nevét. Próbáld újra.",
+		"connections.bosch.nameSaved": "Kerékpárnév mentve.",
 		"connections.wizard.bosch.chatAccess":
 			"Ebben a beszélgetésben az üzenetmező melletti dugó ikonra kattintva kapcsolhatod be a Bosch eBike Flow-t. Ha alapértelmezésként is szeretnéd használni, a Beállítások → Kapcsolatok alatt nyisd meg a Bosch-fiókot, és kapcsold be a „Használhatja rákérdezés nélkül” lehetőséget.",
 		"connections.wizard.bosch.chatChoice":

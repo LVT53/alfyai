@@ -7,6 +7,7 @@ export type Snapshot = {
 	bikes: { id: string | null; name: string | null }[];
 	rides: {
 		id: string;
+		bikeId?: string;
 		startTime: string;
 		endTime: string | null;
 		distanceMeters: number | null;
@@ -39,6 +40,7 @@ export async function collectBoschSnapshot(
 			seen.add(rideId);
 			rides.push({
 				id: rideId,
+				...(ride.bikeId ? { bikeId: ride.bikeId } : {}),
 				startTime,
 				endTime: instant(ride.endTime),
 				distanceMeters: ride.distanceMeters,

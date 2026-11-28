@@ -7,8 +7,10 @@ import { resolveActiveCapabilities } from "../resolve";
 import { updateConnection } from "../store";
 import {
 	acceptBoschUpload,
+	listBoschBikesForNaming,
 	loadBoschDetailForQuestion,
 	loadBoschForQuestion,
+	nameBoschBike,
 	pairBoschBridge,
 	pollBoschQuestion,
 	readBoschSnapshot,
@@ -45,6 +47,53 @@ const bikeData = {
 	complete: true,
 };
 describe("personal Bosch rider pairing", () => {
+	it("keeps labels rider-scoped across refresh, uses exact bike IDs on rides and restores Bosch names when cleared", async () => {
+		const one = await pairBoschBridge("one");
+		const two = await pairBoschBridge("two");
+		const bikes = [
+			{ id: "b1", name: "Provider" },
+			{ id: "b2", name: null },
+			{ id: null, name: null },
+		];
+		const rides = [
+			{
+				id: "ride1",
+				bikeId: "b1",
+				startTime: "2026-11-01T00:00:00Z",
+				endTime: null,
+				distanceMeters: null,
+			},
+		];
+		const upload = async () => ({ bikes, rides, complete: true });
+		await acceptBoschUpload(one.pairingToken, upload);
+		await acceptBoschUpload(two.pairingToken, upload);
+		expect(await nameBoschBike("one", "missing", "Ghost")).toBe(false);
+		expect(
+			await Promise.all([
+				nameBoschBike("one", "b1", "Cube"),
+				nameBoschBike("one", "b2", "Town bike"),
+			]),
+		).toEqual([true, true]);
+		await acceptBoschUpload(one.pairingToken, upload);
+		expect(await listBoschBikesForNaming("one")).toEqual([
+			{ id: "b1", name: "Cube" },
+			{ id: "b2", name: "Town bike" },
+		]);
+		expect(await listBoschBikesForNaming("two")).toEqual([
+			{ id: "b1", name: null },
+			{ id: "b2", name: null },
+		]);
+		expect(
+			(await loadBoschForQuestion("one", one.connectionId)).snapshot,
+		).toMatchObject({
+			bikes: [{ name: "Cube" }, { name: "Town bike" }, { name: null }],
+			rides: [{ bikeName: "Cube" }],
+		});
+		expect(await nameBoschBike("one", "b1", "")).toBe(true);
+		expect(
+			(await readBoschSnapshot("one", one.connectionId))?.bikes[0].name,
+		).toBe("Provider");
+	});
 	it("offers a new helper only after the rider sends data or enables questions, preserving explicit choices", async () => {
 		const pair = await pairBoschBridge("one");
 		expect(await resolveActiveCapabilities("one")).toEqual(new Set());

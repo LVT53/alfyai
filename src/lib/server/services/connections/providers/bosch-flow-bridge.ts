@@ -11,6 +11,7 @@ import {
 	findConnectionByAccount,
 	getConnection,
 	getConnectionSecretSnapshot,
+	mergeConnectionConfig,
 	updateConnection,
 } from "../store";
 import {
@@ -25,6 +26,8 @@ import {
 	readHostedBoschDetail,
 	readHostedBoschSummary,
 } from "./bosch-flow-hosted";
+
+import { bikeNameKey, savedBikeName } from "./bosch-flow-names";
 
 const rideId = z.string().min(1).max(150);
 const instant = z.iso.datetime({ offset: true });
@@ -45,6 +48,7 @@ const upload = z
 				z
 					.object({
 						id: rideId,
+						bikeId: rideId.optional(),
 						startTime: instant,
 						endTime: instant.nullable(),
 						distanceMeters: z.number().nonnegative().nullable(),
@@ -290,7 +294,7 @@ export async function acceptBoschUpload(
 	return 204;
 }
 
-export async function readBoschSnapshot(userId: string, connectionId: string) {
+async function readBikeInventory(userId: string, connectionId: string) {
 	const connection = await getConnection(userId, connectionId);
 	if (
 		connection?.provider !== "bosch" ||
@@ -302,7 +306,60 @@ export async function readBoschSnapshot(userId: string, connectionId: string) {
 	if (!data) return null;
 	const schema = upload.extend({ syncedAt: z.number().int() });
 	const result = schema.safeParse(JSON.parse(data.value).snapshot);
-	return result.success ? result.data : null;
+	return result.success
+		? { connection, version: data.version, snapshot: result.data }
+		: null;
+}
+
+export async function readBoschSnapshot(userId: string, connectionId: string) {
+	const inventory = await readBikeInventory(userId, connectionId);
+	if (!inventory) return null;
+	const { connection, snapshot } = inventory;
+	const bikes = snapshot.bikes.map((bike) => ({
+		...bike,
+		name: savedBikeName(connection.config, bike.id) ?? bike.name,
+	}));
+	const names = new Map(bikes.map((bike) => [bike.id, bike.name]));
+	const rides = snapshot.rides.map((ride) => {
+		const bikeName = ride.bikeId && names.get(ride.bikeId);
+		return bikeName ? { ...ride, bikeName } : ride;
+	});
+	return { ...snapshot, bikes, rides };
+}
+
+export async function listBoschBikesForNaming(userId: string) {
+	const connection = await findConnectionByAccount(userId, "bosch", "personal");
+	if (
+		connection?.status !== "connected" ||
+		!connection.capabilities.includes("cycling")
+	)
+		return [];
+	let inventory = await readBikeInventory(userId, connection.id);
+	// A new hosted grant has no snapshot until its first read.
+	if (!inventory || Date.now() - inventory.snapshot.syncedAt > 300_000) {
+		await loadBoschForQuestion(userId, connection.id);
+		inventory = await readBikeInventory(userId, connection.id);
+	}
+	if (!inventory) return null;
+	const ids = new Set(inventory.snapshot.bikes.map((bike) => bike.id));
+	return Array.from(ids).flatMap((id) =>
+		id ? [{ id, name: savedBikeName(inventory.connection.config, id) }] : [],
+	);
+}
+
+export async function nameBoschBike(
+	userId: string,
+	bikeId: string,
+	name: string,
+) {
+	const connection = await findConnectionByAccount(userId, "bosch", "personal");
+	if (!connection) return false;
+	const inventory = await readBikeInventory(userId, connection.id);
+	if (!inventory?.snapshot.bikes.some((bike) => bike.id === bikeId))
+		return false;
+	return mergeConnectionConfig(userId, connection.id, inventory.version, {
+		bikeNames: { [bikeNameKey(bikeId)]: name || null },
+	});
 }
 
 export async function loadBoschForQuestion(userId: string, id: string) {

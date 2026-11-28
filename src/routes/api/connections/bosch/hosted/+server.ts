@@ -5,6 +5,7 @@ import {
 	setBoschHostedGrants,
 	startBoschHostedSetup,
 } from "$lib/server/services/connections/providers/bosch-flow-hosted";
+import { boschRejectsCallback } from "$lib/server/services/connections/providers/bosch-flow-oauth";
 import {
 	boschHostedPermissionsSchema,
 	boschHostedStartSchema,
@@ -35,6 +36,8 @@ export const POST: RequestHandler = async (event) => {
 		event.url.origin,
 	);
 	const callback = callbackUrl(event.url);
+	if (await boschRejectsCallback(body.clientId, callback))
+		error(422, "Register the displayed Redirect URI for this Bosch client");
 	const { url, state } = await startBoschHostedSetup(user.id, body, callback);
 	event.cookies.set(stateCookie, state, {
 		path: callbackPath,

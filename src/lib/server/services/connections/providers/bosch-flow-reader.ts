@@ -130,6 +130,11 @@ export async function readBoschFlowRides(
 	);
 	const rides = rows.map((ride) => ({
 		id: typeof ride.id === "string" ? ride.id : null,
+		...(typeof ride.bikeId === "string" &&
+		ride.bikeId.length > 0 &&
+		ride.bikeId.length <= 150
+			? { bikeId: ride.bikeId }
+			: {}),
 		startTime: typeof ride.startTime === "string" ? ride.startTime : null,
 		endTime: typeof ride.endTime === "string" ? ride.endTime : null,
 		distanceMeters:
