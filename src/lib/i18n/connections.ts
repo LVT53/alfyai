@@ -3,6 +3,22 @@
 
 const connectionsDict = {
 	en: {
+		"connections.writeConfirm.question.create_task": "Add this task?",
+		"connections.writeConfirm.approve.create_task": "Add task",
+		"connections.writeConfirm.done.create_task": "Task added",
+		"connections.writeConfirm.question.update_task": "Change this task?",
+		"connections.writeConfirm.approve.update_task": "Save changes",
+		"connections.writeConfirm.done.update_task": "Task updated",
+		"connections.writeConfirm.question.complete_task":
+			"Mark this task complete?",
+		"connections.writeConfirm.approve.complete_task": "Mark complete",
+		"connections.writeConfirm.done.complete_task": "Task completed",
+		"connections.writeConfirm.question.delete_task": "Delete this task?",
+		"connections.writeConfirm.approve.delete_task": "Delete task",
+		"connections.writeConfirm.done.delete_task": "Task deleted",
+		"connections.writeConfirm.fact.taskList": "Task list",
+		"connections.writeConfirm.fact.taskDue": "Due date",
+		"connections.writeConfirm.fact.taskNotes": "Notes",
 		"connections.wizard.bosch.redirectMismatch":
 			"Bosch rejected this Redirect URI. In the Bosch Partner Portal, open the Smart System client for the client ID you entered. Add the exact address below as its Redirect URI and save, then try signing in again. If you can’t edit that client, register a new one with this address and enter the new client ID here.",
 		"connections.capabilityAbout.cycling":
@@ -301,14 +317,18 @@ const connectionsDict = {
 			"This request didn't match your session. Please try again.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"Google couldn't complete the connection. Please try again.",
-		"connections.google.driveBlurb": "Drive, Calendar and Contacts",
-		"connections.google.gmailDriveBlurb": "Gmail, Drive, Calendar and Contacts",
+		"connections.google.driveBlurb": "Drive, Calendar, Contacts and Tasks",
+		"connections.google.gmailDriveBlurb":
+			"Gmail, Drive, Calendar, Contacts and Tasks",
 		"connections.google.driveReadAbout":
 			"Find and read files in this Google Drive account.",
+		"connections.google.tasksManage": "Request Google Tasks editing",
+		"connections.google.tasksManageAbout":
+			"Turn on changes to create, edit, complete, or delete a task. You confirm each change in chat.",
 		"connections.google.driveManage": "Request Google Drive management",
 		"connections.google.driveManageAbout":
 			"Create, edit, move, trash or share files. Each change needs your confirmation in chat.",
-		"connections.google.gmailBlurb": "Gmail, Calendar and Contacts",
+		"connections.google.gmailBlurb": "Gmail, Calendar, Contacts and Tasks",
 		"connections.google.gmailManage": "Request Gmail management",
 		"connections.google.gmailManageAbout":
 			"Manage drafts, labels and messages, including sending. Each change requires your confirmation in chat.",
@@ -589,7 +609,7 @@ const connectionsDict = {
 		"connections.provider.immich.blurb": "Your photo library",
 		"connections.provider.imap.name": "Other email",
 		"connections.provider.imap.blurb": "Read and draft your mail",
-		"connections.provider.google.blurb": "Your calendar and contacts",
+		"connections.provider.google.blurb": "Your calendar, contacts and tasks",
 		"connections.provider.bosch.blurb": "Your bikes, rides and distance ridden",
 		"connections.provider.apple.blurb":
 			"Your iCloud calendar, contacts and mail",
@@ -832,6 +852,24 @@ const connectionsDict = {
 		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
+		"connections.writeConfirm.question.create_task":
+			"Felveszed ezt a feladatot?",
+		"connections.writeConfirm.approve.create_task": "Feladat felvétele",
+		"connections.writeConfirm.done.create_task": "Feladat felvéve",
+		"connections.writeConfirm.question.update_task":
+			"Módosítod ezt a feladatot?",
+		"connections.writeConfirm.approve.update_task": "Módosítások mentése",
+		"connections.writeConfirm.done.update_task": "Feladat módosítva",
+		"connections.writeConfirm.question.complete_task":
+			"Késznek jelölöd ezt a feladatot?",
+		"connections.writeConfirm.approve.complete_task": "Késznek jelölés",
+		"connections.writeConfirm.done.complete_task": "Feladat késznek jelölve",
+		"connections.writeConfirm.question.delete_task": "Törlöd ezt a feladatot?",
+		"connections.writeConfirm.approve.delete_task": "Feladat törlése",
+		"connections.writeConfirm.done.delete_task": "Feladat törölve",
+		"connections.writeConfirm.fact.taskList": "Feladatlista",
+		"connections.writeConfirm.fact.taskDue": "Határidő",
+		"connections.writeConfirm.fact.taskNotes": "Jegyzetek",
 		"connections.wizard.bosch.redirectMismatch":
 			"A Bosch elutasította ezt a visszairányítási címet. A Bosch Partner Portal felületén nyisd meg a megadott kliensazonosítóhoz tartozó Smart System-klienst. A Redirect URI mezőbe másold be pontosan az alábbi címet, mentsd el, majd próbálj újra bejelentkezni. Ha a kliens nem szerkeszthető, regisztrálj egy újat ezzel a címmel, és itt add meg az új kliensazonosítót.",
 		"connections.capabilityAbout.cycling":
@@ -1137,14 +1175,19 @@ const connectionsDict = {
 			"Ez a kérés nem egyezett a munkameneteddel. Kérjük, próbáld újra.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"A Google nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
-		"connections.google.driveBlurb": "Drive, Naptár és Névjegyek",
-		"connections.google.gmailDriveBlurb": "Gmail, Drive, Naptár és Névjegyek",
+		"connections.google.driveBlurb": "Drive, Naptár, Névjegyek és Feladatok",
+		"connections.google.gmailDriveBlurb":
+			"Gmail, Drive, Naptár, Névjegyek és Feladatok",
 		"connections.google.driveReadAbout":
 			"Fájlok keresése és olvasása ebben a Google Drive-fiókban.",
+		"connections.google.tasksManage":
+			"Google Tasks-szerkesztési engedély kérése",
+		"connections.google.tasksManageAbout":
+			"A módosítások engedélyezésével feladatokat hozhatsz létre, szerkeszthetsz, jelölhetsz meg készként vagy törölhetsz. Minden módosítást a csevegésben hagysz jóvá.",
 		"connections.google.driveManage": "Google Drive-kezelési engedély kérése",
 		"connections.google.driveManageAbout":
 			"Fájlok létrehozása, szerkesztése, áthelyezése, kukába helyezése és megosztása. Minden módosítást a csevegésben hagysz jóvá.",
-		"connections.google.gmailBlurb": "Gmail, Naptár és Névjegyek",
+		"connections.google.gmailBlurb": "Gmail, Naptár, Névjegyek és Feladatok",
 		"connections.google.gmailManage": "Gmail-kezelési engedély kérése",
 		"connections.google.gmailManageAbout":
 			"Piszkozatok, címkék és üzenetek kezelése, beleértve a küldést is. Minden módosítást a csevegésben hagysz jóvá.",
@@ -1410,7 +1453,7 @@ const connectionsDict = {
 		"connections.provider.immich.blurb": "A fényképtárad",
 		"connections.provider.imap.name": "Egyéb e-mail",
 		"connections.provider.imap.blurb": "Leveleid olvasása és fogalmazása",
-		"connections.provider.google.blurb": "A naptárad és névjegyeid",
+		"connections.provider.google.blurb": "A naptárad, névjegyeid és feladataid",
 		"connections.provider.bosch.blurb":
 			"Kerékpárjaid, útjaid és a megtett távolság",
 		"connections.provider.apple.blurb":

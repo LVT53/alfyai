@@ -197,14 +197,18 @@ describe("granted vs enabled capabilities", () => {
 			capabilities: ["calendar"],
 		});
 		expect(grantedCapabilitiesOf(conn)).toEqual(["calendar"]);
-		expect(deniedCapabilitiesOf(conn)).toEqual(["contacts"]);
+		expect(deniedCapabilitiesOf(conn)).toEqual(["contacts", "tasks"]);
 	});
 
 	// An older server (or a fixture) that doesn't send the field must not make
 	// every capability look denied.
 	it("assumes the whole catalogue was granted when the server didn't say", () => {
 		const conn = makeConnection({ grantedCapabilities: undefined });
-		expect(grantedCapabilitiesOf(conn)).toEqual(["calendar", "contacts"]);
+		expect(grantedCapabilitiesOf(conn)).toEqual([
+			"calendar",
+			"contacts",
+			"tasks",
+		]);
 		expect(deniedCapabilitiesOf(conn)).toEqual([]);
 	});
 
@@ -229,6 +233,7 @@ describe("capabilityChipsOf", () => {
 		expect(chips).toEqual([
 			{ kind: "capability", capability: "calendar", state: "off" },
 			{ kind: "capability", capability: "contacts", state: "denied" },
+			{ kind: "capability", capability: "tasks", state: "denied" },
 		]);
 	});
 
@@ -243,6 +248,7 @@ describe("capabilityChipsOf", () => {
 		expect(chips.map((chip) => "state" in chip && chip.state)).toEqual([
 			"on",
 			"on",
+			"denied",
 		]);
 	});
 

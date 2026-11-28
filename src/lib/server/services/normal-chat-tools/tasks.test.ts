@@ -11,7 +11,12 @@ import {
 } from "$lib/server/services/connections/providers/caldav-tasks";
 import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
-
+import { createPendingWrite } from "../connections/pending-writes";
+import {
+	googleListTaskLists,
+	googleListTasks,
+	prepareGoogleTaskWrite,
+} from "../connections/providers/google-tasks";
 import { reasonCodeOf } from "./shared";
 import { runTasksTool, sanitizeTasksToolInput } from "./tasks";
 
@@ -20,6 +25,15 @@ import { runTasksTool, sanitizeTasksToolInput } from "./tasks";
 // carries is not what they are about (connector-distill.test.ts and
 // shared.test.ts hold it), and a summary asked for with no call to mark is
 // refused (ADR-0068), so the call is stood in for.
+vi.mock("../connections/pending-writes", () => ({
+	createPendingWrite: vi.fn(),
+}));
+vi.mock("../connections/providers/google-tasks", () => ({
+	googleListTaskLists: vi.fn(),
+	googleListTasks: vi.fn(),
+	prepareGoogleTaskWrite: vi.fn(),
+}));
+
 vi.mock("./shared", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./shared")>()),
 	isInsideToolCall: () => true,
@@ -140,7 +154,7 @@ describe("runTasksTool", () => {
 				sourceType: "tool",
 				action: "list_tasks",
 				message:
-					"You don't have a Tasks connection set up yet. Connect a CalDAV account in Settings to view your tasks.",
+					"You don't have a Tasks connection set up yet. Connect Google Tasks or a CalDAV account in Settings to view your tasks.",
 				tasks: [],
 				projects: [],
 				citations: [],
@@ -486,5 +500,184 @@ describe("runTasksTool — locality Option A distillation gate", () => {
 		expect(JSON.stringify(outcome.modelPayload)).not.toContain(
 			"details_withheld",
 		);
+	});
+});
+
+describe("Google Tasks", () => {
+	const google = makeConn({
+		provider: "google",
+		label: "Google",
+		accountIdentifier: "work@example.com",
+		allowWrites: true,
+		oauthScopes: ["https://www.googleapis.com/auth/tasks"],
+	});
+	beforeEach(() => {
+		vi.mocked(prepareGoogleTaskWrite).mockReset();
+		vi.mocked(createPendingWrite).mockReset();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([google]);
+	});
+	it("returns list and task IDs for subsequent targeted actions", async () => {
+		vi.mocked(googleListTaskLists).mockResolvedValue([
+			{ id: "list", title: "Personal" },
+		]);
+		vi.mocked(googleListTasks).mockResolvedValue([
+			{
+				id: "done",
+				title: "Call completed",
+				status: "completed",
+				projectId: "list",
+				projectName: "Personal",
+			},
+			{
+				id: "one",
+				title: "Call back",
+				projectId: "list",
+				projectName: "Personal",
+			},
+		]);
+		const lists = await runTasksTool(
+			"user-1",
+			{ action: "list_task_lists" },
+			LOCAL_MODEL_ID,
+		);
+		expect(lists.modelPayload.projects).toEqual([
+			{
+				id: "list",
+				name: "Personal",
+				source: "Google",
+				connectionId: google.id,
+			},
+		]);
+		const tasks = await runTasksTool(
+			"user-1",
+			{ action: "search_tasks", query: "call", listId: "list" },
+			LOCAL_MODEL_ID,
+		);
+		expect(tasks.modelPayload.tasks).toHaveLength(1);
+		expect(tasks.modelPayload.tasks[0]).toMatchObject({
+			id: "one",
+			projectId: "list",
+			source: "Google",
+		});
+	});
+	it("distinguishes an unrecognized list from an empty matching list", async () => {
+		vi.mocked(googleListTaskLists).mockResolvedValue([
+			{ id: "list", title: "Work" },
+		]);
+		vi.mocked(googleListTasks).mockResolvedValue([]);
+		const missing = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks", listId: "gone" },
+			LOCAL_MODEL_ID,
+		);
+		expect(reasonCodeOf(missing.modelPayload)).toBe("item_not_found");
+		const empty = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks", listId: "list" },
+			LOCAL_MODEL_ID,
+		);
+		expect(empty.modelPayload).toMatchObject({ success: true, tasks: [] });
+	});
+	it("gates cloud access to task list names", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+		vi.mocked(googleListTaskLists).mockResolvedValue([
+			{ id: "list", title: "Personal matter" },
+		]);
+		const result = await runTasksTool(
+			"user-1",
+			{ action: "list_task_lists" },
+			CLOUD_MODEL_ID,
+		);
+		expect(JSON.stringify(result.modelPayload)).not.toContain(
+			"Personal matter",
+		);
+		expect(result.modelPayload.projects).toEqual([]);
+	});
+	it.each([
+		"create_task",
+		"update_task",
+		"complete_task",
+		"delete_task",
+	] as const)(
+		"schedules %s for the same chat and hides provider data from the model",
+		async (action) => {
+			const op = {
+				provider: "google",
+				connectionId: google.id,
+				action: `tasks.${action}`,
+				reversible: false,
+				destructive: false,
+				summary: "A private list and task title",
+				target: { id: "task", label: "Private task" },
+			};
+			const preview = {
+				title: op.summary,
+				detail: "Private title",
+				reversible: false,
+				destructive: false,
+				withinAllowlist: null,
+				warnings: [],
+			};
+			vi.mocked(prepareGoogleTaskWrite).mockResolvedValue({
+				op,
+				content: "private-content",
+				preview,
+			});
+			vi.mocked(createPendingWrite).mockResolvedValue({ id: "write", preview });
+			const input =
+				action === "create_task"
+					? { title: "Buy fruit" }
+					: action === "update_task"
+						? { taskId: "task", notes: "" }
+						: { taskId: "task" };
+			const result = await runTasksTool(
+				"user-1",
+				{ action, listId: "list", ...input },
+				CLOUD_MODEL_ID,
+				"chat",
+			);
+			expect(createPendingWrite).toHaveBeenCalledWith(
+				"user-1",
+				expect.objectContaining({
+					op,
+					content: "private-content",
+					conversationId: "chat",
+				}),
+			);
+			expect(result.modelPayload.pendingWriteId).toBe("write");
+			expect(JSON.stringify(result.modelPayload)).not.toMatch(/private/i);
+		},
+	);
+	it("asks which Google account when more than one could receive the write", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			google,
+			{ ...google, id: "2", accountIdentifier: "other@example.com" },
+		]);
+		const result = await runTasksTool(
+			"user-1",
+			{
+				action: "delete_task",
+				account: "google",
+				listId: "one",
+				taskId: "task",
+			},
+			LOCAL_MODEL_ID,
+		);
+		expect(reasonCodeOf(result.modelPayload)).toBe("no_such_account");
+		expect(prepareGoogleTaskWrite).not.toHaveBeenCalled();
+	});
+	it("checks the edit toggle before doing any provider work", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			{ ...google, allowWrites: false },
+		]);
+		const result = await runTasksTool(
+			"user-1",
+			{ action: "complete_task", listId: "one", taskId: "task" },
+			LOCAL_MODEL_ID,
+		);
+		expect(reasonCodeOf(result.modelPayload)).toBe("writes_turned_off");
+		expect(prepareGoogleTaskWrite).not.toHaveBeenCalled();
 	});
 });

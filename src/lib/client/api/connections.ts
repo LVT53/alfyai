@@ -187,6 +187,7 @@ export async function startGoogleConnect(
 		googleConnectionId?: string;
 		requestGmailEditing?: boolean;
 		requestDriveEditing?: boolean;
+		requestTasksEditing?: boolean;
 	},
 ): Promise<OAuthConnectStartResponse> {
 	return postJson<OAuthConnectStartResponse>(
@@ -197,6 +198,7 @@ export async function startGoogleConnect(
 			...(options?.googleConnectionId
 				? { googleConnectionId: options.googleConnectionId }
 				: {}),
+			...(options?.requestTasksEditing ? { requestTasksEditing: true } : {}),
 			...(options?.requestDriveEditing ? { requestDriveEditing: true } : {}),
 			...(options?.requestGmailEditing ? { requestGmailEditing: true } : {}),
 			...(calendarWriteConnectionId ? { calendarWriteConnectionId } : {}),

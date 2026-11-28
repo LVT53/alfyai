@@ -496,7 +496,7 @@ const TOOL_TEXT: ToolText = {
 	},
 	tasks: {
 		description:
-			"Read the user's connected to-do/task lists (a CalDAV account's task lists): `list_tasks` for open tasks (optionally filtered by `due` — a 'YYYY-MM-DD' date or the literal 'overdue'); `search_tasks` free-text searches task titles/notes with `query`, optionally with `due`. Call when the user asks about their to-dos, what's due, or a specific task. Do not use it for appointments or anything with a start and end time — that is `calendar`, a different store — and do not use it to add or complete a task; this tool is read-only. Returns tasks with title, notes and due date. Results combine every connected source; pass `account` (provider, label, or email) to narrow to one.",
+			"Read Google Tasks and CalDAV to-dos. list_tasks and search_tasks return open tasks with optional query or due (YYYY-MM-DD or overdue). list_task_lists discovers Google list IDs. For confirmed Google changes, use create_task (title), update_task (changed title, notes or due), complete_task or delete_task. Pass listId for writes and taskId for existing tasks; returned projectId is the listId. Set due to null to clear it. Select an account by label or email. Do not use for appointments (calendar).",
 		errorPrefix: "Tasks lookup failed",
 	},
 	use_skill: {
@@ -3427,6 +3427,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											ctx.userId,
 											safeInput,
 											ctx.modelId ?? "model1",
+											ctx.conversationId,
 										);
 										return {
 											modelPayload,
@@ -3443,7 +3444,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													evidenceReady:
 														modelPayload.success && candidates.length > 0,
 													action: modelPayload.action,
-													taskCount: modelPayload.tasks.length,
+													taskCount:
+														modelPayload.action === "list_task_lists"
+															? modelPayload.projects.length
+															: modelPayload.tasks.length,
 													...reasonMetadataOf(modelPayload),
 												},
 											},

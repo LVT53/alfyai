@@ -9,7 +9,19 @@ import {
 	DRIVE_READ_SCOPE,
 	driveReadGranted,
 } from "$lib/shared/google-drive-scopes";
+import {
+	TASKS_MODIFY_SCOPE,
+	TASKS_READ_SCOPE,
+	tasksReadGranted,
+} from "$lib/shared/google-tasks-scopes";
 export const optionalGoogleServices = {
+	tasks: {
+		enabled: () => true,
+		readScope: TASKS_READ_SCOPE,
+		writeScope: TASKS_MODIFY_SCOPE,
+		canRead: tasksReadGranted,
+		writeOption: "requestTasksEditing",
+	},
 	email: {
 		enabled: gmailPilotEnabled,
 		readScope: GMAIL_READ_SCOPE,

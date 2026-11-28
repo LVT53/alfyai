@@ -1063,3 +1063,69 @@ describe("Drive uses its own explicit pilot permissions on the same Google crede
 		await expect(googleDriveGetAccessToken(account)).rejects.toThrow();
 	});
 });
+
+describe("optional Google Tasks", () => {
+	const origin = "https://app.example.com";
+	const read = "https://www.googleapis.com/auth/tasks.readonly";
+	const write = "https://www.googleapis.com/auth/tasks";
+	it.each([false, true])(
+		"requests only the selected Tasks scope and enforces the stored write switch (manage %s)",
+		async (manage) => {
+			setConfiguredEnv();
+			seedUser("rider");
+			const { googleConnectStart, googleConnectFinish } = await import(
+				"./google"
+			);
+			const { googleServiceAccessToken } = await import(
+				"./google-service-token"
+			);
+			const { updateConnection } = await import("../store");
+			const url = new URL(
+				(
+					await googleConnectStart({
+						userId: "rider",
+						origin,
+						capabilities: ["tasks"],
+						requestTasksEditing: manage,
+					})
+				).authUrl,
+			);
+			expect(url.searchParams.get("scope")?.split(" ")).toContain(
+				manage ? write : read,
+			);
+			expect(url.searchParams.get("scope")?.split(" ")).not.toContain(
+				manage ? read : write,
+			);
+			const { connection } = await googleConnectFinish({
+				state: url.searchParams.get("state") ?? "",
+				origin,
+				code: "ok",
+				fetch: async (input) =>
+					String(input) === TOKEN_URL
+						? jsonResponse(200, {
+								access_token: "token",
+								refresh_token: "refresh",
+								expires_in: 3600,
+								scope: manage ? write : [read, write].join(" "),
+								token_type: "Bearer",
+							})
+						: jsonResponse(200, {
+								email: "owner@example.com",
+								verified_email: true,
+							}),
+			});
+			expect(connection.capabilities).toEqual(["tasks"]);
+			expect(connection.oauthScopes.includes(write)).toBe(manage);
+			await expect(googleServiceAccessToken("tasks", connection)).resolves.toBe(
+				"token",
+			);
+			await expect(
+				googleServiceAccessToken("tasks", connection, {}, "modify"),
+			).rejects.toThrow();
+			await updateConnection("rider", connection.id, { allowWrites: true });
+			const token = googleServiceAccessToken("tasks", connection, {}, "modify");
+			if (manage) await expect(token).resolves.toBe("token");
+			else await expect(token).rejects.toThrow();
+		},
+	);
+});

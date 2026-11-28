@@ -13,6 +13,17 @@
 
 const toolRowsDict = {
 	en: {
+		"toolRows.connector.tasks.create_task": "Prepared a new task",
+		"toolRows.connector.tasks.update_task": "Prepared a task change",
+		"toolRows.connector.tasks.complete_task": "Prepared to complete a task",
+		"toolRows.connector.tasks.delete_task": "Prepared to delete a task",
+		"toolRows.connector.tasks.list_task_lists": "Looked at your task lists",
+		"toolRows.connector.tasks.assigned_task_delete":
+			"This task was assigned in Google Docs or Chat. Delete it there to remove the original.",
+		"toolRows.connector.tasks.task_access_denied":
+			"Google denied access to this task or list. Check the account and its permissions.",
+		"toolRows.connector.tasks.task_changed":
+			"This task changed in Google Tasks. Look it up again before making a change.",
 		"toolRows.connector.cycling.detail_access_denied":
 			"Bosch did not authorize this read. Check your client under the bike in Flow’s Manage Access page.",
 		"toolRows.connector.cycling.detail_consent_required":
@@ -598,6 +609,20 @@ const toolRowsDict = {
 		"toolRows.atlas.atlas_v3_no_sections": "Atlas couldn't write the report.",
 	},
 	hu: {
+		"toolRows.connector.tasks.create_task": "Előkészített egy új feladatot",
+		"toolRows.connector.tasks.update_task":
+			"Előkészített egy feladatmódosítást",
+		"toolRows.connector.tasks.complete_task":
+			"Előkészítette egy feladat késznek jelölését",
+		"toolRows.connector.tasks.delete_task":
+			"Előkészítette egy feladat törlését",
+		"toolRows.connector.tasks.list_task_lists": "Megnézte a feladatlistáidat",
+		"toolRows.connector.tasks.assigned_task_delete":
+			"Ezt a feladatot a Google Dokumentumokban vagy a Chatben osztották ki. Az eredeti feladatot ott törölheted.",
+		"toolRows.connector.tasks.task_access_denied":
+			"A Google megtagadta a hozzáférést a feladathoz vagy a listához. Ellenőrizd a fiókot és a jogosultságait.",
+		"toolRows.connector.tasks.task_changed":
+			"Ez a feladat időközben megváltozott a Google Tasksban. Módosítás előtt kérd le újra.",
 		"toolRows.connector.cycling.detail_access_denied":
 			"A Bosch nem engedélyezte a lekérést. A Flow „Manage Access” oldalán ellenőrizd a saját kliensedet a kerékpárod alatt.",
 		"toolRows.connector.cycling.detail_consent_required":

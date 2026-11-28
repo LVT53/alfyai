@@ -6,6 +6,7 @@ import { drivePilotEnabled, gmailPilotEnabled } from "$lib/server/env";
 import { grantedCapabilitiesFor } from "$lib/server/services/connections/granted";
 import { gmailCanModify } from "$lib/server/services/connections/providers/gmail";
 import { googleDriveCanModify } from "$lib/server/services/connections/providers/google-drive-auth";
+import { googleServiceCanModify } from "$lib/server/services/connections/providers/google-service-token";
 import {
 	type Capability,
 	PROVIDER_META,
@@ -22,6 +23,7 @@ import { normalizeAllowlistPath } from "$lib/server/services/connections/write-g
 import { gmailReadGranted } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
 import { driveReadGranted } from "$lib/shared/google-drive-scopes";
+import { tasksReadGranted } from "$lib/shared/google-tasks-scopes";
 import {
 	MICROSOFT_WRITE_SCOPES,
 	type MicrosoftWritePermission,
@@ -79,7 +81,11 @@ export const PATCH: RequestHandler = async (event) => {
 		body.allowWrites === true &&
 		connection.provider === "google" &&
 		enabledCapabilities.some(
-			(cap) => cap === "email" || cap === "calendar" || cap === "files",
+			(cap) =>
+				cap === "email" ||
+				cap === "calendar" ||
+				cap === "files" ||
+				cap === "tasks",
 		)
 	) {
 		const calendarWrite =
@@ -95,13 +101,19 @@ export const PATCH: RequestHandler = async (event) => {
 			capabilities: enabledCapabilities,
 			allowWrites: true,
 		});
-		if (!calendarWrite && !gmailWrite && !driveWrite)
+		const tasksWrite = googleServiceCanModify(
+			{ ...connection, capabilities: enabledCapabilities, allowWrites: true },
+			"tasks",
+		);
+		if (!calendarWrite && !gmailWrite && !driveWrite && !tasksWrite)
 			return createJsonErrorResponse(
 				enabledCapabilities.includes("calendar")
 					? "Google Calendar event editing requires Google’s consent"
 					: enabledCapabilities.includes("files")
 						? "Drive changes require Google consent"
-						: "Gmail editing requires consent",
+						: enabledCapabilities.includes("tasks")
+							? "Google Tasks editing requires consent"
+							: "Gmail editing requires consent",
 				403,
 			);
 	}
@@ -172,6 +184,15 @@ export const PATCH: RequestHandler = async (event) => {
 			(!drivePilotEnabled(userId) || !driveReadGranted(connection.oauthScopes))
 		)
 			return createJsonErrorResponse("Reconnect to grant Drive access", 403);
+		if (
+			connection.provider === "google" &&
+			body.capabilities.includes("tasks") &&
+			!tasksReadGranted(connection.oauthScopes)
+		)
+			return createJsonErrorResponse(
+				"Reconnect to grant Google Tasks access",
+				403,
+			);
 		if (connection.provider === "onedrive") {
 			const granted = new Set<string>(grantedCapabilitiesFor(connection));
 			if (body.capabilities.some((cap) => !granted.has(cap))) {

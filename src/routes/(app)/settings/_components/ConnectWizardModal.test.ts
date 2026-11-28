@@ -432,6 +432,36 @@ describe("ConnectWizardModal", () => {
 		});
 	});
 
+	it("keeps Tasks optional and attaches its edit grant to the selected Google account", async () => {
+		mockStartGoogleConnect.mockResolvedValue({ authUrl: "/google" });
+		render(
+			ConnectWizardModal,
+			baseProps({
+				provider: "google",
+				reconnectConnectionId: "tasks-work",
+				requestedCapabilities: ["calendar"],
+				redirectTo: vi.fn(),
+			}),
+		);
+		const tasks = screen.getByRole("checkbox", { name: "Google Tasks" });
+		expect(tasks).not.toBeChecked();
+		expect(screen.queryByLabelText("Request Google Tasks editing")).toBeNull();
+		await fireEvent.click(tasks);
+		const edit = screen.getByRole("checkbox", {
+			name: "Request Google Tasks editing",
+		});
+		expect(edit).not.toBeChecked();
+		await fireEvent.click(edit);
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Continue to Google" }),
+		);
+		expect(mockStartGoogleConnect).toHaveBeenCalledWith(
+			["calendar", "tasks"],
+			undefined,
+			undefined,
+			{ googleConnectionId: "tasks-work", requestTasksEditing: true },
+		);
+	});
 	it("offers Drive independently from Gmail and scopes a management upgrade to the selected Google account", async () => {
 		mockStartGoogleConnect.mockResolvedValue({ authUrl: "/google" });
 		render(

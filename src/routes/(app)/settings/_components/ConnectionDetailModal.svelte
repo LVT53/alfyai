@@ -46,6 +46,7 @@ import {
 	microsoftCanWrite,
 	type MicrosoftWritePermission,
 } from "$lib/shared/microsoft-permissions";
+import { TASKS_MODIFY_SCOPE } from "$lib/shared/google-tasks-scopes";
 import { DRIVE_MODIFY_SCOPE } from "$lib/shared/google-drive-scopes";
 import { GMAIL_MODIFY_SCOPE } from "$lib/shared/gmail-scopes";
 import { GOOGLE_CALENDAR_EVENT_WRITE_SCOPE } from "$lib/shared/google-calendar";
@@ -179,7 +180,16 @@ const hasDrive = $derived(
 const canManageDrive = $derived(
 	hasDrive && connection?.oauthScopes.includes(DRIVE_MODIFY_SCOPE),
 );
-const hasGoogleManagement = $derived(canManageDrive || canManageGmail);
+const hasGoogleTasks = $derived(
+	connection?.provider === "google" &&
+		connection.capabilities.includes("tasks"),
+);
+const canManageTasks = $derived(
+	hasGoogleTasks && connection?.oauthScopes.includes(TASKS_MODIFY_SCOPE),
+);
+const hasGoogleManagement = $derived(
+	canManageTasks || canManageDrive || canManageGmail,
+);
 const canEditCalendar = $derived(
 	connection?.capabilities.includes("calendar") &&
 		connection.oauthScopes.includes(GOOGLE_CALENDAR_EVENT_WRITE_SCOPE),
@@ -188,7 +198,7 @@ const showWriteSwitch = $derived(
 	hasGoogleManagement ||
 		(needsGoogleCalendarConsent
 			? !!onRequestGoogleCalendarWrites
-			: (!hasGmail && !hasDrive) || canEditCalendar),
+			: (!hasGmail && !hasDrive && !hasGoogleTasks) || canEditCalendar),
 );
 
 function closeWriteKeyForm() {
@@ -466,6 +476,7 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 }
 
 function capabilityLabel(provider: string, capability: string): string {
+	if (provider === "google" && capability === "tasks") return "Google Tasks";
 	if (provider === "google" && capability === "files") return "Google Drive";
 	if (provider === "google" && capability === "email") return "Gmail";
 	// Plex's library is films and shows, not "media".
@@ -661,6 +672,9 @@ function capabilityAbout(capability: string): string {
 				{#if hasGmail && !canManageGmail}
 					<button type="button" class="btn-secondary text-xs" onclick={() => onAskAgain?.(conn.id, 'email')}>{$t('connections.google.gmailManage')}</button>
 				{/if}
+				{#if hasGoogleTasks && !canManageTasks}
+					<button type="button" class="btn-secondary text-xs" onclick={() => onAskAgain?.(conn.id, 'tasks')}>{$t('connections.google.tasksManage')}</button>
+				{/if}
 				{#if hasDrive && !canManageDrive}
 					<button type="button" class="btn-secondary text-xs" onclick={() => onAskAgain?.(conn.id, 'files')}>{$t('connections.google.driveManage')}</button>
 				{/if}
@@ -670,7 +684,7 @@ function capabilityAbout(capability: string): string {
 				{#if entry.writable && showWriteSwitch}
 					<BehaviourRow
 						label={$t('connections.detail.letAlfyWrite')}
-						description={canManageDrive ? $t('connections.detail.letAlfyWriteSub') : canManageGmail ? $t('connections.google.gmailWriteSub') : needsGoogleCalendarConsent
+						description={canManageTasks ? $t('connections.google.tasksManageAbout') : canManageDrive ? $t('connections.detail.letAlfyWriteSub') : canManageGmail ? $t('connections.google.gmailWriteSub') : needsGoogleCalendarConsent
 							? $t('connections.detail.googleWriteConsent')
 							: conn.provider === 'google' || (conn.provider === 'apple' && !conn.capabilities.includes('email'))
 							? $t('connections.detail.writeConfirmNoteCalendar')

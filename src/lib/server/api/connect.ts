@@ -132,6 +132,7 @@ export async function handleOAuthConnectStart<R>(opts: {
 		requestCalendarEditing?: boolean;
 		requestGmailEditing?: boolean;
 		requestDriveEditing?: boolean;
+		requestTasksEditing?: boolean;
 		googleConnectionId?: string;
 		connectionId?: string;
 		writePermissions?: MicrosoftWritePermission[];
@@ -146,6 +147,7 @@ export async function handleOAuthConnectStart<R>(opts: {
 		requestCalendarEditing?: unknown;
 		requestGmailEditing?: unknown;
 		requestDriveEditing?: unknown;
+		requestTasksEditing?: unknown;
 		googleConnectionId?: unknown;
 		calendarWriteConnectionId?: unknown;
 		connectionId?: unknown;
@@ -183,6 +185,14 @@ export async function handleOAuthConnectStart<R>(opts: {
 	if (requestEditing !== undefined && typeof requestEditing !== "boolean")
 		return createJsonErrorResponse(
 			"Invalid Google Calendar editing selection",
+			400,
+		);
+	const tasksEditing = opts.acceptsCalendarWriteTarget
+		? body.requestTasksEditing
+		: undefined;
+	if (tasksEditing !== undefined && typeof tasksEditing !== "boolean")
+		return createJsonErrorResponse(
+			"Invalid Google Tasks editing selection",
 			400,
 		);
 	const driveEditing = opts.acceptsCalendarWriteTarget
@@ -223,6 +233,7 @@ export async function handleOAuthConnectStart<R>(opts: {
 			capabilities,
 			...(typeof target === "string" ? { connectionId: target } : {}),
 			...(Array.isArray(writes) ? { writePermissions: writes } : {}),
+			...(tasksEditing === true ? { requestTasksEditing: true } : {}),
 			...(driveEditing === true ? { requestDriveEditing: true } : {}),
 			...(gmailEditing === true ? { requestGmailEditing: true } : {}),
 			...(typeof googleId === "string" ? { googleConnectionId: googleId } : {}),

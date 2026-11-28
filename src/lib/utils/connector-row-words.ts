@@ -156,6 +156,11 @@ export const CONNECTOR_PHRASES: Readonly<
 	},
 	tasks: {
 		actions: {
+			list_task_lists: "toolRows.connector.tasks.list_task_lists",
+			create_task: "toolRows.connector.tasks.create_task",
+			update_task: "toolRows.connector.tasks.update_task",
+			complete_task: "toolRows.connector.tasks.complete_task",
+			delete_task: "toolRows.connector.tasks.delete_task",
 			list_tasks: "toolRows.connector.tasks.list_tasks",
 			search_tasks: "toolRows.connector.tasks.search_tasks",
 		},

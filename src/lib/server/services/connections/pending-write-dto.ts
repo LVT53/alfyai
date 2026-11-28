@@ -34,6 +34,10 @@ export interface WritePreview {
 
 /** What the permission card asks. Finer than the operation: replacing a file and saving a new one are the same `files.put`. */
 export type WriteCardKind =
+	| "tasks.create_task"
+	| "tasks.update_task"
+	| "tasks.complete_task"
+	| "tasks.delete_task"
 	| "teams.send"
 	| "teams.reply"
 	| "teams.set_reaction"
@@ -66,6 +70,9 @@ export type WriteCardFactKey =
 	| "cc"
 	| "bcc"
 	| "attachments"
+	| "task_list"
+	| "task_due"
+	| "task_notes"
 	| "teams_channel"
 	| "upload_source"
 	| "upload_bytes"

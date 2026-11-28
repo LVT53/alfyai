@@ -30,6 +30,7 @@ import { idempotencyKey, type WriteOperation } from "../write-guard";
 import { executeGmailMailWrite } from "./gmail-mail-writes";
 import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
 import { executeGoogleDriveWrite } from "./google-drive-writes";
+import { executeGoogleTaskWrite } from "./google-tasks";
 
 type FetchOpt = { fetch?: typeof fetch };
 
@@ -925,6 +926,8 @@ async function executeDelete(
 registerWriteExecutor({
 	provider: "google",
 	async execute(userId, connectionId, op, content, opts) {
+		if (op.action.startsWith("tasks."))
+			return executeGoogleTaskWrite(userId, connectionId, op, content, opts);
 		if (op.action.startsWith("files."))
 			return executeGoogleDriveWrite(userId, connectionId, op, content, opts);
 		if (op.action.startsWith("email."))

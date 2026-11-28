@@ -177,6 +177,10 @@ Use the existing Microsoft OAuth client and callback. Users choose Teams chats, 
 
 Request delegated `Chat.Read` for chats. For channels, request `Team.ReadBasic.All`, `Channel.ReadBasic.All` and `ChannelMessage.Read.All`. Channel files require both discovery scopes plus `Files.Read.All`. Users can separately opt in to `ChatMessage.Send`, `ChannelMessage.Send` and `Files.ReadWrite.All` for the corresponding changes. Work or school administrators may have to approve the permissions under their tenant policy.
 
+### Google Tasks
+
+Enable the Google Tasks API in the same Google Cloud project as the Google connection. In Connections, select Google Tasks to read lists and tasks. To create, edit, complete or delete a task, select **Request Google Tasks editing** during consent, enable changes in the connection details, and confirm the change in chat. Tasks is optional for both existing and new Google connections.
+
 ### Google Drive pilot
 
 Set `DRIVE_TEST_USER_IDS` to the AlfyAI user IDs permitted to connect Google Drive and enable the Drive API in the existing Google OAuth project. Users can request read access or separately opt in to manage their Drive files. Writes also require local permission and confirmation.

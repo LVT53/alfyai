@@ -120,7 +120,12 @@ export const TOOL_REASON_CODES = {
 	media: CONNECTOR_REASON_CODES,
 	photos: CONNECTOR_REASON_CODES,
 	repos: CONNECTOR_REASON_CODES,
-	tasks: CONNECTOR_REASON_CODES,
+	tasks: [
+		...CONNECTOR_REASON_CODES,
+		"assigned_task_delete",
+		"task_access_denied",
+		"task_changed",
+	],
 	run_python: ["program_error", "sandbox_unavailable"],
 	map_route: [
 		"not_set_up",

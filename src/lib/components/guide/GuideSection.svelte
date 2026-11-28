@@ -37,6 +37,7 @@ let rows = $state<HTMLElement | null>(null);
 
 const connectionHelp = $derived(
 	[
+		$t("guide.connectedAccounts.tasks"),
 		gmailPilotEnabled && $t("guide.connectedAccounts.gmail"),
 		drivePilotEnabled && $t("guide.connectedAccounts.drive"),
 	]

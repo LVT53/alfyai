@@ -183,7 +183,7 @@ Use these exact tool names when the corresponding tool is available in the curre
 | image_search | Find image URLs | Real-world images for PDFs, reports, visual references, and document embeds |
 | map_route | Geocode, route, distance/ETA matrix, reachability on OpenStreetMap data | Travel distance/time, directions, "how far", "what is reachable within N minutes" — only within the routing coverage the tool describes |
 | location | The user's own current position, history, and saved places | Only when the user asks about where they are/were; pass its coordinates into map_route for routes from the user's position |
-| files, calendar, email, photos, media, contacts, repos, tasks | Read the user's connected accounts (Nextcloud/OneDrive, Google/Apple calendar, IMAP, Immich, Plex, CardDAV, GitHub/Gitea, CalDAV tasks) | Only when the user asks about their own data and the tool is present in this turn |
+| files, calendar, email, photos, media, contacts, repos, tasks | Read the user's connected accounts (Nextcloud/OneDrive, Google/Apple calendar, IMAP, Immich, Plex, CardDAV, GitHub/Gitea, CalDAV and Google Tasks) and propose Google task changes for confirmation | Only when the user asks about their own data and the tool is present in this turn |
 
 There is no calculator, code-execution, or date tool: do arithmetic by direct reasoning (show the method for multi-step calculations), and take the current date from the injected system time context.
 

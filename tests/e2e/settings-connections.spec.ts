@@ -614,6 +614,39 @@ test.describe("settings connections tab", () => {
 			).toBeVisible();
 		});
 
+		for (const manage of [false, true]) {
+			test(`requests Google Tasks ${manage ? "editing" : "reading"} only after opting in`, async ({
+				page,
+			}) => {
+				const endpoint = "**/api/connections/google/start";
+				await page.route(endpoint, (route) =>
+					route.fulfill({ json: { authUrl: "/about" } }),
+				);
+				await page.getByTestId("connections-add-google").click();
+				const dialog = page.getByRole("dialog");
+				const tasks = dialog.getByRole("checkbox", {
+					name: "Google Tasks",
+					exact: true,
+				});
+				const edit = dialog.getByRole("checkbox", {
+					name: "Request Google Tasks editing",
+				});
+				await expect(tasks).not.toBeChecked();
+				await expect(edit).toHaveCount(0);
+				await tasks.press("Space");
+				await expect(edit).not.toBeChecked();
+				if (manage) await edit.press("Space");
+				const sent = page.waitForRequest(endpoint);
+				await dialog
+					.getByRole("button", { name: "Continue to Google" })
+					.click();
+				expect((await sent).postDataJSON()).toEqual({
+					capabilities: ["calendar", "contacts", "tasks"],
+					...(manage ? { requestTasksEditing: true } : {}),
+				});
+			});
+		}
+
 		test("requests Google Calendar editing only when the checkbox is selected", async ({
 			page,
 		}) => {

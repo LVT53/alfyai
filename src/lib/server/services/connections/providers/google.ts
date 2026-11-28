@@ -136,6 +136,7 @@ export type OAuthStatePayload = {
 	requestCalendarEditing?: boolean;
 	requestGmailEditing?: boolean;
 	requestDriveEditing?: boolean;
+	requestTasksEditing?: boolean;
 	googleConnectionId?: string;
 	nonce: string;
 	exp: number; // epoch seconds
@@ -166,6 +167,9 @@ function isValidStatePayload(value: unknown): value is OAuthStatePayload {
 				!!candidate.googleConnectionId &&
 				!candidate.calendarWriteConnectionId)) &&
 		Array.isArray(candidate.capabilities) &&
+		(candidate.requestTasksEditing === undefined ||
+			(candidate.requestTasksEditing === true &&
+				candidate.capabilities.includes("tasks"))) &&
 		(candidate.requestDriveEditing === undefined ||
 			(candidate.requestDriveEditing === true &&
 				candidate.capabilities.includes("files"))) &&
@@ -191,6 +195,7 @@ export function signOAuthState(params: {
 	requestCalendarEditing?: boolean;
 	requestGmailEditing?: boolean;
 	requestDriveEditing?: boolean;
+	requestTasksEditing?: boolean;
 	googleConnectionId?: string;
 }): string {
 	const key = requireSigningKey();
@@ -199,6 +204,7 @@ export function signOAuthState(params: {
 		capabilities: params.capabilities,
 		calendarWriteConnectionId: params.calendarWriteConnectionId,
 		...(params.requestCalendarEditing ? { requestCalendarEditing: true } : {}),
+		...(params.requestTasksEditing ? { requestTasksEditing: true } : {}),
 		...(params.requestDriveEditing ? { requestDriveEditing: true } : {}),
 		...(params.requestGmailEditing ? { requestGmailEditing: true } : {}),
 		...(params.googleConnectionId
@@ -309,6 +315,7 @@ function checkOptionalServices(params: {
 	capabilities: Capability[];
 	requestGmailEditing?: boolean;
 	requestDriveEditing?: boolean;
+	requestTasksEditing?: boolean;
 	googleConnectionId?: string;
 	calendarWriteConnectionId?: string;
 }) {
@@ -345,6 +352,7 @@ export async function googleConnectStart(params: {
 	requestCalendarEditing?: boolean;
 	requestGmailEditing?: boolean;
 	requestDriveEditing?: boolean;
+	requestTasksEditing?: boolean;
 	googleConnectionId?: string;
 }): Promise<{ authUrl: string }> {
 	const { clientId } = requireGoogleCredentials();
@@ -382,6 +390,7 @@ export async function googleConnectStart(params: {
 		requestCalendarEditing: params.requestCalendarEditing,
 		requestGmailEditing: params.requestGmailEditing,
 		requestDriveEditing: params.requestDriveEditing,
+		requestTasksEditing: params.requestTasksEditing,
 		googleConnectionId: consentTarget?.id,
 	});
 
@@ -485,6 +494,7 @@ async function upsertGoogleConnection(params: {
 	requestedCapabilities: Capability[];
 	requestGmailEditing?: boolean;
 	requestDriveEditing?: boolean;
+	requestTasksEditing?: boolean;
 	capabilities: Capability[];
 	refreshToken?: string;
 	accessToken: string;
@@ -727,6 +737,7 @@ export async function googleConnectFinish(
 			statePayload.capabilities.some(isOptionalGoogleCapability),
 		requestedCapabilities: statePayload.capabilities,
 		requestDriveEditing: statePayload.requestDriveEditing,
+		requestTasksEditing: statePayload.requestTasksEditing,
 		requestGmailEditing: statePayload.requestGmailEditing,
 		initialCalendarEditing:
 			statePayload.requestCalendarEditing &&

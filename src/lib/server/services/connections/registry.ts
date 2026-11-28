@@ -1,6 +1,7 @@
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import { GMAIL_READ_SCOPE } from "$lib/shared/gmail-scopes";
 import { DRIVE_READ_SCOPE } from "$lib/shared/google-drive-scopes";
+import { TASKS_READ_SCOPE } from "$lib/shared/google-tasks-scopes";
 import { MICROSOFT_READ_SCOPES } from "$lib/shared/microsoft-permissions";
 import type { ConnectionPublic } from "./store";
 
@@ -81,7 +82,7 @@ export const PROVIDER_META: Record<
 		group: "product",
 	},
 	google: {
-		capabilities: ["calendar", "contacts", "email", "files"],
+		capabilities: ["calendar", "contacts", "email", "files", "tasks"],
 		connectMethod: "oauth",
 		displayName: "Google",
 		group: "product",
@@ -170,6 +171,7 @@ export const OAUTH_CAPABILITY_SCOPES: Partial<
 	google: {
 		email: GMAIL_READ_SCOPE,
 		files: DRIVE_READ_SCOPE,
+		tasks: TASKS_READ_SCOPE,
 		calendar: "https://www.googleapis.com/auth/calendar.readonly",
 		contacts: "https://www.googleapis.com/auth/contacts.readonly",
 	},
@@ -250,7 +252,7 @@ export const CAPABILITY_META: Record<
 	},
 	tasks: {
 		tier: "explicit",
-		providers: ["caldav"],
+		providers: ["caldav", "google"],
 		displayName: "Tasks",
 	},
 };

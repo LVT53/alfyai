@@ -36,6 +36,30 @@ const FOLDER_QUESTIONS: Partial<Record<WriteCardKind, I18nKey>> = {
 	"files.share_link": "connections.writeConfirm.question.folderShare",
 };
 const KIND_COPY: Record<WriteCardKind, KindCopy> = {
+	"tasks.create_task": {
+		icon: "tasks",
+		question: "connections.writeConfirm.question.create_task",
+		approve: "connections.writeConfirm.approve.create_task",
+		done: "connections.writeConfirm.done.create_task",
+	},
+	"tasks.update_task": {
+		icon: "tasks",
+		question: "connections.writeConfirm.question.update_task",
+		approve: "connections.writeConfirm.approve.update_task",
+		done: "connections.writeConfirm.done.update_task",
+	},
+	"tasks.complete_task": {
+		icon: "tasks",
+		question: "connections.writeConfirm.question.complete_task",
+		approve: "connections.writeConfirm.approve.complete_task",
+		done: "connections.writeConfirm.done.complete_task",
+	},
+	"tasks.delete_task": {
+		icon: "tasks",
+		question: "connections.writeConfirm.question.delete_task",
+		approve: "connections.writeConfirm.approve.delete_task",
+		done: "connections.writeConfirm.done.delete_task",
+	},
 	"teams.send": {
 		icon: "teams",
 		question: "connections.writeConfirm.question.teams_send",
@@ -203,6 +227,15 @@ const KIND_COPY: Record<WriteCardKind, KindCopy> = {
 // footnotes to the name above them.
 const FACT_LINE: Record<WriteCardFactKey, { label?: I18nKey; quiet: boolean }> =
 	{
+		task_list: {
+			label: "connections.writeConfirm.fact.taskList",
+			quiet: false,
+		},
+		task_due: { label: "connections.writeConfirm.fact.taskDue", quiet: false },
+		task_notes: {
+			label: "connections.writeConfirm.fact.taskNotes",
+			quiet: false,
+		},
 		to: { label: "connections.writeConfirm.fact.to", quiet: false },
 		cancellation_recipients: {
 			label: "connections.writeConfirm.fact.cancellationRecipients",
@@ -380,7 +413,10 @@ function factValue(fact: WriteCardFact, language: string): string {
 			unit: "byte",
 			unitDisplay: "short",
 		}).format(Number(fact.value));
-	return fact.key === "when" || fact.key === "new_when" || fact.key === "sent"
+	return (fact.key === "task_due" && fact.value !== "—") ||
+		fact.key === "when" ||
+		fact.key === "new_when" ||
+		fact.key === "sent"
 		? formatEventWhen(fact.value, fact.end, language)
 		: fact.value;
 }

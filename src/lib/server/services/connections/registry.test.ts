@@ -110,12 +110,10 @@ describe("connections registry", () => {
 		expect(CAPABILITY_META.files.providers).toContain("nextcloud");
 	});
 
-	// Slice A1 — Todoist is fully retired. The "tasks" capability is now served
-	// by CalDAV only; "todoist" must not survive anywhere in the product.
-	it("serves the tasks capability with caldav only — todoist is fully retired", () => {
+	it("serves tasks through CalDAV and Google while keeping Todoist retired", () => {
 		expect(CAPABILITY_META.tasks).toEqual({
 			tier: "explicit",
-			providers: ["caldav"],
+			providers: ["caldav", "google"],
 			displayName: "Tasks",
 		});
 		expect(CAPABILITY_META.tasks.providers).not.toContain("todoist");

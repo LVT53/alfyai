@@ -4,12 +4,22 @@ import {
 	caldavListTasks,
 } from "$lib/server/services/connections/providers/caldav-tasks";
 import {
+	matchingConnections,
 	resolveConnectionsForCapability,
 	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
+import { createPendingWrite } from "../connections/pending-writes";
+import { ConnectionHttpError } from "../connections/provider-http";
+import { googleServiceCanModify } from "../connections/providers/google-service-token";
+import {
+	googleListTaskLists,
+	googleListTasks,
+	prepareGoogleTaskWrite,
+} from "../connections/providers/google-tasks";
+import { idempotencyKey } from "../connections/write-guard";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import {
@@ -18,36 +28,33 @@ import {
 	withReasonCode,
 } from "./shared";
 
-// Read-only by construction for v1: the action enum only ever lists read
-// actions over the CalDAV VTODO source this tool aggregates — same posture
-// as repos.ts's GitHub-only read set.
 export const tasksToolInputSchema = z.object({
-	action: z.enum(["list_tasks", "search_tasks"]),
-	// Free-text search for "search_tasks" — matched against a task's title
-	// and notes, client-side (neither provider offers a reliable
-	// cross-server free-text search primitive, same rationale as
-	// apple-caldav.ts's appleSearchContacts).
+	action: z.enum([
+		"list_tasks",
+		"search_tasks",
+		"list_task_lists",
+		"create_task",
+		"update_task",
+		"complete_task",
+		"delete_task",
+	]),
 	query: z.string().optional(),
-	// A due-date filter as "YYYY-MM-DD" (exact match against a task's due
-	// date) — case-insensitively also accepts the literal "overdue", meaning
-	// "due date is before today".
-	due: z.string().optional(),
-	// Multi-connection disambiguation — by default this tool AGGREGATES
-	// across every tasks-capable connection (see runTasksTool's doc comment).
-	// `account`, when given, narrows that aggregation down to ONE specific
-	// connection (a provider name, connection label, or account identifier —
-	// see selectConnection in resolve.ts) instead of combining every source.
+	due: z.string().nullable().optional(),
 	account: z.string().optional(),
+	listId: z.string().trim().min(1).optional(),
+	taskId: z.string().trim().min(1).optional(),
+	title: z.string().trim().min(1).max(1024).optional(),
+	notes: z.string().max(8192).optional(),
 });
 
 export type TasksToolInput = z.infer<typeof tasksToolInputSchema>;
 
 export function sanitizeTasksToolInput(input: TasksToolInput): TasksToolInput {
 	return {
-		action: input.action,
-		...(input.query ? { query: input.query.trim() } : {}),
-		...(input.due ? { due: input.due.trim() } : {}),
-		...(input.account ? { account: input.account.trim() } : {}),
+		...input,
+		...(input.query !== undefined ? { query: input.query.trim() } : {}),
+		...(typeof input.due === "string" ? { due: input.due.trim() } : {}),
+		...(input.account !== undefined ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -86,6 +93,7 @@ export type TasksToolModelPayload = {
 	message: string;
 	tasks: TaskItem[];
 	projects: TaskProjectItem[];
+	pendingWriteId?: string;
 	citations: TasksCitation[];
 };
 
@@ -116,8 +124,9 @@ function buildPayload(params: {
 	message: string;
 	tasks?: TaskItem[];
 	projects?: TaskProjectItem[];
+	pendingWriteId?: string;
 	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
-	reason?: ConnectorReasonCode;
+	reason?: TaskReason;
 }): TasksToolOutcome {
 	const tasks = params.tasks ?? [];
 	const citations = tasks.map(taskCitation);
@@ -129,21 +138,62 @@ function buildPayload(params: {
 		message: params.message,
 		tasks,
 		projects: params.projects ?? [],
+		...(params.pendingWriteId ? { pendingWriteId: params.pendingWriteId } : {}),
 		citations,
 	};
 	return {
 		modelPayload: params.reason
 			? withReasonCode(modelPayload, params.reason)
 			: modelPayload,
-		candidates: tasks.map(toCandidate),
+		candidates: [
+			...tasks.map(toCandidate),
+			...(params.projects ?? []).map((project) => ({
+				id: `tasks:${project.connectionId}:list:${project.id}`,
+				title: project.name,
+				url: "",
+				snippet: "",
+				sourceType: "tool" as const,
+			})),
+		],
 	};
 }
 
+type TaskReason =
+	| ConnectorReasonCode
+	| "task_access_denied"
+	| "task_changed"
+	| "assigned_task_delete";
 function mapAdapterError(err: unknown): {
 	message: string;
-	code: ConnectorReasonCode;
+	code: TaskReason;
 } {
 	const code = connectorReasonForAdapterError(err);
+	if (err instanceof ConnectionHttpError) {
+		switch (err.code) {
+			case "access_denied":
+				return {
+					code: "task_access_denied",
+					message: "Google denied access to this task or list.",
+				};
+			case "assigned_task_delete":
+				return {
+					code: "assigned_task_delete",
+					message:
+						"Delete assigned tasks in their original Google Docs or Chat context.",
+				};
+			case "item_changed":
+				return {
+					code: "task_changed",
+					message: "The task changed. Look it up again.",
+				};
+			case "invalid_input":
+				return {
+					code: "request_adjusted",
+					message:
+						"Check the task fields and identifiers; use YYYY-MM-DD for a due date.",
+				};
+		}
+	}
 	if (err instanceof CalDavError) {
 		switch (err.code) {
 			case "needs_reauth":
@@ -173,14 +223,31 @@ function mapAdapterError(err: unknown): {
 	};
 }
 
-// Per-connection task listing — CalDAV VTODOs (providers/caldav-tasks.ts).
+// Google task lists carry IDs for filtering and later confirmed edits.
 // CalDAV has no separate "project" concept exposed by this connector (each
 // task list IS a collection of VTODOs with no further grouping — see
 // caldavListTasks's doc comment).
 async function listTasksForConnection(
 	userId: string,
 	conn: ConnectionPublic,
-): Promise<TaskItem[]> {
+	listId?: string,
+): Promise<TaskItem[] | null> {
+	if (conn.provider === "google") {
+		const lists = await googleListTaskLists(conn);
+		const selected = listId
+			? lists.filter((list) => list.id === listId)
+			: lists;
+		if (listId && !selected.length) return null;
+		const tasks = await googleListTasks(conn, selected);
+		return tasks
+			.filter((task) => task.status !== "completed")
+			.map((task) => ({
+				...task,
+				source: conn.label,
+				connectionId: conn.id,
+			}));
+	}
+	if (listId) return null;
 	if (conn.provider === "caldav") {
 		const tasks = await caldavListTasks(userId, conn.id);
 		return tasks.map((task) => ({
@@ -256,15 +323,19 @@ function distillTasksReadOutcome(params: {
 		modelId,
 		capability: "tasks",
 		userQuestion: input.query ?? "",
-		rawText: payload.tasks
-			.map((task) => [task.title, task.notes].filter(Boolean).join(" — "))
-			.join("\n"),
+		rawText: [
+			...payload.tasks.map((task) =>
+				[task.title, task.notes, task.projectName].filter(Boolean).join(" — "),
+			),
+			...payload.projects.map((project) => project.name),
+		].join("\n"),
 		onDistilled: (o, distilled) => ({
 			...o,
 			modelPayload: {
 				...o.modelPayload,
 				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
 				tasks: [],
+				projects: [],
 				citations: redactedCitations(),
 			},
 		}),
@@ -274,72 +345,122 @@ function distillTasksReadOutcome(params: {
 				...o.modelPayload,
 				message: WITHHELD_TASKS_MESSAGE,
 				tasks: [],
+				projects: [],
 				citations: redactedCitations(),
 			},
 		}),
 	});
 }
 
-async function runListTasks(
+async function readTasks(
 	userId: string,
 	connections: ConnectionPublic[],
 	input: TasksToolInput,
 ): Promise<TasksToolOutcome> {
-	const allTasks: TaskItem[] = [];
-	for (const conn of connections) {
-		allTasks.push(...(await listTasksForConnection(userId, conn)));
-	}
-	const tasks = input.due
-		? allTasks.filter((task) => matchesDueFilter(task, input.due as string))
-		: allTasks;
-	const message =
-		tasks.length === 0
-			? "No tasks found."
-			: `Found ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}.`;
-	return buildPayload({ success: true, action: "list_tasks", message, tasks });
+	const groups = await Promise.all(
+		connections.map((conn) =>
+			listTasksForConnection(userId, conn, input.listId),
+		),
+	);
+	if (input.listId && groups.every((group) => group === null))
+		return buildPayload({
+			action: input.action,
+			success: false,
+			reason: "item_not_found",
+			message:
+				"That Google task list was not found in the selected accounts. Use list_task_lists to look it up again.",
+		});
+	const search = input.action === "search_tasks";
+	const tasks = groups
+		.flatMap((group) => group ?? [])
+		.filter(
+			(task) =>
+				(!search || !input.query || matchesQuery(task, input.query)) &&
+				(!input.due || matchesDueFilter(task, input.due)),
+		);
+	const message = tasks.length
+		? `Found ${tasks.length} ${search ? "matching " : ""}${tasks.length === 1 ? "task" : "tasks"}.`
+		: search
+			? "No tasks found matching your search."
+			: "No tasks found.";
+	return buildPayload({ success: true, action: input.action, message, tasks });
 }
 
-async function runSearchTasks(
+async function proposeTask(
 	userId: string,
 	connections: ConnectionPublic[],
 	input: TasksToolInput,
-): Promise<TasksToolOutcome> {
-	const allTasks: TaskItem[] = [];
-	for (const conn of connections) {
-		allTasks.push(...(await listTasksForConnection(userId, conn)));
-	}
-	let tasks = allTasks;
-	if (input.query)
-		tasks = tasks.filter((task) => matchesQuery(task, input.query as string));
-	if (input.due)
-		tasks = tasks.filter((task) => matchesDueFilter(task, input.due as string));
-	const message =
-		tasks.length === 0
-			? `No tasks found matching your search.`
-			: `Found ${tasks.length} matching ${tasks.length === 1 ? "task" : "tasks"}.`;
+	action: "create_task" | "update_task" | "complete_task" | "delete_task",
+	conversationId?: string | null,
+) {
+	const fail = (reason: ConnectorReasonCode, message: string) =>
+		buildPayload({ action, success: false, reason, message });
+	const supported = connections.filter((conn) => conn.provider === "google");
+	if (!supported.length)
+		return fail(
+			"read_only_account",
+			"Only Google Tasks supports task changes.",
+		);
+	if (supported.length !== 1)
+		return fail(
+			"no_such_account",
+			"Ask which Google account to change, then pass its email as account.",
+		);
+	const conn = supported[0];
+	if (!googleServiceCanModify(conn, "tasks"))
+		return fail(
+			conn.allowWrites ? "read_only_account" : "writes_turned_off",
+			"Enable task editing and allow writes for this Google account in Connections.",
+		);
+	if (
+		!input.listId ||
+		(action === "create_task" ? !input.title : !input.taskId)
+	)
+		return fail(
+			"request_adjusted",
+			"Use a task list ID from list_task_lists, a title for a new task, or the task ID for an existing task.",
+		);
+	if (
+		action === "update_task" &&
+		input.title === undefined &&
+		input.notes === undefined &&
+		input.due === undefined
+	)
+		return fail(
+			"request_adjusted",
+			"Specify which title, notes, or due date should change.",
+		);
+	const { op, content, preview } = await prepareGoogleTaskWrite(conn, {
+		action,
+		listId: input.listId,
+		taskId: input.taskId,
+		title: input.title,
+		notes: input.notes,
+		due: input.due,
+	});
+	const pending = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content,
+		preview,
+		idempotencyKey: idempotencyKey(op),
+		conversationId,
+	});
 	return buildPayload({
+		action,
 		success: true,
-		action: "search_tasks",
-		message,
-		tasks,
+		pendingWriteId: pending.id,
+		message:
+			"The Google Tasks change is pending. Ask the user to confirm it on the card.",
 	});
 }
 
-// Dispatches to list_tasks/search_tasks across every
-// tasks-capable (CalDAV) connection, aggregated — same "combine,
-// don't disambiguate" posture as contacts.ts, since a user may reasonably
-// want a single "what's on my plate" view across more than one task
-// source), degrading gracefully (never throwing) so a connection or lookup
-// problem never aborts the chat turn, and applying the same Option-A
-// local-distillation posture as contacts.ts/calendar.ts before any raw task
-// text reaches a cloud model. An explicit `account` selector (multi-
-// connection disambiguation) narrows this aggregation down to just the one
-// matching connection instead of combining every source — see
-// selectConnection in resolve.ts.
 export async function runTasksTool(
 	userId: string,
 	input: TasksToolInput,
 	modelId: string,
+	conversationId?: string | null,
 ): Promise<TasksToolOutcome> {
 	const allConnections = await resolveConnectionsForCapability(userId, "tasks");
 	if (allConnections.length === 0) {
@@ -347,35 +468,90 @@ export async function runTasksTool(
 			success: false,
 			action: input.action,
 			message:
-				"You don't have a Tasks connection set up yet. Connect a CalDAV account in Settings to view your tasks.",
+				"You don't have a Tasks connection set up yet. Connect Google Tasks or a CalDAV account in Settings to view your tasks.",
 			reason: "not_connected",
 		});
 	}
 
-	let connections = allConnections;
-	if (input.account) {
-		const selected = selectConnection(allConnections, input.account);
-		if (!selected) {
-			return buildPayload({
-				success: false,
-				action: input.action,
-				message: noMatchingConnectionMessage(
-					"Tasks",
-					input.account,
-					allConnections,
-				),
-				reason: "no_such_account",
-			});
-		}
-		connections = [selected];
-	}
-
 	try {
-		if (input.action === "search_tasks") {
-			const outcome = await runSearchTasks(userId, connections, input);
+		if (
+			input.action === "create_task" ||
+			input.action === "update_task" ||
+			input.action === "complete_task" ||
+			input.action === "delete_task"
+		) {
+			const matches = input.account
+				? matchingConnections(allConnections, input.account)
+				: allConnections;
+			if (!matches.length)
+				return buildPayload({
+					success: false,
+					action: input.action,
+					reason: "no_such_account",
+					message: noMatchingConnectionMessage(
+						"Tasks",
+						input.account ?? "",
+						allConnections,
+					),
+				});
+			return await proposeTask(
+				userId,
+				matches,
+				input,
+				input.action,
+				conversationId,
+			);
+		}
+		let connections = allConnections;
+		if (input.account) {
+			const selected = selectConnection(allConnections, input.account);
+			if (!selected) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: noMatchingConnectionMessage(
+						"Tasks",
+						input.account,
+						allConnections,
+					),
+					reason: "no_such_account",
+				});
+			}
+			connections = [selected];
+		}
+
+		if (input.action === "list_task_lists") {
+			const google = connections.filter((c) => c.provider === "google");
+			if (!google.length)
+				return buildPayload({
+					success: false,
+					action: input.action,
+					reason: "not_supported",
+					message: "Task list discovery requires a Google Tasks account.",
+				});
+			const projects = (
+				await Promise.all(
+					google.map(async (conn) =>
+						(
+							await googleListTaskLists(conn)
+						).map((list) => ({
+							id: list.id,
+							name: list.title,
+							connectionId: conn.id,
+							source: conn.label,
+						})),
+					),
+				)
+			).flat();
+			const outcome = buildPayload({
+				success: true,
+				action: input.action,
+				projects,
+				message: `Found ${projects.length} Google task lists.`,
+			});
 			return distillTasksReadOutcome({ userId, modelId, input, outcome });
 		}
-		const outcome = await runListTasks(userId, connections, input);
+		const outcome = await readTasks(userId, connections, input);
 		return distillTasksReadOutcome({ userId, modelId, input, outcome });
 	} catch (err) {
 		const failure = mapAdapterError(err);

@@ -87,6 +87,37 @@ function receivedFacts(
 	];
 }
 
+function taskCard(
+	op: WriteOperation,
+	content: string,
+): Omit<WriteCard, "risks" | "danger"> | null {
+	const kind = op.action;
+	if (
+		kind !== "tasks.create_task" &&
+		kind !== "tasks.update_task" &&
+		kind !== "tasks.complete_task" &&
+		kind !== "tasks.delete_task"
+	)
+		return null;
+	const payload = parseObject(content);
+	if (!payload) return null;
+	return {
+		kind,
+		subject: text(op.target?.label) ?? "",
+		facts: [
+			...fact("task_list", payload.listTitle),
+			...(kind === "tasks.update_task" ? fact("new_name", payload.title) : []),
+			...(Object.hasOwn(payload, "due")
+				? fact("task_due", payload.due ?? "—")
+				: []),
+			...(typeof payload.notes === "string"
+				? fact("task_notes", payload.notes || "—")
+				: []),
+		],
+		message: null,
+	};
+}
+
 function teamsCard(
 	op: WriteOperation,
 	content: string,
@@ -476,6 +507,7 @@ export function buildWriteCard(
 	const { op, content } = record;
 	if (!op?.action) return null;
 	const card =
+		taskCard(op, content) ??
 		teamsCard(op, content) ??
 		emailCard(op, content) ??
 		calendarCard(op, content) ??

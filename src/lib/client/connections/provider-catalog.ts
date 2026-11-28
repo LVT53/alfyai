@@ -116,7 +116,7 @@ export const PROVIDER_CATALOG: Record<
 	},
 	google: {
 		displayName: "Google",
-		capabilities: ["calendar", "contacts", "email", "files"],
+		capabilities: ["calendar", "contacts", "email", "files", "tasks"],
 		connectMethod: "oauth",
 		writable: true,
 		pathBasedWrites: false,

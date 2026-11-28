@@ -146,6 +146,20 @@ function fileMakerWords(): Record<string, ReasonWords> {
 	);
 }
 
+const taskWords = connectorTable({
+	notConnected: "toolRows.connector.tasks.not_connected",
+	needsReconnect: "toolRows.connector.tasks.needs_reconnect",
+	noSuchAccount: "toolRows.connector.tasks.no_such_account",
+	accountUnreachable: "toolRows.connector.tasks.account_unreachable",
+	writesTurnedOff: "toolRows.connector.tasks.writes_turned_off",
+	readOnlyAccount: "toolRows.connector.tasks.read_only_account",
+	itemNotFound: "toolRows.connector.tasks.item_not_found",
+	tooLarge: "toolRows.connector.too_large",
+	notSupported: "toolRows.connector.tasks.not_supported",
+	notSetUp: "toolRows.connector.tasks.not_set_up",
+	fallback: "toolRows.connector.tasks.fallback",
+});
+
 const cyclingWords = connectorTable({
 	notConnected: "toolRows.connector.cycling.not_connected",
 	needsReconnect: "toolRows.connector.cycling.needs_reconnect",
@@ -365,19 +379,17 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		notSetUp: "toolRows.connector.repos.not_set_up",
 		fallback: "toolRows.connector.repos.fallback",
 	}),
-	tasks: connectorTable({
-		notConnected: "toolRows.connector.tasks.not_connected",
-		needsReconnect: "toolRows.connector.tasks.needs_reconnect",
-		noSuchAccount: "toolRows.connector.tasks.no_such_account",
-		accountUnreachable: "toolRows.connector.tasks.account_unreachable",
-		writesTurnedOff: "toolRows.connector.tasks.writes_turned_off",
-		readOnlyAccount: "toolRows.connector.tasks.read_only_account",
-		itemNotFound: "toolRows.connector.tasks.item_not_found",
-		tooLarge: "toolRows.connector.too_large",
-		notSupported: "toolRows.connector.tasks.not_supported",
-		notSetUp: "toolRows.connector.tasks.not_set_up",
-		fallback: "toolRows.connector.tasks.fallback",
-	}),
+	tasks: {
+		...taskWords,
+		codes: {
+			...taskWords.codes,
+			assigned_task_delete: stop(
+				"toolRows.connector.tasks.assigned_task_delete",
+			),
+			task_access_denied: stop("toolRows.connector.tasks.task_access_denied"),
+			task_changed: stop("toolRows.connector.tasks.task_changed"),
+		},
+	},
 	run_python: {
 		codes: {
 			program_error: fail("toolRows.run_python.program_error"),

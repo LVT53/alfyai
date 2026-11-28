@@ -792,7 +792,11 @@ describe("buildWriteCard: photos", () => {
 
 describe("buildWriteCard: what it cannot read", () => {
 	it.each([
-		["an action it does not know", operation({ action: "tasks.create" }), ""],
+		[
+			"an action it does not know",
+			operation({ action: "unknown.future_action" }),
+			"",
+		],
 		[
 			"an email missing its recipient",
 			operation({ action: "email.send" }),
@@ -887,5 +891,42 @@ describe("toPendingWriteDto", () => {
 		expect(toPendingWriteDto(record, new Map()).createdAt).toBe(
 			1_700_000_000_000,
 		);
+	});
+});
+
+describe("Google task confirmation cards", () => {
+	it.each(["create_task", "update_task", "complete_task", "delete_task"])(
+		"names the verified target and list for %s",
+		(action) => {
+			const card = cardFor(
+				operation({
+					action: `tasks.${action}`,
+					target: { label: "Return library book" },
+				}),
+				JSON.stringify({ listTitle: "Friday" }),
+			);
+			expect(card).toMatchObject({
+				kind: `tasks.${action}`,
+				subject: "Return library book",
+				facts: [{ key: "task_list", value: "Friday" }],
+			});
+		},
+	);
+	it("shows a rename, a cleared due date and cleared notes", () => {
+		const card = cardFor(
+			operation({ action: "tasks.update_task", target: { label: "Original" } }),
+			JSON.stringify({
+				listTitle: "Friday",
+				title: "Revised",
+				due: null,
+				notes: "",
+			}),
+		);
+		expect(card?.facts).toEqual([
+			{ key: "task_list", value: "Friday" },
+			{ key: "new_name", value: "Revised" },
+			{ key: "task_due", value: "—" },
+			{ key: "task_notes", value: "—" },
+		]);
 	});
 });
