@@ -17,11 +17,14 @@ import ConnectionDetailModal from "./ConnectionDetailModal.svelte";
 // every test in this file runs against a mocked client wrapper rather than a
 // real network call. Individual tests override the resolved/rejected value.
 const mockFetchNextcloudFolders = vi.fn();
+const mockFetchBoschBikeNames = vi.fn();
 vi.mock("$lib/client/api/connections", async (importOriginal) => {
 	const actual =
 		await importOriginal<typeof import("$lib/client/api/connections")>();
 	return {
 		...actual,
+		fetchBoschBikeNames: (...args: unknown[]) =>
+			mockFetchBoschBikeNames(...args),
 		fetchNextcloudFolders: (...args: unknown[]) =>
 			mockFetchNextcloudFolders(...args),
 	};
@@ -1017,4 +1020,39 @@ describe("ConnectionDetailModal", () => {
 			});
 		});
 	});
+});
+
+it("loads Bosch names only when cycling access is active, and reloads them when it resumes", async () => {
+	const conn = makeConnection({
+		provider: "bosch",
+		grantedCapabilities: ["cycling"],
+		capabilities: [],
+	});
+	const view = render(ConnectionDetailModal, baseProps({ connection: conn }));
+	const heading = () => screen.queryByRole("heading", { name: "Bike names" });
+	expect(heading()).toBeNull();
+	expect(mockFetchBoschBikeNames).not.toHaveBeenCalled();
+	mockFetchBoschBikeNames.mockResolvedValueOnce({ bikes: [] });
+	await view.rerender(
+		baseProps({ connection: { ...conn, capabilities: ["cycling"] } }),
+	);
+	expect(await screen.findByText(/No bikes are shared yet/)).toBeVisible();
+	await view.rerender(
+		baseProps({
+			connection: {
+				...conn,
+				capabilities: ["cycling"],
+				status: "needs_reauth",
+			},
+		}),
+	);
+	expect(heading()).toBeNull();
+	expect(screen.queryByText(/No bikes are shared yet/)).toBeNull();
+	mockFetchBoschBikeNames.mockResolvedValueOnce({
+		bikes: [{ id: "bike1", name: "Cube" }],
+	});
+	await view.rerender(
+		baseProps({ connection: { ...conn, capabilities: ["cycling"] } }),
+	);
+	expect(await screen.findByDisplayValue("Cube")).toBeVisible();
 });

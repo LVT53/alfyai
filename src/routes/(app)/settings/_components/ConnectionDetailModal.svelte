@@ -645,7 +645,7 @@ function capabilityAbout(capability: string): string {
 				</section>
 			{/if}
 
-			{#if conn.provider === "bosch"}
+			{#if conn.provider === "bosch" && conn.status === "connected" && conn.capabilities.includes("cycling")}
 				<section class="detail-section" aria-labelledby="bosch-bike-names">
 					<h3 class="detail-eyebrow" id="bosch-bike-names">{$t("connections.bosch.bikes")}</h3>
 					{#key conn.id}<BoschBikeNames />{/key}
