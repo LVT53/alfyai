@@ -14,7 +14,7 @@ import {
 } from "$lib/server/services/connections/providers/plex";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import type { ConnectorReasonCode } from "$lib/shared/tool-reasons";
+import type { ToolReasonCode } from "$lib/shared/tool-reasons";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import {
@@ -184,7 +184,7 @@ function buildPayload(params: {
 	citations?: MediaCitation[];
 	candidates?: ToolEvidenceCandidate[];
 	/** Why the call did not work, for the row; it rides beside the payload, never in it. */
-	reason?: ConnectorReasonCode;
+	reason?: ToolReasonCode<"media">;
 }): MediaToolOutcome {
 	const citations = params.citations ?? [];
 	const modelPayload: MediaToolModelPayload = {
@@ -228,11 +228,17 @@ function withAmbiguityPrefix(
 
 function mapAdapterError(err: unknown): {
 	message: string;
-	code: ConnectorReasonCode;
+	code: ToolReasonCode<"media">;
 } {
 	const code = connectorReasonForAdapterError(err);
 	if (err instanceof PlexError) {
 		switch (err.code) {
+			case "history_unavailable":
+				return {
+					message:
+						"Personal watch history is unavailable for this shared Plex server. Library and continue-watching reads remain available.",
+					code: "history_unavailable",
+				};
 			case "needs_reauth":
 				return {
 					message:

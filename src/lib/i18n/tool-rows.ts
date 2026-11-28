@@ -417,6 +417,8 @@ const toolRowsDict = {
 		"toolRows.connector.location.fallback":
 			"Alfy couldn't use your location this time.",
 
+		"toolRows.connector.media.history_unavailable":
+			"Personal watch history is unavailable on this shared Plex server.",
 		"toolRows.connector.media.not_connected":
 			"Media isn't connected yet. You can connect it in Settings › Connections.",
 		"toolRows.connector.media.needs_reconnect":
@@ -999,6 +1001,8 @@ const toolRowsDict = {
 		"toolRows.connector.location.fallback":
 			"Alfy most nem tudta használni a helyadataidat.",
 
+		"toolRows.connector.media.history_unavailable":
+			"A személyes megtekintési előzmények nem érhetők el ezen a megosztott Plex-szerveren.",
 		"toolRows.connector.media.not_connected":
 			"A média még nincs csatlakoztatva. A Beállítások › Kapcsolatok alatt csatlakoztathatod.",
 		"toolRows.connector.media.needs_reconnect":

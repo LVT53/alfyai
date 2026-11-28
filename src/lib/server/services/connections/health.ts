@@ -20,7 +20,7 @@ import "./providers/onedrive";
 import "./providers/owntracks";
 import "./providers/plex";
 import { getConnectionAdapter } from "./adapters";
-import { getConnection, getConnectionSecret, updateConnection } from "./store";
+import { getConnectionWithCredential, updateConnection } from "./store";
 
 export type ConnectionHealth = {
 	status: "connected" | "needs_reauth" | "error";
@@ -35,10 +35,10 @@ export async function checkConnectionHealth(
 	userId: string,
 	connectionId: string,
 ): Promise<ConnectionHealth | null> {
-	const conn = await getConnection(userId, connectionId);
-	if (!conn) return null;
-
-	const secret = await getConnectionSecret(userId, connectionId);
+	const snapshot = await getConnectionWithCredential(userId, connectionId);
+	if (!snapshot) return null;
+	const { connection: conn, credential } = snapshot;
+	const secret = credential?.value;
 	const adapter = getConnectionAdapter(conn.provider);
 
 	let result: ConnectionHealth;
@@ -64,10 +64,15 @@ export async function checkConnectionHealth(
 		}
 	}
 
-	await updateConnection(userId, connectionId, {
-		status: result.status,
-		statusDetail: result.detail,
-	});
+	await updateConnection(
+		userId,
+		connectionId,
+		{
+			status: result.status,
+			statusDetail: result.detail,
+		},
+		conn.provider === "plex" ? credential?.version : undefined,
+	);
 
 	return result;
 }

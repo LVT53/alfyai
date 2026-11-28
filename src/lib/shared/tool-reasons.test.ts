@@ -90,7 +90,12 @@ describe("tool reason codes", () => {
 			"detail_unavailable",
 		]);
 		for (const name of CONNECTOR_TOOL_NAMES) {
-			if (name !== "calendar" && name !== "cycling" && name !== "tasks")
+			if (
+				name !== "calendar" &&
+				name !== "cycling" &&
+				name !== "tasks" &&
+				name !== "media"
+			)
 				expect(TOOL_REASON_CODES[name]).toBe(CONNECTOR_REASON_CODES);
 		}
 	});

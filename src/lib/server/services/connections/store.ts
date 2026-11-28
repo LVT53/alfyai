@@ -377,6 +377,25 @@ export async function getConnectionSecretSnapshot(
 		})
 		.from(userConnections)
 		.where(scoped(userId, id));
+	return decodeSecret(row);
+}
+
+// Read endpoint configuration and encrypted grant in one SQLite snapshot.
+// A concurrent reconnect can replace both, including the credential format.
+export async function getConnectionWithCredential(userId: string, id: string) {
+	const [row] = await db
+		.select()
+		.from(userConnections)
+		.where(scoped(userId, id));
+	return row
+		? { connection: toPublic(row), credential: decodeSecret(row) }
+		: null;
+}
+function decodeSecret(
+	row:
+		| Pick<ConnectionRow, "secretCiphertext" | "secretIv" | "secretAuthTag">
+		| undefined,
+) {
 	if (!row?.secretCiphertext || !row.secretIv || !row.secretAuthTag) {
 		return null;
 	}

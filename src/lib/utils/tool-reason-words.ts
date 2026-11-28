@@ -146,6 +146,19 @@ function fileMakerWords(): Record<string, ReasonWords> {
 	);
 }
 
+const mediaWords = connectorTable({
+	notConnected: "toolRows.connector.media.not_connected",
+	needsReconnect: "toolRows.connector.media.needs_reconnect",
+	noSuchAccount: "toolRows.connector.media.no_such_account",
+	accountUnreachable: "toolRows.connector.media.account_unreachable",
+	writesTurnedOff: "toolRows.connector.media.writes_turned_off",
+	readOnlyAccount: "toolRows.connector.media.read_only_account",
+	itemNotFound: "toolRows.connector.media.item_not_found",
+	tooLarge: "toolRows.connector.too_large",
+	notSupported: "toolRows.connector.media.not_supported",
+	notSetUp: "toolRows.connector.media.not_set_up",
+	fallback: "toolRows.connector.media.fallback",
+});
 const taskWords = connectorTable({
 	notConnected: "toolRows.connector.tasks.not_connected",
 	needsReconnect: "toolRows.connector.tasks.needs_reconnect",
@@ -340,19 +353,13 @@ export const TOOL_REASON_WORDS: ToolReasonTables = {
 		notSetUp: "toolRows.connector.location.not_set_up",
 		fallback: "toolRows.connector.location.fallback",
 	}),
-	media: connectorTable({
-		notConnected: "toolRows.connector.media.not_connected",
-		needsReconnect: "toolRows.connector.media.needs_reconnect",
-		noSuchAccount: "toolRows.connector.media.no_such_account",
-		accountUnreachable: "toolRows.connector.media.account_unreachable",
-		writesTurnedOff: "toolRows.connector.media.writes_turned_off",
-		readOnlyAccount: "toolRows.connector.media.read_only_account",
-		itemNotFound: "toolRows.connector.media.item_not_found",
-		tooLarge: "toolRows.connector.too_large",
-		notSupported: "toolRows.connector.media.not_supported",
-		notSetUp: "toolRows.connector.media.not_set_up",
-		fallback: "toolRows.connector.media.fallback",
-	}),
+	media: {
+		...mediaWords,
+		codes: {
+			...mediaWords.codes,
+			history_unavailable: stop("toolRows.connector.media.history_unavailable"),
+		},
+	},
 	photos: connectorTable({
 		notConnected: "toolRows.connector.photos.not_connected",
 		needsReconnect: "toolRows.connector.photos.needs_reconnect",

@@ -1221,6 +1221,40 @@ describe("plexLibrarySearch", () => {
 // ---------------------------------------------------------------------------
 
 describe("plexAdapter.checkHealth", () => {
+	it("never transmits a linked secret through a mismatched manual health config", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexAdapter } = await import("./plex");
+		const fetch = vi.fn<typeof globalThis.fetch>();
+		const result = await plexAdapter.checkHealth(
+			JSON.stringify({ device: { privateKey: "private-key" } }),
+			conn,
+			{ fetch },
+		);
+		expect(result.status).toBe("error");
+		expect(JSON.stringify(result)).not.toContain("private-key");
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("does not query household history from a shared linked connection", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { updateConnection } = await import("../store");
+		await updateConnection(USER_ID, conn.id, {
+			config: { ...conn.config, linked: true },
+			secret: JSON.stringify({
+				device: { clientId: "client", kid: "kid", privateKey: "key" },
+				serverToken: "scoped",
+				tokenOrigin: SERVER_URL,
+			}),
+		});
+		const { plexWatchHistory } = await import("./plex");
+		const fetch = vi.fn<typeof globalThis.fetch>();
+		await expect(
+			plexWatchHistory(USER_ID, conn.id, {}, { fetch }),
+		).rejects.toMatchObject({ code: "history_unavailable" });
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
 	it("a successful /identity call -> connected", async () => {
 		seedUser(USER_ID);
 		const conn = await seedPlexConnection();

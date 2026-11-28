@@ -195,6 +195,7 @@ describe("the words of every tool outcome", () => {
 			// filter and the checks, the explicit-picture refusal, a Stop of an Atlas.
 			"out_of_coverage",
 			"region_preparing",
+			"history_unavailable",
 			"multi_region",
 			"transit_unavailable",
 			"transparent_unavailable",

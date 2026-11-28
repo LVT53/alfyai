@@ -183,6 +183,7 @@ function createGuardedLookup(resolve: HostResolver): LookupFunction {
 
 function forwardedHeaders(
 	init: HeadersInit | undefined,
+	allowed: readonly string[],
 ): Record<string, string> {
 	const given = new Headers(init);
 	const sent: Record<string, string> = {
@@ -191,7 +192,7 @@ function forwardedHeaders(
 		"accept-encoding": "identity",
 		"user-agent": DEFAULT_USER_AGENT,
 	};
-	for (const name of FORWARDED_HEADERS) {
+	for (const name of allowed) {
 		const value = given.get(name);
 		if (value !== null) sent[name] = value;
 	}
@@ -224,6 +225,35 @@ export function createOutboundFetch(
 	deps: OutboundFetchDeps = {},
 	options: OutboundFetchOptions = {},
 ): OutboundFetch {
+	return pinnedGet(deps, options, FORWARDED_HEADERS);
+}
+
+/** Only this origin can receive the selected Plex server's credential. */
+export function createPlexServerFetch(
+	origin: string,
+	deps: OutboundFetchDeps = {},
+): OutboundFetch {
+	return pinnedGet(
+		deps,
+		{ timeoutMs: 6000, maxBytes: 8 * 1024 * 1024 },
+		[
+			...FORWARDED_HEADERS,
+			"x-plex-token",
+			"x-plex-product",
+			"x-plex-client-identifier",
+			"x-plex-container-start",
+			"x-plex-container-size",
+		],
+		origin,
+	);
+}
+
+function pinnedGet(
+	deps: OutboundFetchDeps,
+	options: OutboundFetchOptions,
+	headers: readonly string[],
+	origin?: string,
+): OutboundFetch {
 	const request = deps.request ?? httpsRequest;
 	const lookup = createGuardedLookup(
 		deps.resolve ?? resolveWithOperatingSystem,
@@ -237,6 +267,8 @@ export function createOutboundFetch(
 			return Promise.reject(new OutboundFetchError(verdict.code));
 		}
 		const { url } = verdict;
+		if (origin !== undefined && url.origin !== origin)
+			return Promise.reject(new OutboundFetchError("blocked_host"));
 
 		const deadline = AbortSignal.timeout(timeoutMs);
 		const signal = init.signal
@@ -257,7 +289,7 @@ export function createOutboundFetch(
 				port: url.port === "" ? 443 : Number(url.port),
 				path: `${url.pathname}${url.search}`,
 				method: "GET",
-				headers: forwardedHeaders(init.headers),
+				headers: forwardedHeaders(init.headers, headers),
 				// A connection of its own: nothing pooled survives to the next
 				// request's resolution.
 				agent: false,

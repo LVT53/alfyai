@@ -5,11 +5,7 @@ import {
 } from "$lib/server/services/connections/providers/plex";
 import type { RequestHandler } from "./$types";
 
-// POST /api/connections/plex/start — no OAuth/login flow (Plex has none for
-// this purpose): the client posts the server URL + a pasted Plex token and
-// this route synchronously validates it against `GET /identity` before
-// storing it (encrypted). The token is never persisted in plaintext, never
-// logged, and never appears in the response.
+// Advanced setup for existing manual server URL/token installations.
 export const POST: RequestHandler = (event) =>
 	handleCredentialConnect({
 		event,

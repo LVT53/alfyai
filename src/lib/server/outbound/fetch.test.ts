@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	assessOutboundUrl,
 	createOutboundFetch,
+	createPlexServerFetch,
 	type HostResolver,
 	OutboundFetchError,
 } from "./fetch";
@@ -559,4 +560,18 @@ describe("createOutboundFetch: through real sockets", () => {
 		]);
 		expect(resolve).toHaveBeenCalledTimes(1);
 	});
+});
+
+it("sends Plex credentials only to the chosen public origin", async () => {
+	const { transport, calls } = fakeTransport();
+	const scoped = createPlexServerFetch("https://one.example", {
+		resolve: resolverTo("8.8.8.8"),
+		request: transport,
+	});
+	await expect(
+		scoped("https://two.example/identity", {
+			headers: { "X-Plex-Token": "chosen-token" },
+		}),
+	).rejects.toMatchObject({ code: "blocked_host" });
+	expect(calls).toHaveLength(0);
 });

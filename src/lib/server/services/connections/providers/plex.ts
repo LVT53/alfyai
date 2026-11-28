@@ -7,14 +7,9 @@
 // dedicated test in plex.test.ts asserts the module's exported surface never
 // grows one.
 //
-// Auth is a user-pasted `X-Plex-Token` + their own server's base URL (e.g.
-// `https://plex.example.com`, or a plex.direct URL) — there is no OAuth/login
-// step the way Immich has one; the token itself is validated with a cheap
-// `GET /identity` call and then persisted (encrypted) exactly as pasted. It
-// is never logged, never included in an error message, and every network
-// call accepts an injectable `fetch` so the whole module is testable against
-// mocked Plex endpoints — nothing here ever talks to a live Plex server in
-// tests.
+// Hosted sign-in uses the selected server and the rider's encrypted Plex
+// device grant. Older manually configured connections keep their original token.
+
 import { registerConnectionAdapter } from "../adapters";
 import { assertPublicHttpsUrl } from "../host-locality";
 import { ConnectionHttpError, providerFetch } from "../provider-http";
@@ -23,15 +18,21 @@ import {
 	type ConnectionPublic,
 	createConnection,
 	findConnectionByAccount,
-	getConnection,
-	getConnectionSecret,
-	setConnectionSecret,
+	getConnectionWithCredential,
 	updateConnection,
 } from "../store";
+import type { PlexDevice, PlexServerResource } from "./plex-cloud";
+import {
+	type LinkedPlexSecret,
+	linkedPlexGet,
+	locateLinkedPlexServer,
+	renewLinkedPlexServer,
+} from "./plex-linked";
 
 type FetchOpt = { fetch?: typeof fetch };
 
 export type PlexErrorCode =
+	| "history_unavailable"
 	| "invalid_token"
 	| "invalid_config"
 	| "needs_reauth"
@@ -237,6 +238,7 @@ async function resolvePlexOwnerAccountId(
 export type PlexConnectionConfig = {
 	origin: string;
 	machineIdentifier: string;
+	linked?: boolean;
 	// The token owner's local Plex account id (from `GET /accounts`),
 	// resolved best-effort at connect time — see resolvePlexOwnerAccountId.
 	// Optional: older connections (or a server whose /accounts call failed at
@@ -253,54 +255,104 @@ async function upsertPlexConnection(params: {
 	userId: string;
 	machineIdentifier: string;
 	secret: string;
+	label?: string;
+	repair?: { id: string; version: string };
 	config: PlexConnectionConfig;
 }): Promise<ConnectionPublic> {
+	const patch = {
+		status: "connected" as const,
+		statusDetail: null,
+		secret: params.secret,
+		config: params.config,
+		...(params.label ? { label: params.label } : {}),
+	};
+	if (params.repair) {
+		const updated = await updateConnection(
+			params.userId,
+			params.repair.id,
+			patch,
+			params.repair.version,
+		);
+		if (!updated)
+			throw new ConnectionHttpError(
+				"The connection changed during setup",
+				"expired",
+			);
+		return updated;
+	}
 	const existing = await findConnectionByAccount(
 		params.userId,
 		"plex",
 		params.machineIdentifier,
 	);
-	if (existing) {
-		await setConnectionSecret(params.userId, existing.id, params.secret);
-		const updated = await updateConnection(params.userId, existing.id, {
-			status: "connected",
-			statusDetail: null,
-			config: params.config,
-		});
-		if (!updated) throw new Error("Failed to update existing Plex connection");
-		return updated;
+	if (!existing) {
+		try {
+			return await createConnection({
+				userId: params.userId,
+				provider: "plex",
+				label: params.label ?? "Plex",
+				accountIdentifier: params.machineIdentifier,
+				capabilities: ["media"],
+				...patch,
+			});
+		} catch (err) {
+			if (!isUniqueConstraintError(err)) throw err;
+		}
 	}
-
-	try {
-		return await createConnection({
-			userId: params.userId,
-			provider: "plex",
-			label: "Plex",
-			accountIdentifier: params.machineIdentifier,
-			capabilities: ["media"],
-			status: "connected",
-			secret: params.secret,
-			config: params.config,
-		});
-	} catch (err) {
-		if (!isUniqueConstraintError(err)) throw err;
-		// Lost a race with a concurrent connect attempt — same pattern as
-		// immich.ts's upsertImmichConnection.
-		const raced = await findConnectionByAccount(
+	const current =
+		existing ??
+		(await findConnectionByAccount(
 			params.userId,
 			"plex",
 			params.machineIdentifier,
+		));
+	const updated =
+		current && (await updateConnection(params.userId, current.id, patch));
+	if (!updated)
+		throw new PlexError(
+			"The connection changed during setup",
+			"request_failed",
 		);
-		if (!raced) throw err;
-		await setConnectionSecret(params.userId, raced.id, params.secret);
-		const updated = await updateConnection(params.userId, raced.id, {
-			status: "connected",
-			statusDetail: null,
-			config: params.config,
-		});
-		if (!updated) throw err;
-		return updated;
-	}
+	return updated;
+}
+
+export async function connectLinkedPlex(
+	params: {
+		userId: string;
+		device: PlexDevice;
+		accountToken: string;
+		server: PlexServerResource;
+		repair?: { id: string; version: string };
+	} & FetchOpt,
+) {
+	const { server, device } = params;
+	const { origin, token } = await locateLinkedPlexServer(
+		server,
+		device,
+		params.accountToken,
+		params,
+	);
+	// The owner is local account 1 on a claimed server; a shared user must
+	// never be mapped to that owner, even when /accounts lists household users.
+	const accountId = server.owned ? 1 : undefined;
+	const secret: LinkedPlexSecret = {
+		device,
+		serverToken: token,
+		tokenOrigin: origin,
+	};
+	return upsertPlexConnection({
+		userId: params.userId,
+		machineIdentifier: server.id,
+		label: server.name,
+		repair: params.repair,
+		secret: JSON.stringify(secret),
+		config: {
+			origin,
+			machineIdentifier: server.id,
+			linked: true,
+			...(accountId ? { accountId } : {}),
+		},
+	});
 }
 
 export async function plexConnect(
@@ -408,6 +460,7 @@ function plexConfig(conn: ConnectionPublic): PlexConnectionConfig {
 	return {
 		origin,
 		machineIdentifier,
+		...(conn.config.linked === true ? { linked: true } : {}),
 		...(accountId !== undefined ? { accountId } : {}),
 	};
 }
@@ -426,6 +479,71 @@ function plexConfig(conn: ConnectionPublic): PlexConnectionConfig {
 // size/start their own `buildPath` query string already encodes (limit=/no
 // offset support yet), so the header and the query string can never drift
 // apart.
+const refreshing = new Map<
+	string,
+	Promise<{ config: PlexConnectionConfig; token: string }>
+>();
+function refreshLinkedCredential(
+	conn: ConnectionPublic,
+	config: PlexConnectionConfig,
+	saved: LinkedPlexSecret,
+	version: string,
+	opts?: FetchOpt,
+) {
+	const key = `${conn.id}:${version}`;
+	const inflight = refreshing.get(key);
+	if (inflight) return inflight;
+	const run = async () => {
+		try {
+			const renewed = await renewLinkedPlexServer(
+				saved.device,
+				config.machineIdentifier,
+				opts,
+			);
+			const nextConfig = {
+				...config,
+				origin: renewed.origin,
+				accountId: renewed.server.owned ? 1 : undefined,
+			};
+			const updated = await updateConnection(
+				conn.userId,
+				conn.id,
+				{
+					status: "connected",
+					statusDetail: null,
+					config: nextConfig,
+					secret: JSON.stringify({
+						...saved,
+						tokenOrigin: renewed.origin,
+						serverToken: renewed.token,
+					}),
+				},
+				version,
+			);
+			if (!updated)
+				throw new PlexError(
+					"Plex connection changed during renewal",
+					"request_failed",
+				);
+			return { config: nextConfig, token: renewed.token };
+		} catch (err) {
+			if (err instanceof ConnectionHttpError && err.code === "needs_reauth") {
+				await updateConnection(
+					conn.userId,
+					conn.id,
+					{ status: "needs_reauth", statusDetail: "Plex sign-in expired" },
+					version,
+				);
+				throw new PlexError("Plex sign-in expired", "needs_reauth");
+			}
+			throw err;
+		}
+	};
+	const pending = run().finally(() => refreshing.delete(key));
+	refreshing.set(key, pending);
+	return pending;
+}
+
 async function plexAuthorizedRequest(
 	userId: string,
 	connectionId: string,
@@ -433,18 +551,65 @@ async function plexAuthorizedRequest(
 	opts?: FetchOpt,
 	container?: { size: number; start: number },
 ): Promise<Response> {
-	const conn = await getConnection(userId, connectionId);
-	if (!conn) {
+	const snapshot = await getConnectionWithCredential(userId, connectionId);
+	if (snapshot?.connection.provider !== "plex") {
 		throw new PlexError("Plex connection not found", "connection_not_found");
 	}
-	const token = await getConnectionSecret(userId, connectionId);
-	if (!token) {
+	const { connection: conn, credential } = snapshot;
+	if (!credential) {
 		throw new PlexError(
 			"No token stored for this Plex connection",
 			"needs_reauth",
 		);
 	}
 	const config = plexConfig(conn);
+	const token = credential.value;
+	if (!config.linked && token.trimStart().startsWith("{"))
+		throw new PlexError(
+			"Plex credentials changed during the request",
+			"request_failed",
+		);
+	if (config.linked) {
+		let saved: LinkedPlexSecret;
+		try {
+			saved = JSON.parse(token);
+			if (
+				typeof saved?.device?.clientId !== "string" ||
+				typeof saved.serverToken !== "string"
+			)
+				throw Error();
+		} catch {
+			throw new PlexError("Invalid linked Plex credential", "needs_reauth");
+		}
+		if (saved.tokenOrigin !== config.origin)
+			throw new PlexError("Plex server address changed", "request_failed");
+		const read = (conf: PlexConnectionConfig, credential: string) =>
+			linkedPlexGet(conf.origin, opts)(buildPath(conf), {
+				...plexHeaders(credential, container),
+				"X-Plex-Client-Identifier": saved.device.clientId,
+			});
+		// A DHCP or relay change can retire a saved origin before its token expires.
+		let response: Response | undefined;
+		const initialPath = buildPath(config);
+		try {
+			response = await linkedPlexGet(config.origin, opts)(initialPath, {
+				...plexHeaders(saved.serverToken, container),
+				"X-Plex-Client-Identifier": saved.device.clientId,
+			});
+		} catch {
+			/* Rediscover once with the existing device grant. */
+		}
+		if (response && response.status !== 401 && response.status !== 498)
+			return response;
+		const renewed = await refreshLinkedCredential(
+			conn,
+			config,
+			saved,
+			credential.version,
+			opts,
+		);
+		return read(renewed.config, renewed.token);
+	}
 	const fetchImpl = opts?.fetch ?? fetch;
 	const path = buildPath(config);
 
@@ -458,10 +623,15 @@ async function plexAuthorizedRequest(
 	}
 	if (response.status === 401) {
 		const detail = "Plex rejected the stored token";
-		await updateConnection(userId, connectionId, {
-			status: "needs_reauth",
-			statusDetail: detail,
-		});
+		await updateConnection(
+			userId,
+			connectionId,
+			{
+				status: "needs_reauth",
+				statusDetail: detail,
+			},
+			credential.version,
+		);
 		throw new PlexError(detail, "needs_reauth");
 	}
 	return response;
@@ -514,11 +684,18 @@ export async function plexWatchHistory(
 	opts?: FetchOpt,
 ): Promise<WatchEntry[]> {
 	const limit = clampLimit(params.limit);
+	let linkedAccount: number | undefined;
 
 	const response = await plexAuthorizedRequest(
 		userId,
 		connectionId,
 		(config) => {
+			linkedAccount = config.linked ? config.accountId : undefined;
+			if (config.linked && config.accountId === undefined)
+				throw new PlexError(
+					"Plex history is unavailable for this account",
+					"history_unavailable",
+				);
 			let queryString = `sort=viewedAt:desc&limit=${limit}`;
 			if (config.accountId !== undefined) {
 				queryString += `&accountID=${config.accountId}`;
@@ -547,6 +724,10 @@ export async function plexWatchHistory(
 		);
 	}
 	const entries = (body.MediaContainer.Metadata ?? [])
+		.filter(
+			(entry) =>
+				linkedAccount === undefined || entry.accountID === linkedAccount,
+		)
 		.map(toWatchEntry)
 		.filter((entry): entry is WatchEntry => entry !== null);
 	const filtered = params.query
@@ -878,19 +1059,34 @@ async function checkHealth(
 		config = plexConfig(conn);
 	} catch (err) {
 		return {
-			status: "error",
+			status:
+				err instanceof PlexError && err.code === "needs_reauth"
+					? "needs_reauth"
+					: "error",
 			detail: err instanceof Error ? err.message : String(err),
 		};
 	}
 
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
-		const response = await providerFetch(`${config.origin}/identity`, {
-			headers: plexHeaders(secret),
-			fetch: fetchImpl,
-			timeoutError: plexTimeout,
-		});
-		if (response.status === 401) {
+		if (!config.linked && secret.trimStart().startsWith("{"))
+			throw new PlexError(
+				"Plex credentials changed during the request",
+				"request_failed",
+			);
+		const response = config.linked
+			? await plexAuthorizedRequest(
+					conn.userId,
+					conn.id,
+					() => "/library/sections",
+					opts,
+				)
+			: await providerFetch(`${config.origin}/identity`, {
+					headers: plexHeaders(secret),
+					fetch: fetchImpl,
+					timeoutError: plexTimeout,
+				});
+		if (response.status === 401 || response.status === 498) {
 			return {
 				status: "needs_reauth",
 				detail: "Plex rejected the stored token",
@@ -905,7 +1101,10 @@ async function checkHealth(
 		return { status: "connected", detail: null };
 	} catch (err) {
 		return {
-			status: "error",
+			status:
+				err instanceof PlexError && err.code === "needs_reauth"
+					? "needs_reauth"
+					: "error",
 			detail: err instanceof Error ? err.message : String(err),
 		};
 	}
